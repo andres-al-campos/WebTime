@@ -19,7 +19,7 @@ WebTime is published on
 [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/)
 
 You can also install the latest build directly from
-[GitHub Releases](https://github.com/Id3arium/WebTime/releases): download the
+[GitHub Releases](https://github.com/andres-al-campos/WebTime/releases): download the
 `.zip`/`.xpi` and load it via `about:addons` → ⚙️ → **Install Add-on From
 File…**. (For development, see [Loading in Firefox](#loading-in-firefox) below.)
 
@@ -118,7 +118,7 @@ and reload to pick up changes.
 ## Releasing
 
 [`release.sh`](release.sh) tags a version and publishes its build to
-[GitHub Releases](https://github.com/Id3arium/WebTime/releases). The version is
+[GitHub Releases](https://github.com/andres-al-campos/WebTime/releases). The version is
 read from [`manifest.json`](extension/manifest.json) — the single source of
 truth — so the tag and the build can never disagree.
 
