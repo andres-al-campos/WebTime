@@ -276,16 +276,27 @@ function clearPendingBlurHide(): void {
   blurHideEnd = null;
 }
 
-// A fullscreen element lives in the browser's TOP LAYER, which renders above
-// everything in the normal DOM regardless of z-index — so our fixed overlay
-// can't cover a fullscreen video. Dropping out of fullscreen returns that video
-// to the normal flow, where the overlay wins. Only the session-cooldown blocker
-// exits fullscreen; the softer overlays (nudge, average, end-session) just pause
-// playback and leave fullscreen alone.
+// Only the session-cooldown blocker exits fullscreen, and not because of
+// layering — promoteToTopLayer lets any overlay paint over a fullscreen video.
+// It exits because the session is actually over: leaving the video is part of
+// the cooldown. Softer surfaces (nudge, average, end-session confirm) stay in
+// fullscreen. The end-session confirm especially — it's a question the user may
+// answer "no" to, and they should land back on a still-fullscreen video.
 function exitFullscreenIfActive(): void {
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => { /* denied or already exiting */ });
   }
+}
+
+// Enter, or re-enter, the browser TOP LAYER. Re-entering matters: the top layer
+// is ordered by show-time, not z-index, so an element that entered before a
+// fullscreen video paints UNDER it. Re-showing moves it back to the front. This
+// is why the timer needs re-promoting whenever fullscreen changes — its one
+// showPopover() at creation always predates the user hitting fullscreen.
+function promoteToTopLayer(el: HTMLElement | null): void {
+  if (!el || !el.hasAttribute('popover')) return;
+  try { el.hidePopover(); } catch { /* not open */ }
+  try { el.showPopover(); } catch { /* unsupported */ }
 }
 
 // A playing <video> is composited on its own GPU layer, which the overlay's
@@ -323,7 +334,7 @@ function showBlurOverlay(): HTMLDivElement {
   blurPageVideos();
   // Re-assert the timer's top-layer spot so it paints ABOVE the blur we just
   // showed (top-layer order is by most-recent showPopover).
-  if (timerElement) { try { timerElement.hidePopover(); timerElement.showPopover(); } catch { /* unsupported */ } }
+  promoteToTopLayer(timerElement);
   return blurOverlay!;
 }
 
@@ -339,6 +350,9 @@ function hideBlurOverlay(): void {
   if (!wasVisible) {
     blurOverlay.style.visibility = 'hidden';
     try { blurOverlay.hidePopover(); } catch { /* not open or unsupported */ }
+    // Leaving the top layer drops the timer back under any fullscreen video, so
+    // re-promote it. Otherwise a nudge in fullscreen ends with the badge gone.
+    promoteToTopLayer(timerElement);
     return;
   }
   // Keep the element visible until the opacity fade finishes, THEN flip
@@ -350,6 +364,7 @@ function hideBlurOverlay(): void {
     if (blurOverlay && blurOverlay.style.opacity === '0') {
       blurOverlay.style.visibility = 'hidden';
       try { blurOverlay.hidePopover(); } catch { /* not open or unsupported */ }
+      promoteToTopLayer(timerElement);
     }
     clearPendingBlurHide();
   };
@@ -684,12 +699,25 @@ function hideBlocker(): void {
 function createWindDownOverlay(): void {
   const overlay = document.createElement('div');
   overlay.className = 'web-time-wind-down-overlay';
+  // Top-layer popover for the same reason as the blur overlay: a fullscreen
+  // video would otherwise paint over this entirely. pointer-events:none still
+  // passes clicks through in the top layer, so video controls stay usable.
+  // The UA popover styles force a centered auto-margin box, so override the
+  // inset/margin/max-* to stay full-bleed.
+  overlay.setAttribute('popover', 'manual');
   overlay.style.cssText = `
     position: fixed;
+    inset: 0;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
     z-index: 999998;
     pointer-events: none;
     transition: background 1s linear;
@@ -724,7 +752,15 @@ function createWindDownOverlay(): void {
 function showWindDown(progress: number, _remainingSeconds: number): void {
   if (!windDownOverlay) return;
 
+  // Promote only on the transition into visible, NOT on every progress tick.
+  // SHOW_WIND_DOWN arrives every second, and re-promoting would keep moving the
+  // darkening to the front of the top layer — above a blur overlay (and its
+  // popup dialogs) that opened mid-wind-down. Entering fullscreen later is
+  // handled by the fullscreenchange listener, which re-promotes in back-to-front
+  // order.
+  const wasHidden = windDownOverlay.style.visibility !== 'visible';
   windDownOverlay.style.visibility = 'visible';
+  if (wasHidden) promoteToTopLayer(windDownOverlay);
   const opacity = 0.3 * progress;
   windDownOverlay.style.background = `rgba(0, 0, 0, ${opacity})`;
 
@@ -738,6 +774,7 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
 function hideWindDown(): void {
   if (!windDownOverlay) return;
   windDownOverlay.style.visibility = 'hidden';
+  try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
   windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
   const barFill = windDownOverlay.querySelector('.web-time-wind-down-bar-fill') as HTMLElement | null;
   if (barFill) {
@@ -915,6 +952,25 @@ document.addEventListener('visibilitychange', () => {
       location.reload();
     });
   }
+});
+
+// Entering fullscreen puts the video at the FRONT of the top layer, above
+// anything we promoted earlier — including the timer, whose only showPopover()
+// happens at page load. Re-promote what's currently up, back-to-front, so the
+// layering ends up the same as it is outside fullscreen.
+document.addEventListener('fullscreenchange', () => {
+  if (windDownOverlay && windDownOverlay.style.visibility === 'visible') {
+    promoteToTopLayer(windDownOverlay);
+  }
+  if (blurOverlay && blurOverlay.style.visibility === 'visible') {
+    promoteToTopLayer(blurOverlay);
+    // The fullscreen element may be a different <video> than the one we blurred,
+    // or the site's player may have reset our inline filter on transition.
+    blurPageVideos();
+  }
+  // Always last: the timer sits above everything, and is the surface that's
+  // otherwise missing for the whole fullscreen session.
+  promoteToTopLayer(timerElement);
 });
 
 document.addEventListener('keydown', (e) => {
