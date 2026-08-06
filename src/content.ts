@@ -627,7 +627,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 50% !important;
+    top: 42% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -662,8 +662,11 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   });
   // The countdown sits between the heading and the explanation so the number —
   // the thing the user is actually waiting on — lands in the box's vertical
-  // middle. That's what lets the dialog center honestly at top: 50%; it used to
-  // be lifted to 42% to compensate for the countdown hanging low.
+  // middle, rather than hanging low as it used to.
+  // The box itself sits at top: 42%, matching every other overlay. That lift is
+  // an optical correction, not a content fix: a box at a true 50% reads as
+  // slightly low, and the progress bar pinned to the bottom edge adds weight
+  // that drags the apparent center down further.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
     style: 'font-size: 32px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
@@ -875,7 +878,7 @@ function showEndSessionConfirm(): void {
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 50% !important;
+    top: 42% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
