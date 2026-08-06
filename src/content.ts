@@ -631,11 +631,10 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
-    /* Vertical padding is tuned so this box matches the height of the
-       end-session confirm in its usual two-body-line form (~177px). The confirm
-       often precedes this dialog directly, and a height jump between them reads
-       as a layout shift. */
-    padding: 37px 24px !important;
+    /* Slightly taller than the confirm's 24px so this box matches its height
+       (~177px) in the usual two-body-line form. The confirm often precedes this
+       dialog directly, and a height jump between them reads as a layout shift. */
+    padding: 31px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -667,7 +666,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // be lifted to 42% to compensate for the countdown hanging low.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 12px; font-variant-numeric: tabular-nums; line-height: 1.1;',
+    style: 'font-size: 32px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
     text: formatCountdown(remainingSeconds),
   });
   // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
