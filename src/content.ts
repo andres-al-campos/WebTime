@@ -884,23 +884,19 @@ function showEndSessionConfirm(): void {
   `;
   const carryover = formatTimeAdaptive(Math.floor(remaining * 1.1));
   // Quote the cooldown this would trigger — the cost side of the trade, which
-  // the user otherwise only discovers after committing. Same source of truth as
-  // the blocker (sessionNum × increment), so the two can't drift.
+  // the user otherwise only discovers after committing. It rides in the question
+  // line rather than a footnote so it's read before OK, not after. Same source
+  // of truth as the blocker (sessionNum × increment), so the two can't drift.
   const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
-  const consequence = cooldownSeconds > 0
-    ? makeEl('div', {
-        style: 'font-size: 13px; color: #aaa; margin-bottom: 18px; line-height: 1.4;',
-        text: `${formatCooldownDuration(cooldownSeconds)} cooldown starts now`,
-      })
-    : null;
+  const cooldownNote = cooldownSeconds > 0
+    ? ` (${formatCooldownDuration(cooldownSeconds)} cooldown)`
+    : '';
 
-  // When the consequence line follows, the prompt hands its bottom margin over
-  // so the two read as one block rather than two separated paragraphs.
   const prompt = makeEl('div', {
-    style: `font-size: 16px; color: #eee; margin-bottom: ${consequence ? '4px' : '18px'}; line-height: 1.4;`,
+    style: 'font-size: 16px; color: #eee; margin-bottom: 18px; line-height: 1.4;',
   });
   prompt.append(
-    `End session ${lastSessionNum ?? ''}?`,
+    `End session ${lastSessionNum ?? ''}?${cooldownNote}`,
     document.createElement('br'),
     `${carryover} will be added to next session`,
   );
@@ -921,7 +917,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(...(consequence ? [prompt, consequence] : [prompt]), buttonRow);
+  el.replaceChildren(prompt, buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
