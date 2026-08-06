@@ -493,7 +493,7 @@ function showNudge(): void {
     timer.style.transformOrigin = 'top right';
     timer.style.transition = `transform ${Constants.OVERLAY_DURATIONS.NUDGE_MS / 2}ms ease-in-out`;
     requestAnimationFrame(() => {
-      timer.style.transform = 'scale(4.20)';
+      timer.style.transform = 'scale(5.0)';
 
       setTimeout(() => {
         timer.style.transform = 'scale(1)';
@@ -910,7 +910,7 @@ function showEndSessionConfirm(): void {
       document.createElement('br'),
     );
   }
-  body.append(`${carryover} will be added to next session`);
+  body.append(`Next session gets +${carryover}`);
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
