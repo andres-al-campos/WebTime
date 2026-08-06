@@ -423,7 +423,7 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -627,7 +627,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -663,10 +663,13 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // The countdown sits between the heading and the explanation so the number —
   // the thing the user is actually waiting on — lands in the box's vertical
   // middle, rather than hanging low as it used to.
-  // The box itself sits at top: 42%, matching every other overlay. That lift is
-  // an optical correction, not a content fix: a box at a true 50% reads as
-  // slightly low, and the progress bar pinned to the bottom edge adds weight
-  // that drags the apparent center down further.
+  // The box itself sits at top: 45%, matching every other overlay. `position:
+  // fixed` percentages resolve against the viewport, which excludes the browser
+  // chrome (tab strip, address bar, bookmarks) — but the eye centers on the
+  // whole window. A box at a true 50% therefore lands roughly half the chrome
+  // height below where it looks centered. 45% is that correction for a typical
+  // ~120px chrome on a ~960px viewport; it can't be measured from a content
+  // script, so it's a fixed approximation rather than a computed value.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
     style: 'font-size: 32px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
@@ -878,7 +881,7 @@ function showEndSessionConfirm(): void {
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
