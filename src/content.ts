@@ -661,7 +661,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // be lifted to 42% to compensate for the countdown hanging low.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 6px; font-variant-numeric: tabular-nums;',
+    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 10px; font-variant-numeric: tabular-nums;',
     text: formatCountdown(remainingSeconds),
   });
   const explanation = makeEl('div', {
@@ -883,23 +883,27 @@ function showEndSessionConfirm(): void {
     transition: opacity 0.3s ease !important;
   `;
   const carryover = formatTimeAdaptive(Math.floor(remaining * 1.1));
-  // Quote the cooldown this would trigger — the cost side of the trade, which
-  // the user otherwise only discovers after committing. It rides in the question
-  // line rather than a footnote so it's read before OK, not after. Same source
-  // of truth as the blocker (sessionNum × increment), so the two can't drift.
-  const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
-  const cooldownNote = cooldownSeconds > 0
-    ? ` (${formatCooldownDuration(cooldownSeconds)} cooldown)`
-    : '';
-
-  const prompt = makeEl('div', {
-    style: 'font-size: 16px; color: #eee; margin-bottom: 18px; line-height: 1.4;',
+  // Title, then the two consequences as body copy. The gap under the title is
+  // what makes it read as a heading rather than the first of three equal lines.
+  const title = makeEl('div', {
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
+    text: `End session ${lastSessionNum ?? ''}?`,
   });
-  prompt.append(
-    `End session ${lastSessionNum ?? ''}?${cooldownNote}`,
-    document.createElement('br'),
-    `${carryover} will be added to next session`,
-  );
+
+  // Name the cooldown this would trigger — the cost side of the trade, which the
+  // user otherwise only discovers after committing. Same source of truth as the
+  // blocker (sessionNum × increment), so the two can't drift.
+  const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
+  const body = makeEl('div', {
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
+  });
+  if (cooldownSeconds > 0) {
+    body.append(
+      `Site will go on a ${formatCooldownDuration(cooldownSeconds)} cooldown`,
+      document.createElement('br'),
+    );
+  }
+  body.append(`${carryover} will be added to next session`);
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
@@ -917,7 +921,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(prompt, buttonRow);
+  el.replaceChildren(title, body, buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
