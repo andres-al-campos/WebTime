@@ -93,6 +93,7 @@ export interface TimeUpdateMessage {
   sessionTime?: number;       // seconds elapsed in current session (only when session limit is active)
   sessionLimitSeconds?: number; // the session limit in seconds (only when session limit is active)
   sessionNum?: number;         // which session number (1-based)
+  cooldownIncrementSeconds?: number; // per-session cooldown step, for quoting the cooldown in the end-session confirm
 }
 
 export interface ContentScriptReadyMessage {

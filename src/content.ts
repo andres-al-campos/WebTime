@@ -1,5 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
+import { cooldownLength } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -19,6 +20,7 @@ let lastDailyTime = 0;
 let lastSessionTime: number | undefined;
 let lastSessionLimitSeconds: number | undefined;
 let lastSessionNum: number | undefined;
+let lastCooldownIncrementSeconds: number | undefined;
 let blurOverlay: HTMLDivElement | null = null;
 let averagePopupDialog: HTMLDivElement | null = null;
 let averagePopupPausedMedia: HTMLMediaElement[] = [];
@@ -625,7 +627,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -653,14 +655,18 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     style: 'font-size: 18px; font-weight: 600; color: #ccc; margin-bottom: 8px;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
+  // The countdown sits between the heading and the explanation so the number —
+  // the thing the user is actually waiting on — lands in the box's vertical
+  // middle. That's what lets the dialog center honestly at top: 50%; it used to
+  // be lifted to 42% to compensate for the countdown hanging low.
+  const countdown = makeEl('div', {
+    className: 'web-time-blocker-countdown',
+    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 6px; font-variant-numeric: tabular-nums;',
+    text: formatCountdown(remainingSeconds),
+  });
   const explanation = makeEl('div', {
     style: 'font-size: 14px; color: #eee; margin-bottom: 16px;',
     text: cooldownExplanation,
-  });
-  const countdown = makeEl('div', {
-    className: 'web-time-blocker-countdown',
-    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums;',
-    text: formatCountdown(remainingSeconds),
   });
   const progressFill = makeEl('div', {
     className: 'web-time-blocker-progress-fill',
@@ -672,7 +678,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     children: [progressFill],
   });
 
-  el.replaceChildren(heading, explanation, countdown, progressTrack);
+  el.replaceChildren(heading, countdown, explanation, progressTrack);
 
   blurOverlay!.appendChild(el);
   blockerDialog = el;
@@ -877,8 +883,21 @@ function showEndSessionConfirm(): void {
     transition: opacity 0.3s ease !important;
   `;
   const carryover = formatTimeAdaptive(Math.floor(remaining * 1.1));
+  // Quote the cooldown this would trigger — the cost side of the trade, which
+  // the user otherwise only discovers after committing. Same source of truth as
+  // the blocker (sessionNum × increment), so the two can't drift.
+  const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
+  const consequence = cooldownSeconds > 0
+    ? makeEl('div', {
+        style: 'font-size: 13px; color: #aaa; margin-bottom: 18px; line-height: 1.4;',
+        text: `${formatCooldownDuration(cooldownSeconds)} cooldown starts now`,
+      })
+    : null;
+
+  // When the consequence line follows, the prompt hands its bottom margin over
+  // so the two read as one block rather than two separated paragraphs.
   const prompt = makeEl('div', {
-    style: 'font-size: 16px; color: #eee; margin-bottom: 18px; line-height: 1.4;',
+    style: `font-size: 16px; color: #eee; margin-bottom: ${consequence ? '4px' : '18px'}; line-height: 1.4;`,
   });
   prompt.append(
     `End session ${lastSessionNum ?? ''}?`,
@@ -902,7 +921,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(prompt, buttonRow);
+  el.replaceChildren(...(consequence ? [prompt, consequence] : [prompt]), buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
@@ -994,6 +1013,7 @@ function handleIncomingMessage(
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
+    lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
     // Note: don't touch peekingDaily here — a peek is a deliberate, time-boxed
     // user action. updateTimerText() falls back to daily on its own when session
     // data is unavailable for this tab (e.g. domain has no session limit, or

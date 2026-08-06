@@ -77,7 +77,7 @@ const suspendedSessions: Record<Domain, ActiveSession> = {};
 //                               setting reads as 0 the bar collapses to 100%. So store it once.
 //   cooldownTickers[domain]   = the 1s setInterval that drives the blocker countdown UI.
 //   windDownActive[domain]    = whether the wind-down overlay is currently shown.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number }> = {};
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number }> = {};
 const cooldownEndTime: Record<Domain, number> = {};
 const cooldownTotalSec: Record<Domain, number> = {};
 const cooldownTickers: Record<Domain, ReturnType<typeof setInterval>> = {};
@@ -382,7 +382,7 @@ function stopTimer(): void {
 
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
-  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number } = {
+  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number } = {
     type: "TIME_UPDATE",
     time: updatedTime
   };
@@ -396,6 +396,7 @@ function updateTimerDisplay(updatedTime: number): void {
       message.sessionTime = display.sessionTime;
       message.sessionLimitSeconds = display.sessionLimitSeconds;
       message.sessionNum = session.sessionNum;
+      message.cooldownIncrementSeconds = data?.cooldownIncrementSeconds || 0;
       log(
         `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
         `start=${session.startDaily}s base=${session.baseLength}s ` +
@@ -655,7 +656,7 @@ function handleMessageReceived(
         if (!settingsActuallyChanged && !firstSeenNeedsStart) continue;
         const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
         const cooldownIncrementSeconds = slEnabled ? (domainCfg?.cooldownIncrement || 0) * 60 : 0;
-        cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds };
+        cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
 
         if (newLimitSeconds <= 0) {
           // Rules turned OFF. Don't delete the session — SUSPEND it (stash the
@@ -754,9 +755,12 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   const sessionLimitEnabled = domainSettings.sessionLimitEnabled || false;
   const hasSessionLimit = sessionLimitEnabled && (domainSettings.sessionLimit || 0) > 0;
 
-  // Cache session limit for timer display (even when returning null)
+  // Cache session limit for timer display (even when returning null). The
+  // cooldown increment rides along so the end-session confirm can quote the
+  // cooldown it would trigger without an async settings load per tick.
   cachedDomainSessionLimit[trackedTabDomain] = {
-    sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0
+    sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
+    cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0
   };
 
   const { averageSeconds, daysWithData } = compute7DayStats(timeHistory, trackedTabDomain, currentDateStr);
