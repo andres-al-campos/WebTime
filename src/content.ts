@@ -631,7 +631,11 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
-    padding: 28px !important;
+    /* Vertical padding is tuned so this box matches the height of the
+       end-session confirm in its usual two-body-line form (~177px). The confirm
+       often precedes this dialog directly, and a height jump between them reads
+       as a layout shift. */
+    padding: 37px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -651,8 +655,10 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
     : 100;
 
+  // Same title treatment as the end-session confirm (18px/600/#fff, 16px gap) —
+  // the two dialogs sit in the same flow and should read as siblings.
   const heading = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #ccc; margin-bottom: 8px;',
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
   // The countdown sits between the heading and the explanation so the number —
@@ -661,11 +667,13 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // be lifted to 42% to compensate for the countdown hanging low.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 10px; font-variant-numeric: tabular-nums;',
+    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 12px; font-variant-numeric: tabular-nums; line-height: 1.1;',
     text: formatCountdown(remainingSeconds),
   });
+  // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
+  // is this long and growing, which is the part worth reading.
   const explanation = makeEl('div', {
-    style: 'font-size: 14px; color: #eee; margin-bottom: 16px;',
+    style: 'font-size: 14px; color: #eee; margin-bottom: 8px;',
     text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
