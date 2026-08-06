@@ -889,7 +889,9 @@ function showEndSessionConfirm(): void {
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
   `;
-  const carryover = formatTimeAdaptive(Math.floor(remaining * 1.1));
+  // Unit-labelled ("11m"), not clock-style ("11:30") — this is a duration being
+  // granted, not a countdown, and it matches the cooldown line above it.
+  const carryover = formatCooldownDuration(Math.floor(remaining * 1.1));
   // Title, then the two consequences as body copy. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
