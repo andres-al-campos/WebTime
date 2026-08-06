@@ -1,5 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
+import { cooldownLength } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -19,6 +20,7 @@ let lastDailyTime = 0;
 let lastSessionTime: number | undefined;
 let lastSessionLimitSeconds: number | undefined;
 let lastSessionNum: number | undefined;
+let lastCooldownIncrementSeconds: number | undefined;
 let blurOverlay: HTMLDivElement | null = null;
 let averagePopupDialog: HTMLDivElement | null = null;
 let averagePopupPausedMedia: HTMLMediaElement[] = [];
@@ -276,16 +278,27 @@ function clearPendingBlurHide(): void {
   blurHideEnd = null;
 }
 
-// A fullscreen element lives in the browser's TOP LAYER, which renders above
-// everything in the normal DOM regardless of z-index — so our fixed overlay
-// can't cover a fullscreen video. Dropping out of fullscreen returns that video
-// to the normal flow, where the overlay wins. Only the session-cooldown blocker
-// exits fullscreen; the softer overlays (nudge, average, end-session) just pause
-// playback and leave fullscreen alone.
+// Only the session-cooldown blocker exits fullscreen, and not because of
+// layering — promoteToTopLayer lets any overlay paint over a fullscreen video.
+// It exits because the session is actually over: leaving the video is part of
+// the cooldown. Softer surfaces (nudge, average, end-session confirm) stay in
+// fullscreen. The end-session confirm especially — it's a question the user may
+// answer "no" to, and they should land back on a still-fullscreen video.
 function exitFullscreenIfActive(): void {
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => { /* denied or already exiting */ });
   }
+}
+
+// Enter, or re-enter, the browser TOP LAYER. Re-entering matters: the top layer
+// is ordered by show-time, not z-index, so an element that entered before a
+// fullscreen video paints UNDER it. Re-showing moves it back to the front. This
+// is why the timer needs re-promoting whenever fullscreen changes — its one
+// showPopover() at creation always predates the user hitting fullscreen.
+function promoteToTopLayer(el: HTMLElement | null): void {
+  if (!el || !el.hasAttribute('popover')) return;
+  try { el.hidePopover(); } catch { /* not open */ }
+  try { el.showPopover(); } catch { /* unsupported */ }
 }
 
 // A playing <video> is composited on its own GPU layer, which the overlay's
@@ -323,7 +336,7 @@ function showBlurOverlay(): HTMLDivElement {
   blurPageVideos();
   // Re-assert the timer's top-layer spot so it paints ABOVE the blur we just
   // showed (top-layer order is by most-recent showPopover).
-  if (timerElement) { try { timerElement.hidePopover(); timerElement.showPopover(); } catch { /* unsupported */ } }
+  promoteToTopLayer(timerElement);
   return blurOverlay!;
 }
 
@@ -339,6 +352,9 @@ function hideBlurOverlay(): void {
   if (!wasVisible) {
     blurOverlay.style.visibility = 'hidden';
     try { blurOverlay.hidePopover(); } catch { /* not open or unsupported */ }
+    // Leaving the top layer drops the timer back under any fullscreen video, so
+    // re-promote it. Otherwise a nudge in fullscreen ends with the badge gone.
+    promoteToTopLayer(timerElement);
     return;
   }
   // Keep the element visible until the opacity fade finishes, THEN flip
@@ -350,6 +366,7 @@ function hideBlurOverlay(): void {
     if (blurOverlay && blurOverlay.style.opacity === '0') {
       blurOverlay.style.visibility = 'hidden';
       try { blurOverlay.hidePopover(); } catch { /* not open or unsupported */ }
+      promoteToTopLayer(timerElement);
     }
     clearPendingBlurHide();
   };
@@ -406,7 +423,7 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -476,7 +493,7 @@ function showNudge(): void {
     timer.style.transformOrigin = 'top right';
     timer.style.transition = `transform ${Constants.OVERLAY_DURATIONS.NUDGE_MS / 2}ms ease-in-out`;
     requestAnimationFrame(() => {
-      timer.style.transform = 'scale(4.20)';
+      timer.style.transform = 'scale(5.0)';
 
       setTimeout(() => {
         timer.style.transform = 'scale(1)';
@@ -610,11 +627,14 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 42% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
-    padding: 28px !important;
+    /* Slightly taller than the confirm's 24px so this box matches its height
+       (~177px) in the usual two-body-line form. The confirm often precedes this
+       dialog directly, and a height jump between them reads as a layout shift. */
+    padding: 31px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -634,18 +654,32 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
     : 100;
 
+  // Same title treatment as the end-session confirm (18px/600/#fff, 16px gap) —
+  // the two dialogs sit in the same flow and should read as siblings.
   const heading = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #ccc; margin-bottom: 8px;',
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
-  const explanation = makeEl('div', {
-    style: 'font-size: 14px; color: #eee; margin-bottom: 16px;',
-    text: cooldownExplanation,
-  });
+  // The countdown sits between the heading and the explanation so the number —
+  // the thing the user is actually waiting on — lands in the box's vertical
+  // middle, rather than hanging low as it used to.
+  // The box itself sits at top: 45%, matching every other overlay. `position:
+  // fixed` percentages resolve against the viewport, which excludes the browser
+  // chrome (tab strip, address bar, bookmarks) — but the eye centers on the
+  // whole window. A box at a true 50% therefore lands roughly half the chrome
+  // height below where it looks centered. 45% is that correction for a typical
+  // ~120px chrome on a ~960px viewport; it can't be measured from a content
+  // script, so it's a fixed approximation rather than a computed value.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 24px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums;',
+    style: 'font-size: 32px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
     text: formatCountdown(remainingSeconds),
+  });
+  // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
+  // is this long and growing, which is the part worth reading.
+  const explanation = makeEl('div', {
+    style: 'font-size: 14px; color: #eee; margin-bottom: 8px;',
+    text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
     className: 'web-time-blocker-progress-fill',
@@ -657,7 +691,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     children: [progressFill],
   });
 
-  el.replaceChildren(heading, explanation, countdown, progressTrack);
+  el.replaceChildren(heading, countdown, explanation, progressTrack);
 
   blurOverlay!.appendChild(el);
   blockerDialog = el;
@@ -684,12 +718,25 @@ function hideBlocker(): void {
 function createWindDownOverlay(): void {
   const overlay = document.createElement('div');
   overlay.className = 'web-time-wind-down-overlay';
+  // Top-layer popover for the same reason as the blur overlay: a fullscreen
+  // video would otherwise paint over this entirely. pointer-events:none still
+  // passes clicks through in the top layer, so video controls stay usable.
+  // The UA popover styles force a centered auto-margin box, so override the
+  // inset/margin/max-* to stay full-bleed.
+  overlay.setAttribute('popover', 'manual');
   overlay.style.cssText = `
     position: fixed;
+    inset: 0;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
     z-index: 999998;
     pointer-events: none;
     transition: background 1s linear;
@@ -724,7 +771,15 @@ function createWindDownOverlay(): void {
 function showWindDown(progress: number, _remainingSeconds: number): void {
   if (!windDownOverlay) return;
 
+  // Promote only on the transition into visible, NOT on every progress tick.
+  // SHOW_WIND_DOWN arrives every second, and re-promoting would keep moving the
+  // darkening to the front of the top layer — above a blur overlay (and its
+  // popup dialogs) that opened mid-wind-down. Entering fullscreen later is
+  // handled by the fullscreenchange listener, which re-promotes in back-to-front
+  // order.
+  const wasHidden = windDownOverlay.style.visibility !== 'visible';
   windDownOverlay.style.visibility = 'visible';
+  if (wasHidden) promoteToTopLayer(windDownOverlay);
   const opacity = 0.3 * progress;
   windDownOverlay.style.background = `rgba(0, 0, 0, ${opacity})`;
 
@@ -738,6 +793,7 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
 function hideWindDown(): void {
   if (!windDownOverlay) return;
   windDownOverlay.style.visibility = 'hidden';
+  try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
   windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
   const barFill = windDownOverlay.querySelector('.web-time-wind-down-bar-fill') as HTMLElement | null;
   if (barFill) {
@@ -825,7 +881,7 @@ function showEndSessionConfirm(): void {
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 50% !important;
+    top: 45% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
@@ -839,15 +895,30 @@ function showEndSessionConfirm(): void {
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
   `;
-  const carryover = formatTimeAdaptive(Math.floor(remaining * 1.1));
-  const prompt = makeEl('div', {
-    style: 'font-size: 16px; color: #eee; margin-bottom: 18px; line-height: 1.4;',
+  // Unit-labelled ("11m"), not clock-style ("11:30") — this is a duration being
+  // granted, not a countdown, and it matches the cooldown line above it.
+  const carryover = formatCooldownDuration(Math.floor(remaining * 1.1));
+  // Title, then the two consequences as body copy. The gap under the title is
+  // what makes it read as a heading rather than the first of three equal lines.
+  const title = makeEl('div', {
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
+    text: `End session ${lastSessionNum ?? ''}?`,
   });
-  prompt.append(
-    `End session ${lastSessionNum ?? ''}?`,
-    document.createElement('br'),
-    `${carryover} will be added to next session`,
-  );
+
+  // Name the cooldown this would trigger — the cost side of the trade, which the
+  // user otherwise only discovers after committing. Same source of truth as the
+  // blocker (sessionNum × increment), so the two can't drift.
+  const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
+  const body = makeEl('div', {
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
+  });
+  if (cooldownSeconds > 0) {
+    body.append(
+      `Site will go on a ${formatCooldownDuration(cooldownSeconds)} cooldown`,
+      document.createElement('br'),
+    );
+  }
+  body.append(`Next session gets +${carryover}`);
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
@@ -865,7 +936,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(prompt, buttonRow);
+  el.replaceChildren(title, body, buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
@@ -917,6 +988,25 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// Entering fullscreen puts the video at the FRONT of the top layer, above
+// anything we promoted earlier — including the timer, whose only showPopover()
+// happens at page load. Re-promote what's currently up, back-to-front, so the
+// layering ends up the same as it is outside fullscreen.
+document.addEventListener('fullscreenchange', () => {
+  if (windDownOverlay && windDownOverlay.style.visibility === 'visible') {
+    promoteToTopLayer(windDownOverlay);
+  }
+  if (blurOverlay && blurOverlay.style.visibility === 'visible') {
+    promoteToTopLayer(blurOverlay);
+    // The fullscreen element may be a different <video> than the one we blurred,
+    // or the site's player may have reset our inline filter on transition.
+    blurPageVideos();
+  }
+  // Always last: the timer sits above everything, and is the surface that's
+  // otherwise missing for the whole fullscreen session.
+  promoteToTopLayer(timerElement);
+});
+
 document.addEventListener('keydown', (e) => {
   if (!isEndSessionShortcutMatch(e)) return;
   // Don't fire while another intervention is up
@@ -938,6 +1028,7 @@ function handleIncomingMessage(
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
+    lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
     // Note: don't touch peekingDaily here — a peek is a deliberate, time-boxed
     // user action. updateTimerText() falls back to daily on its own when session
     // data is unavailable for this tab (e.g. domain has no session limit, or

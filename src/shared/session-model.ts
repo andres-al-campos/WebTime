@@ -105,7 +105,7 @@ export interface CooldownResult {
  * back to `baseLength` here — a vestigial "need some number" default that tied
  * cooldown length to session length for no real reason. Dropped.
  */
-function cooldownLength(sessionNum: number, increment: number): number {
+export function cooldownLength(sessionNum: number, increment: number): number {
   return increment > 0 ? sessionNum * increment : 0;
 }
 

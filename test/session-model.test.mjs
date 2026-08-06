@@ -25,7 +25,7 @@ await build({
 const mod = await import(pathToFileURL(outFile).href);
 const {
   startSession, effectiveLength, displayFor,
-  naturalEnd, endEarly, changeLength,
+  naturalEnd, endEarly, changeLength, cooldownLength,
   computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
   windDownState, WIND_DOWN_DURATION,
 } = mod;
@@ -125,6 +125,26 @@ test('endEarly: returns null when nothing left to claim', () => {
   const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
   assert.equal(endEarly(s, { dailyTotal: 30 * M, cooldownIncrement: 5 * M }), null);
   assert.equal(endEarly(s, { dailyTotal: 35 * M, cooldownIncrement: 5 * M }), null);
+});
+
+// The end-session confirm quotes the cooldown BEFORE the user commits, by
+// calling cooldownLength directly with the session number it has on hand. The
+// blocker then shows what endEarly actually produced. If those two ever
+// disagreed the dialog would be lying about the price, so pin them together.
+test('cooldownLength matches the cooldown endEarly actually fires', () => {
+  for (const sessionNum of [1, 2, 3, 7]) {
+    for (const increment of [0, 3 * M, 5 * M]) {
+      const s = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum });
+      const quoted = cooldownLength(sessionNum, increment);
+      const r = endEarly(s, { dailyTotal: 10 * M, cooldownIncrement: increment });
+      assert.equal(r.cooldownSeconds, quoted,
+        `session ${sessionNum}, increment ${increment}`);
+    }
+  }
+});
+
+test('cooldownLength: no increment configured means no cooldown to quote', () => {
+  assert.equal(cooldownLength(4, 0), 0);
 });
 
 // ---------------------------------------------------------------------------
