@@ -21,7 +21,7 @@ await build({
   platform: 'node',
 });
 const {
-  createClock, isRunning, totalSeconds, start, stop, setTotal, bank,
+  createClock, isRunning, totalSeconds, start, stop, setTotal, bank, restore,
 } = await import(pathToFileURL(outFile).href);
 
 const T = 1_700_000_000_000;
@@ -116,4 +116,69 @@ test('bank checkpoints without stopping the clock', () => {
 test('bank on a stopped clock is a no-op', () => {
   const c = createClock(75);
   assert.deepEqual(bank(c, T + s(500)), c);
+});
+
+// --- restore(): recovering time lost to worker death -----------------------
+//
+// The bug these pin down: Chrome kills the service worker with no teardown
+// callback, so seconds between the last save and the death were never written.
+// Reloading only the saved number discarded them — with a 60s save interval and
+// a worker dying every ~30s, that loss repeated all day.
+
+const MAX_GAP = s(300);
+
+test('restore credits time that accrued after the last save', () => {
+  // Saved 100s while running, worker died, 45s passed before this boot.
+  const c = restore(100, T, T + s(45), MAX_GAP);
+  assert.equal(totalSeconds(c, T + s(45)), 145);
+});
+
+test('restore keeps the clock running so counting continues', () => {
+  const c = restore(100, T, T + s(45), MAX_GAP);
+  assert.equal(isRunning(c), true);
+  assert.equal(totalSeconds(c, T + s(55)), 155);
+});
+
+test('a stopped clock restores to exactly what was saved', () => {
+  // anchor null = the save happened with the clock stopped, so the number is
+  // already complete and there is no gap to credit.
+  const c = restore(100, null, T + s(9999), MAX_GAP);
+  assert.equal(totalSeconds(c, T + s(9999)), 100);
+  assert.equal(isRunning(c), false);
+});
+
+test('an implausibly long gap is not credited', () => {
+  // Laptop closed for an hour. The user was not on the site; inventing that
+  // time would be worse than losing it.
+  const c = restore(100, T, T + s(3600), MAX_GAP);
+  assert.equal(totalSeconds(c, T + s(3600)), 100);
+});
+
+test('a gap beyond the bound still resumes counting from now', () => {
+  const c = restore(100, T, T + s(3600), MAX_GAP);
+  assert.equal(isRunning(c), true);
+  assert.equal(totalSeconds(c, T + s(3610)), 110);
+});
+
+test('a backwards clock is not credited', () => {
+  // NTP correction or DST moving the clock back would otherwise produce a
+  // negative gap and silently reduce the total.
+  const c = restore(100, T, T - s(60), MAX_GAP);
+  assert.equal(totalSeconds(c, T - s(60)), 100);
+});
+
+test('the gap boundary is inclusive', () => {
+  assert.equal(totalSeconds(restore(0, T, T + MAX_GAP, MAX_GAP), T + MAX_GAP), 300);
+  assert.equal(totalSeconds(restore(0, T, T + MAX_GAP + 1, MAX_GAP), T + MAX_GAP + 1), 0);
+});
+
+test('a typical death-and-wake cycle loses nothing', () => {
+  // The real scenario: save at 60s, worker dies ~30s later, user returns after
+  // 4 minutes idle. Every second on the site is still counted.
+  let c = start(createClock(0), T);
+  c = bank(c, T + s(60));            // periodic save
+  assert.equal(c.banked, 60);
+  // ...worker dies. 240s later a wake rehydrates from storage.
+  const revived = restore(c.banked, T + s(60), T + s(300), MAX_GAP);
+  assert.equal(totalSeconds(revived, T + s(300)), 300);
 });

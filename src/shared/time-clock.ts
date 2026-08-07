@@ -103,3 +103,36 @@ export function bank(c: ClockState, nowMs: number): ClockState {
   if (c.runningSince === null) return c;
   return { banked: totalSeconds(c, nowMs), runningSince: nowMs };
 }
+
+/**
+ * Reconstruct a clock from a persisted total plus the anchor it was running
+ * from, recovering the time that accrued after the last write.
+ *
+ * This is what makes worker death non-lossy. Chrome kills the worker with no
+ * teardown callback, so the seconds between the last save and the death are
+ * never written. Restoring only the saved number silently discards them; every
+ * idle-and-return cycle loses up to a full save interval, repeatedly.
+ *
+ * `anchor` is the epoch ms the clock was running from at save time (null if it
+ * was stopped). Passing it back here credits `now - anchor` and keeps running.
+ *
+ * `maxGapMs` bounds what a gap is allowed to mean. Crediting an unbounded gap
+ * would count a machine that was asleep for hours, or a clock moved backwards,
+ * as time on the site. Beyond the bound we keep the saved total and drop the
+ * remainder — undercounting is the honest failure here, since the user
+ * demonstrably wasn't there.
+ */
+export function restore(
+  savedSeconds: number,
+  anchor: number | null,
+  nowMs: number,
+  maxGapMs: number
+): ClockState {
+  if (anchor === null) return { banked: savedSeconds, runningSince: null };
+  const gap = nowMs - anchor;
+  if (gap < 0 || gap > maxGapMs) {
+    // Implausible gap: keep the total, resume from now rather than crediting it.
+    return { banked: savedSeconds, runningSince: nowMs };
+  }
+  return { banked: savedSeconds + gap / 1000, runningSince: nowMs };
+}

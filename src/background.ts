@@ -22,6 +22,7 @@ import {
   stop,
   setTotal,
   bank,
+  restore,
 } from './shared/time-clock.js';
 import type {
   TimeHistory,
@@ -100,6 +101,17 @@ const trackedTabIds = new Set<number>();
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 
 const SAVE_INTERVAL_SECONDS = Constants.SAVE_INTERVAL_SECONDS;
+
+// Set by loadTimeData() when the last save happened with the clock still
+// running, meaning the worker died before writing the remainder. Consumed once,
+// by recoverTime(), as soon as the tracked domain is known.
+let pendingRecovery: { since: number; domain: Domain | null } | null = null;
+
+// The largest gap we'll credit when recovering time after a worker death.
+// Generous enough to cover any real death-and-wake cycle (measured at seconds
+// to a couple of minutes), small enough that a closed laptop or a suspended
+// machine never turns into hours of phantom screen time.
+const MAX_RECOVERABLE_GAP_MS = 5 * 60 * 1000;
 const tabLastActivity: Record<number, number> = {};
 let trackedTabDomain: Domain | null = null;
 // Whether the browser is the foreground OS app. When you alt-tab to another
@@ -549,6 +561,12 @@ async function saveTimeData(): Promise<void> {
       lastDate: currentDateStr,
       timeHistory: timeHistory,
       version: 1,
+      // The anchor the clock is running from, so a worker death doesn't discard
+      // the seconds since this write. Chrome gives no teardown callback, so
+      // without this every restart silently loses up to a full save interval.
+      // null when stopped — then the saved total is already complete.
+      runningSince: isRunning(dailyClock) ? Date.now() : null,
+      runningDomain: isRunning(dailyClock) ? trackedTabDomain : null,
     };
 
     await browser.storage.local.set({
@@ -580,6 +598,12 @@ async function loadTimeData(): Promise<void> {
       );
       setDailyTotal(0);
     } else {
+      // Stash the unfinished-write record for recoverTime(). trackedTabDomain is
+      // still null here — init() only resolves the active tab later — so the
+      // recovery itself has to wait until the domain is known.
+      pendingRecovery = trackedTime.runningSince
+        ? { since: trackedTime.runningSince, domain: trackedTime.runningDomain ?? null }
+        : null;
       const todaysData = timeHistory[currentDateStr] || {};
       setDailyTotal(trackedTabDomain ? (todaysData[trackedTabDomain] || 0) : 0);
     }
@@ -822,6 +846,7 @@ function handleDomainSwitch(url: string): void {
 
   const todayData = timeHistory[currentDateStr] || {};
   setDailyTotal(todayData[trackedTabDomain] || 0);
+  recoverTime();
   // The new domain may have a cooldown or other gate of its own, so re-evaluate
   // rather than assuming the clock should resume.
   syncClock();
@@ -834,6 +859,36 @@ function handleDomainSwitch(url: string): void {
   // session object across tabs of the same domain.
   log(`Switched to domain: ${trackedTabDomain}, time: ${dailyTotal()}`);
   updateTimerDisplay(dailyTotal());
+}
+
+/**
+ * Credit time that accrued between the last save and a worker death.
+ *
+ * Chrome kills the service worker with no teardown callback, so the seconds
+ * since the last write are never persisted. Restoring only the saved number
+ * discards them, and with a 60s save interval and a worker dying every ~30s
+ * that loss repeats all day.
+ *
+ * Runs at most once per worker boot, and only for the domain that was actually
+ * being counted — crediting the gap to whatever site happens to be open now
+ * would invent time on a site the user never visited.
+ */
+function recoverTime(): void {
+  if (!pendingRecovery) return;
+  const { since, domain } = pendingRecovery;
+  pendingRecovery = null;   // consume regardless, so it can't double-credit
+
+  if (!trackedTabDomain || domain !== trackedTabDomain) return;
+
+  const before = dailyTotal();
+  dailyClock = restore(before, since, Date.now(), MAX_RECOVERABLE_GAP_MS);
+  const recovered = dailyTotal() - before;
+  if (recovered > 0) {
+    log(`Recovered ${recovered}s on ${domain} lost to worker death.`);
+    // Persist immediately: this worker can die just as abruptly as the last one,
+    // and an unwritten recovery is the same loss over again.
+    void saveTimeData();
+  }
 }
 
 function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
