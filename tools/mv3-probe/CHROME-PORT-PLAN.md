@@ -82,10 +82,34 @@ Three principles, in the order they matter:
 3. **The content script owns the display.** It is alive on the page regardless
    of worker state, so the countdown, the wind-down bar, and nudges run off a
    known deadline and a local clock — no worker involvement to render.
+4. **Never show a number we can't vouch for.** Showing nothing is better than
+   showing something wrong: a timer that jumps around is a timer you stop
+   trusting, and an untrusted tool gets ignored. Where the display can't be
+   verified, it hides (Step 3b).
 
 The background remains the source of truth for session state, daily totals,
 cooldowns, and storage. The content script is a renderer and an alarm clock; it
 never decides anything the background doesn't confirm.
+
+### What this guarantees
+
+| | Accurate? |
+|---|---|
+| Recorded count, at any observable moment | **Yes, exactly** |
+| Session end / blocker firing | **Yes, ~1s** (measured) |
+| Nudges, wind-down start | **Yes**, scheduled identically |
+| Display while active | Yes — input wakes the worker continuously |
+| Display while idle | Yes — frozen, which is correct; time isn't accruing |
+| Display during silent video | Yes — local countdown, Step 3a |
+| Display when a push was lost | Hidden rather than wrong, ≤~30s (Step 3b) |
+
+The count never needs a live worker to *accumulate*; it needs one only at the
+two boundaries (clock start, clock stop), and every boundary is an event that
+wakes the worker. Between them, `now - activeSince` is arithmetic that doesn't
+care what was running.
+
+This is a stronger guarantee than the current Firefox build, which loses time
+outright on OS sleep with no way to recover it.
 
 ### Step 1 — Timestamp accounting (required, do this first)
 
@@ -265,7 +289,73 @@ Not compiler-enforced: someone can still assign `sessions[domain]` directly.
 Making `sessions` module-private would close that, but it's a larger refactor
 than the port and the threat model (below) doesn't justify it.
 
-### Step 3 — Wind-down bar moves to the content script
+### Step 3 — The content script owns all rendering
+
+Both the countdown and the wind-down bar move from "background pushes every
+second" to "content script renders locally from a deadline". Same change, two
+places.
+
+#### 3a — The timer countdown
+
+This closes the last real gap in the design: **watching a silent video.** Time
+is accruing (the user is watching) but no events are generated, so the worker
+dies and no updates arrive. `updateTimerText()`
+([src/content.ts:179](../../src/content.ts)) is passive — it renders whatever
+the background last sent — so the corner number goes stale while the count
+itself stays correct.
+
+Give the content script `sessionEndsAt` and let it count down against its own
+clock:
+
+```js
+const remaining = Math.max(0, (sessionEndsAt - Date.now()) / 1000);
+```
+
+Now the worker's death is irrelevant to the display: nothing is being waited
+for. The background pushes only when something *changes* the deadline (settings
+edit, cooldown, session restart), not once per second to drive an animation.
+Message volume drops from ~1/sec to a handful per session.
+
+**Worker death cannot be predicted** — there is no API, no warning, and no
+reliable `onSuspend` in MV3. Chrome kills the worker ~30s after the last event,
+and any stray event resets that invisibly. Do not try to anticipate it; make
+the display not care.
+
+#### 3b — When the deadline can't be verified: slide out
+
+The residual case: the content script's `sessionEndsAt` is stale because the
+background changed it and the push was lost. Rare, and bounded to ~30s by the
+heartbeat — but possible.
+
+Detect it by observing rather than predicting: *"I am active, I expected an
+update, and I haven't had one."* Only meaningful while active — silence during
+idle is correct. During activity the content script's own `USER_ACTIVE`
+messages keep waking the worker, so continued silence means something is
+genuinely wrong, not that the worker is napping.
+
+```js
+if (Date.now() - lastActivityTime < IDLE_THRESHOLD_MS &&
+    Date.now() - lastUpdateReceived > STALE_THRESHOLD_MS) { /* unverified */ }
+```
+
+`STALE_THRESHOLD_MS` ~5s: cold start costs ~1s (measured), so anything under
+~3s false-positives on an ordinary wake.
+
+**Then slide the timer out.** Showing nothing beats showing a number that might
+be wrong. Motion also avoids the `opacity: 0.25` hover collision
+([extension/timer.css:29](../../extension/timer.css)) and reads as deliberate
+rather than broken.
+
+Coming back is already free: `mousemove` / `scroll` / `keydown`
+([src/content.ts:1068-1070](../../src/content.ts)) send `USER_ACTIVE`, which
+wakes the worker and produces a fresh push. Slide back in on the next verified
+update.
+
+Try a repair first — send a message requesting a state push (the message itself
+wakes the worker) and only slide out if nothing arrives within ~2s. A transient
+hiccup then self-heals with no visible change.
+
+#### 3c — Wind-down bar
 
 Currently `checkWindDown()` ([src/background.ts:853](../../src/background.ts))
 re-sends `SHOW_WIND_DOWN` **every second** with fresh `progress` and
@@ -410,12 +500,21 @@ is the forcing function, not the only reason to do it.
    the threshold and then **never jump backward** when you return and move the
    mouse. A backward jump means `USER_IDLE` isn't firing and the heartbeat is
    doing the detection — the artifact Step 1b exists to remove.
-6. **Lock the screen** mid-session with a video playing. `chrome.idle` should
+6. **Silent video, watching the widget.** Play a video and don't touch anything
+   for 3+ minutes. The countdown must keep ticking accurately the whole time
+   even though the worker is dying repeatedly (run 2: 7 deaths in 10 min). A
+   frozen countdown here means 3a isn't working and the display is still
+   passive.
+7. **Slide-out.** Force the unverified state (kill the worker via
+   `chrome://serviceworker-internals` while moving the mouse). The timer should
+   slide out rather than hold a stale number, and slide back in on the next
+   update. It must never show a number that later jumps.
+8. **Lock the screen** mid-session with a video playing. `chrome.idle` should
    report `locked` immediately and the clock should stop — this is new
    behaviour; today a locked screen is indistinguishable from sitting still.
-7. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
+9. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
    threshold rather than credited in full.
-8. Regression-test the same flows in Firefox with the MV2 build.
+10. Regression-test the same flows in Firefox with the MV2 build.
 
 ## Open questions
 
