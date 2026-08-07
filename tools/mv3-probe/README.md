@@ -31,4 +31,18 @@ rests on two assumptions worth measuring rather than taking from documentation:
 See [ANALYZE.md](ANALYZE.md) for how to load it, run the experiment, and read
 the results.
 
+## Results (measured 2026-08-06)
+
+`alarms.create({when})` fires at 0–4ms accuracy across 5s–120s delays, and a
+content-script `setTimeout` over 90s in the active tab lands within 1–7ms. Both
+are precise enough to schedule session ends directly, so the earlier worry
+about a 30-second blocker delay does not apply.
+
+Q2 is **unresolved**: the probe's own 30s heartbeat alarm kept the worker alive
+for the whole 9-minute run, masking the behavior it was measuring. To close it,
+comment out the `heartbeat` alarm in [sw.js](sw.js) and re-run.
+
+**[CHROME-PORT-PLAN.md](CHROME-PORT-PLAN.md) is the handoff document** — full
+measurements, the design they imply, and step-by-step porting notes.
+
 Delete this directory once the Chrome port is settled.
