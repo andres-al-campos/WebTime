@@ -94,6 +94,11 @@ export interface TimeUpdateMessage {
   sessionLimitSeconds?: number; // the session limit in seconds (only when session limit is active)
   sessionNum?: number;         // which session number (1-based)
   cooldownIncrementSeconds?: number; // per-session cooldown step, for quoting the cooldown in the end-session confirm
+  // Whether time is currently accruing FOR THE RECEIVING TAB. Lets the content
+  // script advance its own countdown between updates (needed on MV3, where the
+  // background dies mid-session) and know when to stop trusting itself. False
+  // for non-active tabs even while the clock runs — the time isn't theirs.
+  clockRunning?: boolean;
 }
 
 export interface ContentScriptReadyMessage {

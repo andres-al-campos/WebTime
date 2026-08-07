@@ -19,6 +19,7 @@ let peekRevertTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDailyTime = 0;
 let lastSessionTime: number | undefined;
 let lastSessionLimitSeconds: number | undefined;
+
 let lastSessionNum: number | undefined;
 let lastCooldownIncrementSeconds: number | undefined;
 let blurOverlay: HTMLDivElement | null = null;
@@ -28,6 +29,55 @@ let blockerDialog: HTMLDivElement | null = null;
 let endSessionDialog: HTMLDivElement | null = null;
 let windDownOverlay: HTMLDivElement | null = null;
 let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
+
+// --- Local countdown -------------------------------------------------------
+//
+// The timer used to render only what the background last sent. Under Chrome
+// MV3 the background is a service worker that dies after ~30s idle, so those
+// updates simply stop arriving while real time keeps passing — the displayed
+// number silently freezes and then jumps when the worker next wakes.
+//
+// So the content script keeps its own clock. The background sends the time
+// AND whether the clock is running; between updates we extrapolate from the
+// local wall clock, which needs nothing of ours to be alive.
+//
+// The rule that makes this safe: we only extrapolate while we can still
+// justify it. If the background goes quiet for longer than STALE_AFTER_MS
+// while claiming to be running, we no longer know whether the user paused,
+// switched tabs, or the worker died mid-session — so the timer HIDES rather
+// than showing a number that might be wrong. Showing nothing beats showing
+// something false.
+//
+// receivedAt is the local timestamp of the last update, so drift between the
+// two machines' clocks never enters the arithmetic — only local deltas do.
+let clockRunning = false;
+let receivedAt = 0;
+
+// How long we keep extrapolating after the last background update before
+// declaring the display unverified. The background refreshes every second
+// while running, so several seconds of silence is already anomalous; 10s is
+// well past that while staying short enough that a wrong number is never shown
+// for long.
+const STALE_AFTER_MS = 10000;
+
+/** Seconds elapsed locally since the last background update, if running. */
+function localElapsedSeconds(): number {
+  if (!clockRunning || receivedAt === 0) return 0;
+  return Math.max(0, (Date.now() - receivedAt) / 1000);
+}
+
+/**
+ * Whether the displayed time can still be trusted.
+ *
+ * A stopped clock is always trustworthy — it isn't advancing, so the last
+ * value stays correct indefinitely. A running clock is only trustworthy while
+ * the background keeps confirming it.
+ */
+function displayIsVerified(): boolean {
+  if (receivedAt === 0) return false;
+  if (!clockRunning) return true;
+  return Date.now() - receivedAt < STALE_AFTER_MS;
+}
 
 // CSS reset applied to all popup/dialog root elements to prevent site styles from bleeding in
 const CSS_RESET = `
@@ -155,6 +205,33 @@ function createTimerElement(): void {
   log("Timer element created and added to page.");
 }
 
+/**
+ * Show or hide the timer by sliding it off the top edge.
+ *
+ * Called on every render, so it must be cheap and idempotent — classList
+ * toggle with a matching value is a no-op and won't restart the transition.
+ */
+function setTimerVisible(visible: boolean): void {
+  if (!timerElement) return;
+  timerElement.classList.toggle('web-time-timer-hidden', !visible);
+}
+
+/**
+ * Local render tick.
+ *
+ * Independent of the background: this is what keeps the countdown moving while
+ * the service worker is dead. It only re-renders from state the content script
+ * already has, and updateTimerText() decides whether that state is still
+ * trustworthy — so a long gap ends in the timer hiding itself, not in a wrong
+ * number ticking on.
+ */
+function startLocalTick(): void {
+  setInterval(() => {
+    updateTimerText();
+    updateWindDownLocal();
+  }, 1000);
+}
+
 /** Adaptive time format: MM:SS when < 1h, H:MM:SS when >= 1h */
 function formatTimeAdaptive(timeInSeconds: number): string {
   timeInSeconds = Math.max(0, Math.floor(timeInSeconds));
@@ -178,16 +255,23 @@ let lastTimerMode: 'session' | 'daily' | null = null;
 
 function updateTimerText(): void {
   if (!timerText) return;
+
+  // Can't justify the number any more — slide out rather than show a stale one.
+  // setTimerVisible re-shows on its own once an update arrives.
+  setTimerVisible(displayIsVerified());
+  if (!displayIsVerified()) return;
+
+  const elapsed = localElapsedSeconds();
   let text: string;
   let mode: 'session' | 'daily';
   // Session is the default view; daily only while peeking, or when there is no
   // session for this site at all.
   if (hasSession() && !peekingDaily) {
-    const remaining = Math.max(0, lastSessionLimitSeconds! - lastSessionTime!);
+    const remaining = Math.max(0, lastSessionLimitSeconds! - lastSessionTime! - elapsed);
     text = `⏱ ${formatTimeAdaptive(remaining)}`;
     mode = 'session';
   } else {
-    text = formatTimeAdaptive(lastDailyTime);
+    text = formatTimeAdaptive(lastDailyTime + elapsed);
     mode = 'daily';
   }
 
@@ -768,7 +852,44 @@ function createWindDownOverlay(): void {
   windDownOverlay = overlay;
 }
 
-function showWindDown(progress: number, _remainingSeconds: number): void {
+// Wind-down deadline in LOCAL time, derived from the remainingSeconds the
+// background sends. Like the timer, the bar has to advance on its own between
+// updates — the worker can die mid-wind-down, and a bar frozen at 40% while
+// the session actually ends is worse than no bar.
+let windDownEndsAt = 0;
+
+/**
+ * Advance the wind-down bar from its local deadline.
+ *
+ * Runs on the local tick. The bar makes a STRONGER claim than the timer — "you
+ * are almost out of time, right now" — so it hides under the same rule: if the
+ * display can't be verified, the whole overlay goes rather than showing a
+ * progress level we can't stand behind.
+ */
+function updateWindDownLocal(): void {
+  if (!windDownOverlay || windDownEndsAt === 0) return;
+  if (windDownOverlay.style.visibility !== 'visible') return;
+
+  if (!displayIsVerified()) {
+    hideWindDown();
+    return;
+  }
+
+  const remaining = (windDownEndsAt - Date.now()) / 1000;
+  const progress = Math.min(1, Math.max(0, 1 - remaining / WIND_DOWN_DURATION_S));
+  renderWindDown(progress);
+}
+
+const WIND_DOWN_DURATION_S = 60;
+
+function showWindDown(progress: number, remainingSeconds: number): void {
+  if (!windDownOverlay) return;
+  // Anchor the local deadline so the bar keeps moving without the background.
+  windDownEndsAt = Date.now() + remainingSeconds * 1000;
+  renderWindDownVisible(progress);
+}
+
+function renderWindDownVisible(progress: number): void {
   if (!windDownOverlay) return;
 
   // Promote only on the transition into visible, NOT on every progress tick.
@@ -780,6 +901,17 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
   const wasHidden = windDownOverlay.style.visibility !== 'visible';
   windDownOverlay.style.visibility = 'visible';
   if (wasHidden) promoteToTopLayer(windDownOverlay);
+  renderWindDown(progress);
+}
+
+/**
+ * Paint the darkening and bar for a given progress. Split out from the show
+ * path so the local tick can advance the bar without re-promoting the overlay
+ * in the top layer — re-promoting every second would push the darkening above
+ * a blur overlay that opened mid-wind-down.
+ */
+function renderWindDown(progress: number): void {
+  if (!windDownOverlay) return;
   const opacity = 0.3 * progress;
   windDownOverlay.style.background = `rgba(0, 0, 0, ${opacity})`;
 
@@ -792,6 +924,7 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
 
 function hideWindDown(): void {
   if (!windDownOverlay) return;
+  windDownEndsAt = 0; // drop the local deadline so the tick stops advancing it
   windDownOverlay.style.visibility = 'hidden';
   try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
   windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
@@ -1029,6 +1162,10 @@ function handleIncomingMessage(
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
     lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
+    // Anchor the local clock. receivedAt is a LOCAL timestamp, so the two
+    // sides' clocks never have to agree — only local deltas are used.
+    clockRunning = message.clockRunning === true;
+    receivedAt = Date.now();
     // Note: don't touch peekingDaily here — a peek is a deliberate, time-boxed
     // user action. updateTimerText() falls back to daily on its own when session
     // data is unavailable for this tab (e.g. domain has no session limit, or
@@ -1084,6 +1221,11 @@ function init(): void {
   createBlurOverlay();
   createWindDownOverlay();
   browser.runtime.onMessage.addListener(handleIncomingMessage);
+
+  // Start hidden: nothing has been received yet, so there is no number we can
+  // stand behind. The first TIME_UPDATE slides it in.
+  setTimerVisible(false);
+  startLocalTick();
 
   // React to settings changes (currently just the end-session shortcut).
   browser.storage.onChanged.addListener((changes, area) => {

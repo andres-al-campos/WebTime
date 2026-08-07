@@ -681,7 +681,7 @@ function stopTimer(): void {
 
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
-  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number } = {
+  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; clockRunning?: boolean } = {
     type: "TIME_UPDATE",
     time: updatedTime
   };
@@ -706,8 +706,17 @@ function updateTimerDisplay(updatedTime: number): void {
     }
   }
 
+  const running = isRunning(dailyClock);
+
   trackedTabIds.forEach((tabId) => {
-    browser.tabs.sendMessage(tabId, message).catch(() => {
+    // Only the ACTIVE tab may extrapolate locally. Every tracked tab gets the
+    // number (so a background tab shows the right value when you return to it),
+    // but a tab that isn't the one being counted must not advance its own
+    // countdown — the time isn't accruing against it.
+    browser.tabs.sendMessage(tabId, {
+      ...message,
+      clockRunning: running && tabId === activeTabId,
+    }).catch(() => {
       console.warn(`Failed to send TIME_UPDATE to tab ${tabId}. Removing from tracking.`);
       trackedTabIds.delete(tabId);
       delete tabLastActivity[tabId];
