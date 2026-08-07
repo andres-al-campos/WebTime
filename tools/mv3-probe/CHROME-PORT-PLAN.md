@@ -136,10 +136,10 @@ demonstrably alive because it is running that handler. Do not rely on a
 periodic flush, and do not rely on anything issued during shutdown — there is
 no `onSuspend` guarantee in MV3.
 
-### Step 1b — The content script owns idle detection
+### Step 1b — Idle detection: three signals, all event-driven
 
-Heartbeat-only idle detection is correct in the data but wrong in the UI, so the
-content script must detect its own idleness.
+Heartbeat-only idle detection is correct in the data but wrong in the UI, so
+idleness must be detected at the moment it happens rather than polled for.
 
 With a 30s heartbeat and a 30s threshold, detection lands **30–60s late** (two
 unsynchronised 30s cycles; 30s is Chrome's hard floor for `periodInMinutes`).
@@ -160,20 +160,53 @@ The jump is small and in the forgiving direction, but it is disproportionately
 likely to be *seen*: the correction is triggered by the user returning and
 moving the mouse, which is exactly when they look at the widget.
 
-**Fix:** the content script already sees `mousemove` / `scroll` / `keydown`
-directly ([src/content.ts:1068-1070](../../src/content.ts)) with no worker
-involved. Give it its own idle timer so it freezes the display at exactly the
-threshold, at the correct value, and sends:
+**Fix: `chrome.idle` plus the two signals that already exist.** Nothing here
+needs polling — each signal fires an event at its own transition, which is
+exactly what timestamp accounting wants (bank on close, restart on open).
 
-```
-{ type: 'USER_IDLE', since: lastActivityTime }
+| Signal | Catches | Wakes worker | Status |
+|---|---|---|---|
+| `browserIsFocused` | user is in another app | `windows.onFocusChanged` | exists, [background.ts:490](../../src/background.ts) |
+| `chrome.idle.onStateChanged` | user is away from the machine | **yes** | **new** — needs `"idle"` permission |
+| content-script input events | in Chrome, but not on this page | message | exists, [content.ts:1068-1070](../../src/content.ts) |
+
+Count only while all three agree the user is present.
+
+```js
+chrome.idle.setDetectionInterval(thresholdSeconds);   // min 15s
+chrome.idle.onStateChanged.addListener(state => {     // 'active' | 'idle' | 'locked'
+  // fires at the transition; no polling, and it wakes the worker
+});
 ```
 
-That message is itself a wake source, so the worker starts, banks time up to
-`since`, and detection lag drops to ~0. The heartbeat reverts to a backstop for
-when the tab is gone or the content script never loaded. Resuming was never a
-problem — the first `mousemove` sends `USER_ACTIVE` and wakes the worker
-immediately.
+`chrome.idle` is the important addition because **it fires when nothing else
+would**. During silent video with no input there is no other event that says
+"the user left" — this is the one signal that will resurrect the worker to say
+it. It is OS-level, so it also catches a locked screen (`locked`, immediate and
+unambiguous) which currently looks identical to sitting still.
+
+The three don't overlap, they cover each other's blind spots. `chrome.idle` is
+machine-wide, so typing in Slack while a video plays in Chrome reports `active`
+even though the user isn't watching — `browserIsFocused` is what catches that.
+Conversely the content script sees only its own page, so it can't tell "away
+from the machine" from "reading a different tab".
+
+Keep the content script's own idle timer as well: it freezes the *display* at
+exactly the threshold with the correct value, which is what removes the backward
+jump. It can also send `{ type: 'USER_IDLE', since: lastActivityTime }` as a
+redundant wake. Resuming was never a problem — the first `mousemove` sends
+`USER_ACTIVE` and wakes the worker immediately.
+
+**Do not use a keep-alive hack.** The common ecosystem advice is to ping an
+extension API every ~25s so a `setInterval` survives (any extension API call
+resets the 30s idle timer). Avoid it — not for battery, but because it depends
+on a side effect Chrome has repeatedly narrowed. If a future release tightens
+it, the extension silently stops counting and the first symptom is wrong data.
+Scheduled wakes don't depend on Chrome tolerating a workaround.
+
+Per-second work in the *content script* is fine and stays — it's a page timer
+doing trivial work, exactly as the Firefox build does today, and it only
+repaints. If it lags or dies, accounting is unaffected.
 
 **No idle indicator.** Two reasons. `.web-time-timer:hover` already uses
 `opacity: 0.25` ([extension/timer.css:29](../../extension/timer.css)), so
@@ -254,31 +287,36 @@ changes signature to take `endsAt`.
 Two side benefits: the animation gets smoother than 1Hz steps, and 60 messages
 per session become 1.
 
-### Step 4 — Heartbeat (mandatory)
+### Step 4 — Heartbeat (backstop)
 
 `chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 })` — 30s is the
 hard floor for the periodic form. Replaces the activity-check interval at
 [src/background.ts:1141](../../src/background.ts).
 
-Run 2 promoted this from a nicety to a requirement: the worker dies within ~30s
-of idle and silent video generates no events, so without a heartbeat there are
-long stretches with no wake source at all. It bounds any unobserved gap to ~30s.
+Run 2 made a periodic wake look mandatory: the worker dies within ~30s of idle
+and silent video generates no events, so there were long stretches with no wake
+source at all. **`chrome.idle.onStateChanged` (Step 1b) now covers that case
+directly**, so the heartbeat is a third fallback rather than the only thing
+standing between the user and an unenforced limit.
 
-It is **not** the primary idle detector — Step 1b moves that to the content
-script, because a 30s heartbeat detects idleness 30–60s late and produces a
-visible backward jump in the timer. The heartbeat covers the cases the content
-script can't: the tab was closed, the content script never loaded, or a
-`USER_IDLE` message was lost. Detection latency goes to ~30s, but with
-timestamps that doesn't corrupt data — `tabLastActivity` records when the user
-actually last interacted, so a late check can retroactively exclude the idle
-period. (Under tick-counting a late check can't; those seconds were already
-banked.) Inactivity thresholds of 30–60s are unaffected.
+Keep it anyway — it costs one alarm and bounds any unobserved gap to ~30s when
+both `chrome.idle` and the content script miss (tab closed, script never
+loaded, message lost, `chrome.idle` unavailable). It is **not** the primary idle
+detector: at 30s periodicity it detects idleness 30–60s late and produces the
+visible backward jump Step 1b exists to remove.
+
+Late detection doesn't corrupt data — `tabLastActivity` records when input
+actually stopped, so a late check retroactively excludes the idle period.
+(Under tick-counting it can't; those seconds were already banked.) Inactivity
+thresholds of 30–60s are unaffected; below 15s, `chrome.idle` can't be used at
+all and the content script is the only detector.
 
 ### Step 5 — Manifest and build
 
 - `manifest_version: 3`; `browser_action` → `action`; `<all_urls>` moves from
   `permissions` to `host_permissions`; `background.scripts` →
-  `background.service_worker`; add `"alarms"` permission
+  `background.service_worker`; add `"alarms"` and `"idle"` permissions
+  (neither shows a scary install warning)
 - API shim: `const browser = globalThis.browser ?? chrome;`. Types already use
   `declare const browser: typeof chrome` ([src/types.ts:6](../../src/types.ts)),
   so there is no Firefox-specific type surface to unwind. All 26 `await
@@ -293,6 +331,37 @@ banked.) Inactivity thresholds of 30–60s are unaffected.
   two diverging codebases, and keeps the AMO listing working.
 - [build.sh](../../build.sh) uses `web-ext build` (Mozilla's tool). It zips a
   Chrome extension fine but you'll want a second artifact.
+
+## What other extensions do (surveyed 2026-08-06)
+
+Checked so it doesn't get re-researched later. **Nothing worth copying.**
+
+[Web Activity Time Tracker](https://github.com/Stigmatoz/web-activity-time-tracker)
+(MV3, ~100k users, closest feature match — tracking, limits, blocking) uses
+`setInterval(trackTime, 1000)` with `summaryTime += 1` per tick. It holds the
+`alarms` permission but uses alarms **only** for daily summary notifications,
+never for tracking or blocking. Structurally the same tick-counting this plan
+is replacing.
+
+It may work better than it deserves: `trackTime` calls
+`windows.getLastFocused()` and `idle.queryState()` every second, and any
+extension API call resets the 30s idle timer, so it likely keeps its own worker
+alive as a side effect. That is accidental, and once the worker does die there
+is no alarm to resurrect it. (Inferred from source, not measured.)
+
+The common advice on
+[chromium-extensions](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/7Ag1vPlb_qU)
+is the keep-alive hack — see Step 1b for why not.
+
+One genuinely useful find: `chrome.idle`, which WATT uses via `queryState` but
+which is better used as `onStateChanged` (an event, so it wakes the worker).
+Adopted in Step 1b.
+
+**Correction to an earlier assumption:** since Chrome 110 there is no hard
+5-minute worker lifetime cap — a worker lives as long as it receives events,
+and any extension API call resets the timer. The 5-minute limit now applies only
+to a single long-running request. This doesn't change the design (run 2 measured
+7 deaths in 10 minutes of real use), but it isn't the ceiling it once was.
 
 ## Threat model
 
@@ -341,9 +410,12 @@ is the forcing function, not the only reason to do it.
    the threshold and then **never jump backward** when you return and move the
    mouse. A backward jump means `USER_IDLE` isn't firing and the heartbeat is
    doing the detection — the artifact Step 1b exists to remove.
-6. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
+6. **Lock the screen** mid-session with a video playing. `chrome.idle` should
+   report `locked` immediately and the clock should stop — this is new
+   behaviour; today a locked screen is indistinguishable from sitting still.
+7. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
    threshold rather than credited in full.
-7. Regression-test the same flows in Firefox with the MV2 build.
+8. Regression-test the same flows in Firefox with the MV2 build.
 
 ## Open questions
 

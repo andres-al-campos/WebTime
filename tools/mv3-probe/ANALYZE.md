@@ -77,7 +77,7 @@ chrome.storage.local.get('log').then(async ({log = []}) => {
   const boots = [...new Set(log.map(e => e.boot))];
   console.log('distinct worker boots:', boots.length);
   console.log(boots.length > 1
-    ? 'Q2: worker DIED and was resurrected — heartbeat is mandatory'
+    ? 'Q2: worker DIED and was resurrected — needs an external wake source'
     : 'Q2: worker survived unaided across the idle window');
   console.table(log.map(e => ({
     ev: e.ev, boot: e.boot,
