@@ -768,7 +768,11 @@ function updateTimerDisplay(updatedTime: number): void {
       ...message,
       clockRunning: running && tabId === activeTabId,
     }).catch(() => {
-      console.warn(`Failed to send TIME_UPDATE to tab ${tabId}. Removing from tracking.`);
+      // Expected whenever a tab closes or navigates between the send and its
+      // delivery, so this is log(), not console.warn() — it's routine, and the
+      // tab re-announces itself if it's still alive. Dropping it here is what
+      // keeps the set from growing forever.
+      log(`Tab ${tabId} has no listener; removing from tracking.`);
       trackedTabIds.delete(tabId);
       delete tabLastActivity[tabId];
     });
@@ -887,14 +891,16 @@ function handleTabUpdated(
 ): void {
   if (changeInfo.url !== undefined) {
     const domain = extractDomain(changeInfo.url);
-    if (domain) {
-      trackedTabIds.add(tabId);
-      log(`Added tab ${tabId} to tracked tabs`);
-    } else {
+    if (!domain) {
       trackedTabIds.delete(tabId);
       delete tabLastActivity[tabId];
       log(`Removed tab ${tabId} from tracked tabs`);
     }
+    // A trackable URL deliberately does NOT add the tab here. changeInfo.url
+    // fires when navigation STARTS, before the new document's content script
+    // exists, so adding now guarantees the next sendMessage fails and drops the
+    // tab again. CONTENT_SCRIPT_READY is the only signal that a listener is
+    // actually there, and it re-adds the tab a moment later.
   }
   // When audio stops, treat it as a fresh activity event so the inactivity
   // timeout starts from now rather than cutting off immediately.
@@ -940,6 +946,12 @@ function handleMessageReceived(
   }
 
   if (message.type === "USER_ACTIVE" && sender.tab?.id) {
+    // Re-adopt the tab. The worker restarts constantly under MV3 and comes back
+    // with an empty trackedTabIds, but a tab loaded before that restart only
+    // ever sent CONTENT_SCRIPT_READY once and will never send it again. This
+    // message proves both that the tab is alive and that a listener is there,
+    // so it's what makes tracking self-heal after a restart.
+    trackedTabIds.add(sender.tab.id);
     tabLastActivity[sender.tab.id] = Date.now();
     // Resume immediately rather than waiting for the activity poll. This
     // message is also the main thing that wakes the worker under MV3, so
@@ -1533,10 +1545,12 @@ async function init(): Promise<void> {
   await loadAveragePopupShown();
   await loadSessionState(); // rehydrate session numbers / cooldowns after a worker restart
 
-  const trackedTabs = await browser.tabs.query({ url: ["http://*/*", "https://*/*"] });
-  trackedTabs.forEach((tab) => {
-    if (tab.id) trackedTabIds.add(tab.id);
-  });
+  // Tabs are NOT seeded from tabs.query here. A matching URL says nothing about
+  // whether that document has our content script: tabs open from before the
+  // extension was installed never got one, and under MV3 this runs on every
+  // worker restart, so seeding them means the same dead tabs are re-added and
+  // re-dropped on each boot. Live tabs announce themselves with
+  // CONTENT_SCRIPT_READY, which is the only signal that a listener exists.
 
   const activeTabs = await browser.tabs.query({
     active: true,
