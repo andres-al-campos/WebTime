@@ -28,6 +28,7 @@ const {
   naturalEnd, endEarly, changeLength, cooldownLength,
   computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
   windDownState, WIND_DOWN_DURATION,
+  endsAtSessionTime, windDownAtSessionTime, secondsUntil, instantFor, scheduleFor,
 } = mod;
 
 const M = 60;
@@ -356,4 +357,91 @@ test('computeGraceSeconds: floor of 10% of given-up time', () => {
   assert.equal(computeGraceSeconds(10 * M), 1 * M);
   assert.equal(computeGraceSeconds(55), 5);  // floor(5.5)
   assert.equal(computeGraceSeconds(0), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Scheduling — session-relative deadlines as absolute instants (MV3 port).
+// ---------------------------------------------------------------------------
+
+const NOW = 1_700_000_000_000;
+
+test('endsAtSessionTime / windDownAtSessionTime track effectiveLength', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, carryover: 2 * M });
+  assert.equal(endsAtSessionTime(s), 32 * M);
+  assert.equal(windDownAtSessionTime(s), 32 * M - WIND_DOWN_DURATION);
+});
+
+test('windDownAtSessionTime never goes negative on a very short session', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 });
+  assert.equal(windDownAtSessionTime(s), 0);
+});
+
+test('secondsUntil measures running-clock seconds from current elapsed', () => {
+  const s = startSession({ dailyTotal: 100, baseLength: 30 * M });
+  // 5 minutes of the session already elapsed.
+  assert.equal(secondsUntil(s, 100 + 5 * M, endsAtSessionTime(s)), 25 * M);
+});
+
+test('instantFor converts to epoch ms, and returns null once due', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
+  assert.equal(instantFor(s, 10 * M, 30 * M, NOW), NOW + 20 * M * 1000);
+  // Exactly due and past due both schedule nothing — the caller acts now.
+  assert.equal(instantFor(s, 30 * M, 30 * M, NOW), null);
+  assert.equal(instantFor(s, 31 * M, 30 * M, NOW), null);
+});
+
+test('scheduleFor returns wind-down and end, sorted, ahead of the deadline', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
+  const wakes = scheduleFor(s, 0, NOW);
+  const kinds = wakes.map(w => w.kind);
+  assert.ok(kinds.includes('windDown'));
+  assert.equal(kinds[kinds.length - 1], 'sessionEnd');
+  // Sorted ascending by instant.
+  const ats = wakes.map(w => w.at);
+  assert.deepEqual(ats, [...ats].sort((a, b) => a - b));
+  const end = wakes.find(w => w.kind === 'sessionEnd');
+  assert.equal(end.at, NOW + 30 * M * 1000);
+  const wd = wakes.find(w => w.kind === 'windDown');
+  assert.equal(wd.at, NOW + (30 * M - WIND_DOWN_DURATION) * 1000);
+});
+
+test('scheduleFor drops deadlines already behind us', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
+  // Inside the wind-down window: only the session end is still schedulable.
+  const wakes = scheduleFor(s, 30 * M - 10, NOW);
+  assert.deepEqual(wakes.map(w => w.kind), ['sessionEnd']);
+  assert.equal(wakes[0].at, NOW + 10 * 1000);
+});
+
+test('scheduleFor excludes already-fired nudges so re-arming cannot replay them', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 60 * M });
+  const times = computeNudgeTimes(effectiveLength(s), s.nudgeSeed);
+  assert.ok(times.length > 0, 'need nudges for this test to mean anything');
+  const marked = markNudgeFired(s, times[0]);
+  const before = scheduleFor(s, 0, NOW).filter(w => w.kind === 'nudge').map(w => w.sessionTime);
+  const after = scheduleFor(marked, 0, NOW).filter(w => w.kind === 'nudge').map(w => w.sessionTime);
+  assert.deepEqual(before, times);
+  assert.deepEqual(after, times.slice(1));
+});
+
+test('scheduleFor after a live length change reflects the new deadline', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
+  const { session: longer } = changeLength(s, { dailyTotal: 10 * M, newBaseLength: 45 * M });
+  const end = scheduleFor(longer, 10 * M, NOW).find(w => w.kind === 'sessionEnd');
+  // 45m limit, 10m elapsed → 35m of running clock left.
+  assert.equal(end.at, NOW + 35 * M * 1000);
+});
+
+test('scheduled instants agree with the live state derivers at those instants', () => {
+  // The whole design rests on these two paths not drifting apart: the alarm
+  // fires at scheduleFor's instant, and the handler then asks windDownState /
+  // displayFor whether it is really due.
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
+  const wakes = scheduleFor(s, 0, NOW);
+  for (const w of wakes) {
+    const elapsedAtWake = (w.at - NOW) / 1000;
+    const { remaining } = displayFor(s, elapsedAtWake);
+    if (w.kind === 'sessionEnd') assert.equal(remaining, 0);
+    if (w.kind === 'windDown') assert.equal(windDownState(s, elapsedAtWake).active, true);
+  }
 });
