@@ -136,6 +136,57 @@ demonstrably alive because it is running that handler. Do not rely on a
 periodic flush, and do not rely on anything issued during shutdown — there is
 no `onSuspend` guarantee in MV3.
 
+### Step 1b — The content script owns idle detection
+
+Heartbeat-only idle detection is correct in the data but wrong in the UI, so the
+content script must detect its own idleness.
+
+With a 30s heartbeat and a 30s threshold, detection lands **30–60s late** (two
+unsynchronised 30s cycles; 30s is Chrome's hard floor for `periodInMinutes`).
+The accounting survives that — `tabLastActivity` records when input actually
+stopped, so a late check banks time only up to that instant and retroactively
+excludes the idle period. Today's tick counter cannot do this; those seconds
+were already `++`'d and are unrecoverable. So the data is *more* accurate than
+Firefox today, just less prompt.
+
+The display is the problem. `updateTimerText()`
+([src/content.ts:179](../../src/content.ts)) is **passive** — it renders
+whatever the background last sent and has no clock of its own. So during the lag
+it freezes at a stale value, and the late correction makes the number jump
+**backward** (time is given back, because the freeze happened later than the
+moment counting stopped).
+
+The jump is small and in the forgiving direction, but it is disproportionately
+likely to be *seen*: the correction is triggered by the user returning and
+moving the mouse, which is exactly when they look at the widget.
+
+**Fix:** the content script already sees `mousemove` / `scroll` / `keydown`
+directly ([src/content.ts:1068-1070](../../src/content.ts)) with no worker
+involved. Give it its own idle timer so it freezes the display at exactly the
+threshold, at the correct value, and sends:
+
+```
+{ type: 'USER_IDLE', since: lastActivityTime }
+```
+
+That message is itself a wake source, so the worker starts, banks time up to
+`since`, and detection lag drops to ~0. The heartbeat reverts to a backstop for
+when the tab is gone or the content script never loaded. Resuming was never a
+problem — the first `mousemove` sends `USER_ACTIVE` and wakes the worker
+immediately.
+
+**No idle indicator.** Two reasons. `.web-time-timer:hover` already uses
+`opacity: 0.25` ([extension/timer.css:29](../../extension/timer.css)), so
+dimming for idle would be indistinguishable from hover and would break the
+"see what's behind the widget" gesture on an already-dim timer. And with the
+freeze happening at the right moment with the right value, a stopped timer
+during inactivity is simply what a correct timer does — it needs no explanation.
+
+This does not eliminate stale displays in the *broken* case (worker dead, a
+scheduled wake missed). That's a bug, and the fix is the bug, not an indicator.
+If a safety net is ever wanted, the better signal is the content script noticing
+it has heard nothing from the background for N minutes *while active*.
+
 ### Step 2 — Scheduled wakes
 
 Compute `sessionEndsAt` when a session starts or changes, then schedule:
@@ -209,11 +260,15 @@ per session become 1.
 hard floor for the periodic form. Replaces the activity-check interval at
 [src/background.ts:1141](../../src/background.ts).
 
-Run 2 promoted this from a nicety to a requirement. The worker dies within ~30s
-of idle and silent video generates no events, so **the heartbeat is the only
-wake source that keeps idle detection running at all**. Without it,
-`tabLastActivity` is simply never checked during exactly the sessions the
-extension exists to interrupt. It also bounds any unobserved gap to ~30s. Detection latency goes to ~30s, but with
+Run 2 promoted this from a nicety to a requirement: the worker dies within ~30s
+of idle and silent video generates no events, so without a heartbeat there are
+long stretches with no wake source at all. It bounds any unobserved gap to ~30s.
+
+It is **not** the primary idle detector — Step 1b moves that to the content
+script, because a 30s heartbeat detects idleness 30–60s late and produces a
+visible backward jump in the timer. The heartbeat covers the cases the content
+script can't: the tab was closed, the content script never loaded, or a
+`USER_IDLE` message was lost. Detection latency goes to ~30s, but with
 timestamps that doesn't corrupt data — `tabLastActivity` records when the user
 actually last interacted, so a late check can retroactively exclude the idle
 period. (Under tick-counting a late check can't; those seconds were already
@@ -281,9 +336,14 @@ is the forcing function, not the only reason to do it.
    within ~1s of zero.
 4. Force-kill the worker mid-session (`chrome://serviceworker-internals` → Stop)
    and confirm the count heals and the blocker still fires on time.
-5. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
+5. **Idle freeze, watching the widget.** Set the inactivity threshold to 30s,
+   stop touching the machine, and watch the timer. It must stop within ~1s of
+   the threshold and then **never jump backward** when you return and move the
+   mouse. A backward jump means `USER_IDLE` isn't firing and the heartbeat is
+   doing the detection — the artifact Step 1b exists to remove.
+6. Sleep the laptop mid-session; confirm the gap is capped at the inactivity
    threshold rather than credited in full.
-6. Regression-test the same flows in Firefox with the MV2 build.
+7. Regression-test the same flows in Firefox with the MV2 build.
 
 ## Open questions
 
