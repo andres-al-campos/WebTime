@@ -315,12 +315,63 @@ async function rescheduleWakes(): Promise<void> {
   log(`Scheduled ${wakes.length} wake(s) for ${domain}.`);
 }
 
+// --- Heartbeat backstop ----------------------------------------------------
+//
+// The scheduled wakes above are the mechanism; this is the safety net for the
+// cases they structurally cannot cover:
+//
+//   - The day rolling over. Midnight is not a session deadline, so no wake is
+//     armed for it, but the daily total has to reset.
+//   - A session that exists with the clock STOPPED. rescheduleWakes()
+//     deliberately arms nothing then, so if a stop was somehow missed (a
+//     transition that never ran because the worker died between the event and
+//     the handler) nothing would ever re-examine it.
+//   - Persisting long-running time. saveTimeData() rides the display tick,
+//     which stops with the worker; without this a very long uninterrupted
+//     session would hold hours of un-banked time in memory only.
+//
+// One minute is the floor for periodInMinutes in practice and is far more
+// often than any of these need. It is deliberately NOT the thing that makes
+// session ends work — that is the scheduled wake — so its cost is bounded and
+// it can be slow without breaking the timer.
+const HEARTBEAT_ALARM = 'webtime-heartbeat';
+const HEARTBEAT_PERIOD_MINUTES = 1;
+
+function ensureHeartbeat(): void {
+  // create() with the same name replaces any existing alarm, so this is
+  // idempotent and safe to call on every worker boot.
+  browser.alarms.create(HEARTBEAT_ALARM, {
+    periodInMinutes: HEARTBEAT_PERIOD_MINUTES,
+  });
+}
+
+function handleHeartbeat(): void {
+  if (rolloverIfNewDay()) {
+    updateTimerDisplay(dailyTotal());
+    return;
+  }
+
+  // Re-examine the gates: if a transition was missed, this corrects it.
+  syncClock();
+
+  // Bank and persist while running, so a long session's time survives the
+  // worker being killed between display ticks.
+  if (isRunning(dailyClock)) {
+    void saveTimeData();
+    void checkForInterventions();
+  }
+}
+
 /**
  * Every wake runs the same derivation the 1-second tick used to run. The alarm
  * only guarantees that SOMETHING is running at this instant; what to do is
  * decided entirely from current state.
  */
 function handleAlarm(alarm: chrome.alarms.Alarm): void {
+  if (alarm.name === HEARTBEAT_ALARM) {
+    handleHeartbeat();
+    return;
+  }
   if (!alarm.name.startsWith(WAKE_ALARM_PREFIX)) return;
   log(`Wake: ${alarm.name}`);
   void checkForInterventions();
@@ -1463,6 +1514,10 @@ async function init(): Promise<void> {
   // just loaded, and the state has to be real rather than the 'active' default.
   applyIdleDetectionInterval();
   await syncOsIdleState();
+
+  // Arm the backstop on every worker boot. clearWakes() only touches the
+  // WAKE_ALARM_PREFIX alarms, so rescheduling never removes this one.
+  ensureHeartbeat();
 
   // Sync foreground state on wake: a service worker can start while the browser
   // is in the background, so don't assume it's focused. getLastFocused throws if
