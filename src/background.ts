@@ -172,6 +172,78 @@ let averagePopupOpen = false;
 // the freeze gates are one predicate rather than two that can disagree.
 let activeTabIsEngaged = false;
 
+// --- OS-level idle ---------------------------------------------------------
+//
+// chrome.idle reports whether the MACHINE has had input recently, which the
+// content script cannot know: its events only fire while the user is doing
+// something, so "no events" is ambiguous between "walked away" and "reading
+// quietly". Two things make this worth a separate signal:
+//
+//   - It is correct on a cold start. tabLastActivity is empty on every worker
+//     boot, which under MV3 is constant, so inferring activity from it alone
+//     makes a reading user look idle until they happen to move the mouse.
+//     queryState() answers directly.
+//   - It is a wake source. onStateChanged revives a dead worker, so the
+//     transition back to 'active' is noticed rather than waiting for the next
+//     content-script message.
+//
+// It does NOT replace the per-tab test. chrome.idle's minimum detection
+// interval is 15s and the user's inactivity threshold can be set as low as 1s,
+// so for short thresholds the content-script events are still what provides
+// the resolution. The two are complementary: chrome.idle catches "away from
+// the machine", the content script catches "not interacting with this page".
+//
+// 'active' by default so a fresh worker counts until told otherwise, matching
+// browserIsFocused. init() immediately replaces it with a real query.
+let osIdleState: chrome.idle.IdleState = 'active';
+
+/**
+ * chrome.idle needs a detection interval in whole seconds, minimum 15. The
+ * user's threshold can be lower, so clamp — the content-script events cover
+ * the finer resolution and this stays the coarse "away from the machine" test.
+ */
+function idleDetectionSeconds(): number {
+  return Math.max(15, Math.round(inactivityThresholdMs / 1000));
+}
+
+function applyIdleDetectionInterval(): void {
+  browser.idle.setDetectionInterval(idleDetectionSeconds());
+}
+
+function handleIdleStateChanged(state: chrome.idle.IdleState): void {
+  osIdleState = state;
+  log(`OS idle state: ${state}`);
+  // Act on it now. Going idle should stop the clock immediately rather than
+  // waiting for a tick that may never come, and coming back should resume
+  // without waiting for the content script to notice.
+  syncClock();
+}
+
+/**
+ * Read the true idle state, for a cold start where we have no history.
+ *
+ * Uses the callback form, which both Chrome and Firefox support — Firefox also
+ * returns a promise here but Chrome's typings are callback-only, and this is
+ * the one shape that works on both without a per-browser branch.
+ */
+function syncOsIdleState(): Promise<void> {
+  return new Promise(resolve => {
+    try {
+      browser.idle.queryState(idleDetectionSeconds(), state => {
+        osIdleState = state;
+        log(`OS idle state on start: ${state}`);
+        resolve();
+      });
+    } catch (err) {
+      // Treat an unavailable idle API as "not idle" rather than freezing the
+      // clock: over-counting a little beats a timer that silently stops.
+      console.warn('idle.queryState failed, assuming active:', err);
+      osIdleState = 'active';
+      resolve();
+    }
+  });
+}
+
 // --- Scheduled wakes -------------------------------------------------------
 //
 // Under MV3 nothing of ours is guaranteed to be running when a session ends:
@@ -529,6 +601,12 @@ function shouldClockRun(): boolean {
   // so don't count time the user can't spend.
   if (averagePopupOpen) return false;
 
+  // OS idle gate: the machine is locked, or has had no input at all for the
+  // detection interval. This is a stronger statement than the per-tab activity
+  // test below — it covers walking away with a tab focused, where the content
+  // script has nothing to report because nothing is happening.
+  if (osIdleState === 'locked' || osIdleState === 'idle') return false;
+
   // Activity gate: an idle user on an open tab isn't spending time on it. This
   // used to live only in handleTimerState (deciding whether the interval ran),
   // but the clock is what counts now, so the test has to be part of this
@@ -703,7 +781,15 @@ function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
   }
 
   const lastActivity = tabLastActivity[tabId] || 0;
-  const isUserActive = (Date.now() - lastActivity) < inactivityThresholdMs;
+  // No recorded activity for this tab is AMBIGUOUS, not evidence of idleness:
+  // tabLastActivity is in-memory only, so every MV3 worker boot starts empty
+  // even for a user who is right there. Fall back to the OS idle state, which
+  // is the one signal that survives the worker. Without this, a user quietly
+  // reading stops being counted on every worker restart until they happen to
+  // move the mouse.
+  const isUserActive = lastActivity === 0
+    ? osIdleState === 'active'
+    : (Date.now() - lastActivity) < inactivityThresholdMs;
 
   activeTabIsEngaged = Boolean(activeTab.audible) || isUserActive;
 
@@ -855,6 +941,7 @@ function handleMessageReceived(
       const settings: WebTimeSettings = data.webTimeSettings || { global: {}, domains: {} };
 
       inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
+      applyIdleDetectionInterval();
       log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 
       const newResetTime = settings.global?.dayResetTime || 0;
@@ -1350,6 +1437,7 @@ async function init(): Promise<void> {
   browser.windows.onFocusChanged.addListener(handleWindowFocusChanged);
   browser.runtime.onMessage.addListener(handleMessageReceived);
   browser.alarms.onAlarm.addListener(handleAlarm);
+  browser.idle.onStateChanged.addListener(handleIdleStateChanged);
 
 
 
@@ -1361,6 +1449,11 @@ async function init(): Promise<void> {
   log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 
   currentDateStr = getLocalDateStrWithReset();
+
+  // Before any clock decision: the detection interval depends on the settings
+  // just loaded, and the state has to be real rather than the 'active' default.
+  applyIdleDetectionInterval();
+  await syncOsIdleState();
 
   // Sync foreground state on wake: a service worker can start while the browser
   // is in the background, so don't assume it's focused. getLastFocused throws if
