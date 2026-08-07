@@ -33,14 +33,23 @@ the results.
 
 ## Results (measured 2026-08-06)
 
-`alarms.create({when})` fires at 0–4ms accuracy across 5s–120s delays, and a
-content-script `setTimeout` over 90s in the active tab lands within 1–7ms. Both
-are precise enough to schedule session ends directly, so the earlier worry
-about a 30-second blocker delay does not apply.
+Both questions answered over two runs.
 
-Q2 is **unresolved**: the probe's own 30s heartbeat alarm kept the worker alive
-for the whole 9-minute run, masking the behavior it was measuring. To close it,
-comment out the `heartbeat` alarm in [sw.js](sw.js) and re-run.
+**Q1 — alarms are precise.** `alarms.create({when})` fires within 0–4ms across
+5s–120s delays, and within ~1s even when the worker must be cold-started to
+receive it. A content-script `setTimeout` over 90s in the active tab lands
+within 1–7ms. Precision does not depend on the worker being alive, so session
+ends can be scheduled directly and the earlier worry about a 30-second blocker
+delay does not apply.
+
+**Q2 — the worker dies constantly.** 7 boots in 10 minutes of untouched video
+playback with no heartbeat. Three consecutive 3-minute alarms each arrived under
+a different boot id, so the worker died in every gap. Video playback does **not**
+keep it alive: `audible` fires only at playback start and stop. With a 30s
+heartbeat it survived a full 9-minute run.
+
+Run 1 measured Q2 wrong — its own heartbeat kept the worker alive and masked the
+death it was looking for. Hence the `MODE` switch in [sw.js](sw.js).
 
 **[CHROME-PORT-PLAN.md](CHROME-PORT-PLAN.md) is the handoff document** — full
 measurements, the design they imply, and step-by-step porting notes.

@@ -34,23 +34,41 @@ death. Under MV3 the worker dies, ticks stop, the counter stops advancing, and:
 
 From the probe in this directory (9-minute YouTube run, no interaction):
 
+Two runs: run 1 with a 30s heartbeat (precision mode), run 2 without (lifetime
+mode). Both ~10 minutes of YouTube playback with no interaction.
+
 | Question | Result |
 |---|---|
 | `alarms.create({when})` precision | **0–4ms** typical across 5s–120s delays; one 952ms outlier in 13 samples |
+| Same, when the worker must be **cold-started** to receive it | **~1s** (180s requested → 181s delivered, 3/3 samples) |
 | Content-script `setTimeout` over 90s, active tab | **1–7ms** typical; one 691ms outlier in 5 samples |
-| Worker death during silent playback | **Untested** — see caveat |
-| Worker survival *with* a 30s heartbeat alarm | Survived 9 min, single boot id, no resurrections |
+| Worker death during silent video playback, no heartbeat | **Dies constantly — 7 boots in 10 minutes** |
+| Worker survival *with* a 30s heartbeat | Survived 9 min, single boot id, no resurrections |
 
-**Caveat on the untested row:** the probe's own 30s heartbeat alarm kept the
-worker alive, masking the behavior it was trying to measure. What we know is
-that a 30s heartbeat keeps the worker up indefinitely — useful, but not the
-same question. Closing this gap means a second run with the heartbeat disabled.
-It was judged non-blocking because the design relies on *scheduled wakes firing
-on time* (measured, excellent) rather than on the worker surviving unaided.
+### The worker dies, and video does not keep it alive
 
-`AUDIBLE_CHANGE` fired at 8:13:38 and then not again until 8:18:27 — a ~5min
-gap. This confirms `audible` is an **edge** event (fires at playback start/stop
-only). Audio keeps a tab *counted* but does not keep the worker *alive*.
+Run 2 is unambiguous. Three consecutive 3-minute alarms fired at 8:39:33,
+8:42:34 and 8:45:35 under **three different boot ids** (`2u20za`, `jythqp`,
+`uei0wi`) — the worker died in every gap and was cold-started to deliver each
+alarm. `AUDIBLE_CHANGE` at 8:39:46 was followed by a fresh boot 57s later while
+audio was still playing.
+
+So: `audible` is an **edge** event (fires at playback start/stop only). Audio
+keeps a tab *counted* but does not keep the worker *alive*. An assumption that
+engaged timewaster use would keep the worker up by generating events is
+**false** — silent video is the common case and it generates nothing.
+
+Alarms remained accurate through all of this. The ~1s on cold-start delivery is
+worker startup cost, not scheduling drift. **Alarm precision does not depend on
+the worker being alive**, which is what makes the whole design viable.
+
+### Writes can be lost during teardown
+
+Run 2 logged a boot id (`lbc1dc`, 8:46:13) with no `WORKER_BOOT` row — the
+module-scope `storage.local` write lost the race with worker shutdown. Treat any
+async write issued as the worker is being torn down as **unreliable**. State
+must be persisted at the moment of the transition that changes it, not batched
+for later. See Step 1.
 
 ## Design
 
@@ -110,6 +128,14 @@ contact longer than `inactivityThresholdMs`, the user wasn't interacting, which
 is the existing definition of idle. Laptop sleep, worker death, and genuine
 idleness collapse into one rule — no special cases.
 
+**Persist at the transition, not on a schedule.** Run 2 showed a `storage.local`
+write being lost to worker teardown. Every gate transition must write
+`activeSince` / `accumulatedToday` in the same handler that observes it
+(`onFocusChanged`, cooldown start, popup open, …), while the worker is
+demonstrably alive because it is running that handler. Do not rely on a
+periodic flush, and do not rely on anything issued during shutdown — there is
+no `onSuspend` guarantee in MV3.
+
 ### Step 2 — Scheduled wakes
 
 Compute `sessionEndsAt` when a session starts or changes, then schedule:
@@ -127,11 +153,33 @@ fires on time; the alarm is primary. Neither *decides* anything — they wake th
 worker, which recomputes from the clock and confirms before acting. A tampered
 content script can only cause an early wake that gets rejected.
 
-**Main implementation risk:** a single `rescheduleSessionEnd()` must be called
-from every path that mutates session state — `getOrStartSession`, the
-`changeLength` path (~[src/background.ts:694-725](../../src/background.ts)),
-`naturalEnd`, `endEarly`, cooldown start/end, settings changes. A missed call
-site leaves a stale alarm. Worth a dedicated review pass.
+**Main implementation risk:** rescheduling must happen on every path that
+mutates session state — `getOrStartSession`, the `changeLength` path
+(~[src/background.ts:694-725](../../src/background.ts)), `naturalEnd`,
+`endEarly`, cooldown start/end, settings changes. A missed call site leaves a
+stale alarm, which means the blocker doesn't fire — the worst failure this
+extension has. Scattered manual calls are the kind of thing that reviews clean
+and still breaks in the one path nobody considered.
+
+Three mitigations, all cheap, meant to be used together:
+
+1. **A pure deadline function.** `sessionEndsAt(session, dailyTotal) → epoch ms`
+   lives in [session-model.ts](../../src/shared/session-model.ts) alongside the
+   existing pure helpers, and gets unit tests in the current harness (34 tests,
+   no browser needed). The scheduling layer becomes a thin wrapper with nothing
+   to get wrong.
+2. **A `commitSession(domain, session)` funnel.** Every mutation goes through
+   one function that writes `sessions[domain]`, persists, *and* reschedules.
+   Rescheduling stops being something to remember and becomes what committing
+   means. One place to audit instead of eight.
+3. **Recompute on every wake.** Unconditionally clear and re-derive the alarm
+   from current state at the top of each wake. A stale alarm then self-corrects
+   regardless of which path forgot — and with the heartbeat, "next wake" is at
+   most ~30s away.
+
+Not compiler-enforced: someone can still assign `sessions[domain]` directly.
+Making `sessions` module-private would close that, but it's a larger refactor
+than the port and the threat model (below) doesn't justify it.
 
 ### Step 3 — Wind-down bar moves to the content script
 
@@ -155,14 +203,17 @@ changes signature to take `endsAt`.
 Two side benefits: the animation gets smoother than 1Hz steps, and 60 messages
 per session become 1.
 
-### Step 4 — Heartbeat backstop
+### Step 4 — Heartbeat (mandatory)
 
 `chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 })` — 30s is the
 hard floor for the periodic form. Replaces the activity-check interval at
 [src/background.ts:1141](../../src/background.ts).
 
-This is a **backstop**, not the mechanism: it bounds any unobserved gap to ~30s
-and keeps idle detection running. Detection latency goes to ~30s, but with
+Run 2 promoted this from a nicety to a requirement. The worker dies within ~30s
+of idle and silent video generates no events, so **the heartbeat is the only
+wake source that keeps idle detection running at all**. Without it,
+`tabLastActivity` is simply never checked during exactly the sessions the
+extension exists to interrupt. It also bounds any unobserved gap to ~30s. Detection latency goes to ~30s, but with
 timestamps that doesn't corrupt data — `tabLastActivity` records when the user
 actually last interacted, so a late check can retroactively exclude the idle
 period. (Under tick-counting a late check can't; those seconds were already
@@ -188,6 +239,29 @@ banked.) Inactivity thresholds of 30–60s are unaffected.
 - [build.sh](../../build.sh) uses `web-ext build` (Mozilla's tool). It zips a
   Chrome extension fine but you'll want a second artifact.
 
+## Threat model
+
+Worth stating, because it decides how much of the enforcement can safely live
+in the content script — and the answer is "more than you'd assume."
+
+This is a tool for overcoming your own bad habits, under rules you set for
+yourself. The adversary is not a hostile user; it's you in a weak moment taking
+the path of least resistance. So the goal is that **the easy path is the honest
+one**, not that the hard path is impossible. Someone who opens devtools to
+suppress a blocker has made a deliberate decision, and at that point
+uninstalling is the more honest move. Defending against that costs complexity
+and buys nothing.
+
+What does matter is the *accidental* failure: a blocker that doesn't fire
+because of a bug, or a timer that undercounts because the worker slept. That
+isn't the user cheating, it's the tool being unreliable, and it erodes trust
+until they stop using it.
+
+Engineering effort therefore goes to correctness, not tamper-resistance. This
+is why the content script can own the display and even show the blocker
+optimistically at its local deadline, and why the three mitigations in Step 2
+are aimed at bugs rather than at a determined user.
+
 ## Why this is also better on Firefox
 
 MV2 background pages don't get killed like service workers, but they *are*
@@ -211,9 +285,17 @@ is the forcing function, not the only reason to do it.
    threshold rather than credited in full.
 6. Regression-test the same flows in Firefox with the MV2 build.
 
-## Open question
+## Open questions
 
-Q2 above — whether the worker dies unaided during silent playback. Closing it
-means re-running the probe with the heartbeat alarm commented out in
-[sw.js](sw.js) and leaving a video playing untouched for ~5 minutes. It does not
-block the port; the design assumes the worker dies and schedules around it.
+None blocking. Both probe questions are answered (see Measured facts).
+
+Worth checking during implementation:
+
+- **Content-script timer under tab throttling.** Measured only in the active
+  foreground tab, which is the case that matters. Background tabs throttle
+  timers, but a session's tab is by definition the one being used. The alarm
+  path is unaffected either way.
+- **Cold-start cost under load.** The ~1s cold-start delivery was measured on an
+  otherwise idle machine. If it degrades badly under load, the content-script
+  timer becomes the more accurate of the two paths — which is already a reason
+  to keep both.
