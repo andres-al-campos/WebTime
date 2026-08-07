@@ -29,7 +29,19 @@ append({ ev: 'WORKER_BOOT' });
 // requested and actual firing time. Re-arms itself so we gather many samples
 // across varying idle durations.
 
-const PRECISION_DELAYS_MS = [5000, 15000, 30000, 60000, 120000];
+// MODE: 'precision' measures alarm accuracy (Q1, answered: 0-4ms).
+// 'lifetime' measures whether the worker dies unaided (Q2).
+//
+// The two cannot be measured at once: any alarm firing resets the ~30s idle
+// countdown, so frequent precision alarms keep the worker alive and mask the
+// death we're looking for. That is exactly what invalidated the first run.
+// In 'lifetime' mode the heartbeat is off and a single long alarm is the only
+// scheduled wake, leaving a genuine idle window in between.
+const MODE = 'lifetime';
+
+const PRECISION_DELAYS_MS = MODE === 'lifetime'
+  ? [180000]           // one 3-minute alarm: long enough to leave real idle time
+  : [5000, 15000, 30000, 60000, 120000];
 let precisionIdx = 0;
 
 async function armPrecisionAlarm() {
@@ -92,8 +104,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.local.set({ log: [], pIdx: 0 });
-  await append({ ev: 'INSTALLED' });
-  chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  await append({ ev: 'INSTALLED', mode: MODE });
+  // The heartbeat is the thing that kept the worker alive in run 1, so it is
+  // deliberately not created in lifetime mode.
+  if (MODE === 'lifetime') {
+    // Alarms persist across extension reloads, so a heartbeat left over from a
+    // previous precision run would keep the worker alive and silently invalidate
+    // this one — the same failure as run 1. Clear it explicitly.
+    await chrome.alarms.clear('heartbeat');
+  } else {
+    chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  }
   await armPrecisionAlarm();
 });
 

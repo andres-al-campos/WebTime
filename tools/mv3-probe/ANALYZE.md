@@ -58,6 +58,30 @@ tick-based assumption in the current design is broken on Chrome.
 active tab. Small drift confirms the content script can be trusted to fire
 session deadlines on time.
 
+## Lifetime run (Q2)
+
+With `MODE = 'lifetime'` in [sw.js](sw.js) there is no heartbeat and a single
+3-minute alarm, so the worker gets a real idle window. Reload the extension,
+play a video, and leave the machine alone for ~5 minutes. Then:
+
+```js
+chrome.storage.local.get('log').then(({log = []}) => {
+  const boots = [...new Set(log.map(e => e.boot))];
+  console.log('distinct worker boots:', boots.length);
+  console.log(boots.length > 1
+    ? 'Q2: worker DIED and was resurrected — heartbeat is mandatory'
+    : 'Q2: worker survived unaided across the idle window');
+  console.table(log.map(e => ({
+    ev: e.ev, boot: e.boot,
+    t: new Date(e.at).toLocaleTimeString(),
+    gapSec: '',
+  })));
+});
+```
+
+More than one boot id = the worker died. One boot id across a 5-minute
+untouched window = it survived on its own.
+
 ## Running it
 
 1. `chrome://extensions` → enable **Developer mode**
