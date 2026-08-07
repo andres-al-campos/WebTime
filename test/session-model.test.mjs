@@ -29,6 +29,7 @@ const {
   computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
   windDownState, WIND_DOWN_DURATION,
   endsAtSessionTime, windDownAtSessionTime, secondsUntil, instantFor, scheduleFor,
+  shouldScheduleWakes,
 } = mod;
 
 const M = 60;
@@ -444,4 +445,19 @@ test('scheduled instants agree with the live state derivers at those instants', 
     if (w.kind === 'sessionEnd') assert.equal(remaining, 0);
     if (w.kind === 'windDown') assert.equal(windDownState(s, elapsedAtWake).active, true);
   }
+});
+
+// ---------------------------------------------------------------------------
+// shouldScheduleWakes — the guard around arming alarms.
+// ---------------------------------------------------------------------------
+
+test('shouldScheduleWakes requires a running clock, a session, and no cooldown', () => {
+  const yes = { clockRunning: true, hasSession: true, inCooldown: false };
+  assert.equal(shouldScheduleWakes(yes), true);
+  // A paused clock: deadlines have no knowable instant.
+  assert.equal(shouldScheduleWakes({ ...yes, clockRunning: false }), false);
+  // No session yet: nothing to schedule against.
+  assert.equal(shouldScheduleWakes({ ...yes, hasSession: false }), false);
+  // Mid-cooldown: the session is not advancing.
+  assert.equal(shouldScheduleWakes({ ...yes, inCooldown: true }), false);
 });

@@ -330,6 +330,22 @@ export function instantFor(
   return nowMs + secs * 1000;
 }
 
+/**
+ * Whether wakes should be armed at all right now.
+ *
+ * Separated from scheduleFor so the "should we schedule" decision is testable
+ * without an alarms API. Each false case means the session is not advancing
+ * toward any deadline, so an armed alarm could only wake the worker to
+ * discover there is nothing to do.
+ */
+export function shouldScheduleWakes(opts: {
+  clockRunning: boolean;
+  hasSession: boolean;
+  inCooldown: boolean;
+}): boolean {
+  return opts.clockRunning && opts.hasSession && !opts.inCooldown;
+}
+
 export interface ScheduledWake {
   /** What is due at this instant. */
   kind: 'nudge' | 'windDown' | 'sessionEnd';

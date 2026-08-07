@@ -10,6 +10,8 @@ import {
   nextNudgeToFire,
   markNudgeFired,
   windDownState,
+  scheduleFor,
+  shouldScheduleWakes,
 } from './shared/session-model.js';
 import {
   type ClockState,
@@ -87,13 +89,12 @@ function setDailyTotal(seconds: number): void {
  *
  * Session deadlines are stored as session-relative seconds but scheduled as
  * absolute instants, and that conversion is only valid while the clock runs.
- * So every start/stop invalidates the schedule and it must be rebuilt. Step 2
- * fills this in; keeping the call sites here from the start means the wiring
- * is already correct when it does.
+ * So every start/stop invalidates the schedule and it must be rebuilt.
  */
 function onClockTransition(): void {
-  // Populated in Step 2 (scheduled wakes).
+  void rescheduleWakes();
 }
+
 let activeTabId: number | null = null;
 const trackedTabIds = new Set<number>();
 let timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -145,7 +146,9 @@ const suspendedSessions: Record<Domain, ActiveSession> = {};
 //                               setting reads as 0 the bar collapses to 100%. So store it once.
 //   cooldownTickers[domain]   = the 1s setInterval that drives the blocker countdown UI.
 //   windDownActive[domain]    = whether the wind-down overlay is currently shown.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number }> = {};
+// nudgeCount rides along because rescheduleWakes() is synchronous with respect
+// to clock transitions and must not await a settings read to arm alarms.
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number; nudgeCount?: number }> = {};
 const cooldownEndTime: Record<Domain, number> = {};
 const cooldownTotalSec: Record<Domain, number> = {};
 const cooldownTickers: Record<Domain, ReturnType<typeof setInterval>> = {};
@@ -168,6 +171,88 @@ let averagePopupOpen = false;
 // see the tab object) and read by shouldClockRun, so the engagement test and
 // the freeze gates are one predicate rather than two that can disagree.
 let activeTabIsEngaged = false;
+
+// --- Scheduled wakes -------------------------------------------------------
+//
+// Under MV3 nothing of ours is guaranteed to be running when a session ends:
+// the worker dies after ~30s idle, and video playback does not keep it alive
+// (measured — 7 deaths in 10 untouched minutes, tools/mv3-probe). A blocker
+// that fires whenever the worker next happens to wake is not a timer.
+//
+// So each deadline gets a chrome.alarms one-shot at its absolute instant.
+// Alarms wake a dead worker and fire on time regardless of its state — the
+// probe measured ~1s from a cold start, and that second is the cold start
+// itself, not alarm imprecision. `alarms.create({when})` has no 30s floor;
+// that limit applies only to periodInMinutes.
+//
+// Two properties keep this honest:
+//
+//   - Alarms are a WAKE mechanism, never a source of truth. Every handler
+//     re-derives from the clock via checkForInterventions(), so an alarm that
+//     fires early, late, or spuriously cannot cause a wrong action — at worst
+//     it costs a wake. This is why the alarm handler has no session logic of
+//     its own.
+//   - The schedule is rebuilt on every clock transition, because a paused
+//     clock means every future instant has moved. Pausing therefore CANCELS
+//     the alarms rather than leaving them to fire against a frozen clock.
+
+const WAKE_ALARM_PREFIX = 'webtime-wake-';
+
+/** Drop every scheduled wake. Called before rebuilding, and when paused. */
+async function clearWakes(): Promise<void> {
+  const all = await browser.alarms.getAll();
+  await Promise.all(
+    all
+      .filter(a => a.name.startsWith(WAKE_ALARM_PREFIX))
+      .map(a => browser.alarms.clear(a.name))
+  );
+}
+
+/**
+ * Rebuild the alarm set for the tracked domain's current session.
+ *
+ * Arms one alarm per future deadline rather than only the next one: if a wake
+ * is missed, everything after it still fires on its own schedule. Nudge
+ * catch-up (nextNudgeToFire returns the LATEST overdue nudge) collapses a
+ * backlog into a single nudge, so redundant alarms cannot produce a burst.
+ */
+async function rescheduleWakes(): Promise<void> {
+  await clearWakes();
+
+  if (!trackedTabDomain) return;
+  const domain = trackedTabDomain;
+  const session = sessions[domain];
+
+  // A stopped clock means no deadline has a knowable instant — time is not
+  // advancing toward any of them. Leaving alarms armed would fire them against
+  // a frozen clock, where checkForInterventions correctly does nothing; better
+  // not to wake the worker at all. Same for a cooldown: the session is paused.
+  const ok = shouldScheduleWakes({
+    clockRunning: isRunning(dailyClock),
+    hasSession: Boolean(session),
+    inCooldown: (cooldownEndTime[domain] || 0) > Date.now(),
+  });
+  if (!ok || !session) return;
+
+  const nudgeCount = cachedDomainSessionLimit[domain]?.nudgeCount;
+  const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgeCount);
+
+  for (const w of wakes) {
+    browser.alarms.create(`${WAKE_ALARM_PREFIX}${w.kind}-${w.sessionTime}`, { when: w.at });
+  }
+  log(`Scheduled ${wakes.length} wake(s) for ${domain}.`);
+}
+
+/**
+ * Every wake runs the same derivation the 1-second tick used to run. The alarm
+ * only guarantees that SOMETHING is running at this instant; what to do is
+ * decided entirely from current state.
+ */
+function handleAlarm(alarm: chrome.alarms.Alarm): void {
+  if (!alarm.name.startsWith(WAKE_ALARM_PREFIX)) return;
+  log(`Wake: ${alarm.name}`);
+  void checkForInterventions();
+}
 
 /**
  * Get the current session for a domain, lazily starting one anchored at the
@@ -247,6 +332,14 @@ function saveSessionState(): void {
       cooldownTotalSec: activeCooldownTotals,
     },
   }).catch(err => console.warn('Failed to persist session state:', err));
+
+  // Every scheduled wake is derived from the session, so any change that is
+  // worth persisting is also a change that can have moved a deadline: a live
+  // length change, a nudge firing, a cooldown starting or ending, a new
+  // session. Rebuilding here rather than at each of those call sites means a
+  // future one cannot forget to reschedule — the alarms follow the state by
+  // construction. Rebuilds are cheap and idempotent.
+  void rescheduleWakes();
 }
 
 async function loadSessionState(): Promise<void> {
@@ -912,7 +1005,8 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   // cooldown it would trigger without an async settings load per tick.
   cachedDomainSessionLimit[trackedTabDomain] = {
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
-    cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0
+    cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0,
+    nudgeCount: domainSettings.nudgeCount
   };
 
   const { averageSeconds, daysWithData } = compute7DayStats(timeHistory, trackedTabDomain, currentDateStr);
@@ -1255,6 +1349,7 @@ async function init(): Promise<void> {
   browser.tabs.onRemoved.addListener(handleTabRemoved);
   browser.windows.onFocusChanged.addListener(handleWindowFocusChanged);
   browser.runtime.onMessage.addListener(handleMessageReceived);
+  browser.alarms.onAlarm.addListener(handleAlarm);
 
 
 
