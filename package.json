@@ -8,7 +8,7 @@
     "build": "npm run typecheck && npm run bundle",
     "bundle": "node build.mjs",
     "watch": "tsc --watch --noEmit",
-    "clean": "rm -rf extension/dist"
+    "clean": "rm -rf extension/dist dist-chrome"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.260",

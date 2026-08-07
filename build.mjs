@@ -1,5 +1,6 @@
 import * as esbuild from 'esbuild';
 import { rm } from 'node:fs/promises';
+import { buildChrome } from './manifest-chrome.mjs';
 
 // Start from a clean dist so stale orphans from older build layouts can't
 // linger and ship inside the packaged extension. (A previous tsc-based build
@@ -32,5 +33,9 @@ await Promise.all([
     outfile: 'extension/dist/popup/popup-bundle.js',
   }),
 ]);
+
+// Assemble the Chrome build from what we just bundled. Runs here rather than
+// as a separate script step so it can't be ordered before the bundle exists.
+await buildChrome();
 
 console.log('Build complete.');
