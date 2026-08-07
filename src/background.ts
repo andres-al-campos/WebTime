@@ -11,6 +11,16 @@ import {
   markNudgeFired,
   windDownState,
 } from './shared/session-model.js';
+import {
+  type ClockState,
+  createClock,
+  isRunning,
+  totalSeconds,
+  start,
+  stop,
+  setTotal,
+  bank,
+} from './shared/time-clock.js';
 import type {
   TimeHistory,
   Domain,
@@ -25,7 +35,65 @@ import type {
 declare const browser: typeof chrome;
 
 // State variables
-let todaysTotalTimeInActiveDomain = 0;
+//
+// The daily total is held as a timestamp-based clock rather than a counter
+// that gets incremented once a second. Under MV3 nothing is guaranteed to run
+// every second — the service worker dies after ~30s idle — so elapsed time is
+// derived from wall-clock timestamps and the tick is only a display refresh.
+// See src/shared/time-clock.ts for the reasoning and the measurements.
+//
+// The daily total is now read through dailyTotal() rather than a variable, so
+// every read reflects the current instant; transitions are explicit, via
+// clockStart() / clockStop() / setDailyTotal().
+let dailyClock: ClockState = createClock(0);
+
+/** Seconds spent on the tracked domain today, as of right now. */
+function dailyTotal(): number {
+  return totalSeconds(dailyClock, Date.now());
+}
+
+/**
+ * Start the daily clock if the user is genuinely spending time right now.
+ * Idempotent, so every "user is active" signal can call it freely.
+ */
+function clockStart(): void {
+  if (!shouldClockRun()) return;
+  if (isRunning(dailyClock)) return;
+  dailyClock = start(dailyClock, Date.now());
+  log('Clock started.');
+  onClockTransition();
+}
+
+/**
+ * Stop the daily clock, banking elapsed time. Persists immediately: the probe
+ * showed storage writes being lost when the worker is torn down, so a stop
+ * that lives only in memory can vanish.
+ */
+function clockStop(): void {
+  if (!isRunning(dailyClock)) return;
+  dailyClock = stop(dailyClock, Date.now());
+  log(`Clock stopped at ${dailyClock.banked}s.`);
+  saveTimeData();
+  onClockTransition();
+}
+
+/** Set the daily total from outside (load, domain switch, day rollover). */
+function setDailyTotal(seconds: number): void {
+  dailyClock = setTotal(dailyClock, seconds, Date.now());
+}
+
+/**
+ * Re-derive whatever depends on "when will the clock reach X".
+ *
+ * Session deadlines are stored as session-relative seconds but scheduled as
+ * absolute instants, and that conversion is only valid while the clock runs.
+ * So every start/stop invalidates the schedule and it must be rebuilt. Step 2
+ * fills this in; keeping the call sites here from the start means the wiring
+ * is already correct when it does.
+ */
+function onClockTransition(): void {
+  // Populated in Step 2 (scheduled wakes).
+}
 let activeTabId: number | null = null;
 const trackedTabIds = new Set<number>();
 let timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -95,16 +163,22 @@ let endSessionConfirmOpen = false;
 // time keeps accruing against a page the user can't actually use.
 let averagePopupOpen = false;
 
+// Whether the active tab currently counts as engaged: recent user input, or
+// audible playback. Maintained by handleTimerState (the only place that can
+// see the tab object) and read by shouldClockRun, so the engagement test and
+// the freeze gates are one predicate rather than two that can disagree.
+let activeTabIsEngaged = false;
+
 /**
  * Get the current session for a domain, lazily starting one anchored at the
  * current daily total if none exists yet. Runs on the first tick after a domain
  * switch / extension load / settings change. `baseLength` is the live limit in
  * seconds; callers only invoke this when baseLength > 0.
  */
-function getOrStartSession(domain: Domain, dailyTotal: number, baseLength: number): ActiveSession {
+function getOrStartSession(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession {
   let s = sessions[domain];
   if (!s) {
-    s = startSession({ dailyTotal, baseLength });
+    s = startSession({ dailyTotal: anchorDaily, baseLength });
     sessions[domain] = s;
     saveSessionState(); // persist the freshly-started session (incl. its sessionNum)
   }
@@ -138,6 +212,7 @@ function clearAllCooldowns(): void {
     delete cooldownEndTime[domain];
     delete cooldownTotalSec[domain];
   }
+  syncClock(); // cooldown gates lifted for every domain
 }
 
 // --- Session-state persistence -------------------------------------------
@@ -226,7 +301,7 @@ function getLocalDateStrWithReset(): DateString {
 }
 
 function initDefaultTimeData(): void {
-  todaysTotalTimeInActiveDomain = 0;
+  setDailyTotal(0);
   timeHistory = {};
   log("Initialized with default values");
 }
@@ -238,7 +313,12 @@ async function saveTimeData(): Promise<void> {
   }
 
   isSaving = true;
-  log(`saveTimeData() ${currentDateStr}: ${todaysTotalTimeInActiveDomain} seconds`);
+  // Checkpoint the clock so what we persist and what we hold in memory are the
+  // same number. dailyTotal() would be correct either way — it is derived, not
+  // additive — but banking here keeps a later stop() from re-deriving across an
+  // interval that has already been written.
+  dailyClock = bank(dailyClock, Date.now());
+  log(`saveTimeData() ${currentDateStr}: ${dailyTotal()} seconds`);
 
   try {
     if (!timeHistory[currentDateStr]) {
@@ -246,7 +326,7 @@ async function saveTimeData(): Promise<void> {
     }
 
     if (trackedTabDomain) {
-      timeHistory[currentDateStr][trackedTabDomain] = todaysTotalTimeInActiveDomain;
+      timeHistory[currentDateStr][trackedTabDomain] = dailyTotal();
     }
 
     const storageData = {
@@ -282,14 +362,14 @@ async function loadTimeData(): Promise<void> {
       log(
         `New day detected (Last: ${trackedTime.lastDate}, Now: ${currentDateStr})`
       );
-      todaysTotalTimeInActiveDomain = 0;
+      setDailyTotal(0);
     } else {
       const todaysData = timeHistory[currentDateStr] || {};
-      todaysTotalTimeInActiveDomain = trackedTabDomain ? (todaysData[trackedTabDomain] || 0) : 0;
+      setDailyTotal(trackedTabDomain ? (todaysData[trackedTabDomain] || 0) : 0);
     }
 
     log(
-      `Loaded data for ${currentDateStr}, time: ${todaysTotalTimeInActiveDomain}`
+      `Loaded data for ${currentDateStr}, time: ${dailyTotal()}`
     );
   } catch (error) {
     console.error("Error loading time data:", error);
@@ -313,7 +393,7 @@ function rolloverIfNewDay(): boolean {
 
   saveTimeData();
   currentDateStr = newDateStr;
-  todaysTotalTimeInActiveDomain = 0;
+  setDailyTotal(0);
   interventionState = {
     averagePopupShown: {}
   };
@@ -327,38 +407,77 @@ function rolloverIfNewDay(): boolean {
   return true;
 }
 
+/**
+ * Whether time should be accruing right now.
+ *
+ * These were the freeze gates inside the old 1-second tick, where each one
+ * meant "skip this increment". With timestamp accounting they mean "the clock
+ * must not be running", so they are evaluated at transitions instead — but the
+ * conditions themselves are unchanged.
+ */
+function shouldClockRun(): boolean {
+  // Foreground gate: if the browser isn't the current OS app, don't count —
+  // the user is in another application, not spending time on the page.
+  if (!browserIsFocused) return false;
+
+  // There has to be a trackable domain to count against.
+  if (!trackedTabDomain) return false;
+
+  // Cooldown gate: if the current domain is in an active cooldown, freeze the
+  // timer entirely. No daily increment, no interventions, nothing. The
+  // cooldown ticker (startCooldownTicker) handles the blocker UI countdown.
+  if ((cooldownEndTime[trackedTabDomain] || 0) > Date.now()) return false;
+
+  // End-session confirmation popup is open — freeze daily count so the
+  // displayed remaining/elapsed time stays put while the user decides.
+  if (endSessionConfirmOpen) return false;
+
+  // Average popup is open — same deal: the page is blurred and media paused,
+  // so don't count time the user can't spend.
+  if (averagePopupOpen) return false;
+
+  // Activity gate: an idle user on an open tab isn't spending time on it. This
+  // used to live only in handleTimerState (deciding whether the interval ran),
+  // but the clock is what counts now, so the test has to be part of this
+  // predicate — otherwise a display tick would restart a clock that was
+  // deliberately stopped for inactivity.
+  if (!activeTabIsEngaged) return false;
+
+  return true;
+}
+
+/**
+ * Re-evaluate the gates and start or stop the clock to match.
+ *
+ * Every input to shouldClockRun() calls this when it changes, which is what
+ * replaces the per-tick gate checks. Both directions are idempotent, so
+ * calling it more often than strictly necessary is harmless.
+ */
+function syncClock(): void {
+  if (shouldClockRun()) clockStart();
+  else clockStop();
+}
+
+/**
+ * Display refresh. Under MV3 this is no longer what makes time count — the
+ * clock advances on its own — so a missed tick costs smoothness, not accuracy.
+ */
 function incrementTimer(): void {
   // Roll the day FIRST — before any freeze gate — so midnight always resets even
   // mid-cooldown. On a rollover we reset and bail; the next tick counts normally
   // against the fresh day.
   if (rolloverIfNewDay()) {
-    updateTimerDisplay(todaysTotalTimeInActiveDomain);
+    updateTimerDisplay(dailyTotal());
     return;
   }
 
-  // Foreground gate: if the browser isn't the current OS app, don't count —
-  // the user is in another application, not spending time on the page.
-  if (!browserIsFocused) return;
+  syncClock();
+  if (!isRunning(dailyClock)) return;
 
-  // Cooldown gate: if the current domain is in an active cooldown, freeze the
-  // timer entirely. No daily increment, no interventions, nothing. The
-  // cooldown ticker (startCooldownTicker) handles the blocker UI countdown.
-  if (trackedTabDomain && (cooldownEndTime[trackedTabDomain] || 0) > Date.now()) {
-    return;
-  }
+  const total = dailyTotal();
+  updateTimerDisplay(total);
 
-  // End-session confirmation popup is open — freeze daily count so the
-  // displayed remaining/elapsed time stays put while the user decides.
-  if (endSessionConfirmOpen) return;
-
-  // Average popup is open — same deal: the page is blurred and media paused,
-  // so don't count time the user can't spend.
-  if (averagePopupOpen) return;
-
-  todaysTotalTimeInActiveDomain++;
-  updateTimerDisplay(todaysTotalTimeInActiveDomain);
-
-  if (todaysTotalTimeInActiveDomain % SAVE_INTERVAL_SECONDS === 0) {
+  if (total % SAVE_INTERVAL_SECONDS === 0) {
     saveTimeData();
   }
 
@@ -366,6 +485,10 @@ function incrementTimer(): void {
 }
 
 function startTimer(): void {
+  // Resume counting even if the interval is already up: the clock and the
+  // display refresh are separate concerns now, and only the clock is load-bearing.
+  syncClock();
+
   if (timerInterval) return;
 
   timerInterval = setInterval(incrementTimer, 1000);
@@ -373,6 +496,11 @@ function startTimer(): void {
 }
 
 function stopTimer(): void {
+  // Stop the clock first, unconditionally. clockStop() banks and persists, so
+  // this also covers the case where the interval was already gone (a worker
+  // that was killed and revived) but the clock was still nominally running.
+  clockStop();
+
   if (!timerInterval) return;
 
   clearInterval(timerInterval);
@@ -438,6 +566,12 @@ function handleDomainSwitch(url: string): void {
   const domain = extractDomain(url);
   if (domain === trackedTabDomain) { return; }
 
+  // Stop the clock BEFORE saving, so the time accrued since the last
+  // transition is banked against the domain that actually earned it. With
+  // timestamp accounting the un-banked remainder lives in the clock, not in a
+  // counter, so saving without stopping would drop it.
+  clockStop();
+
   if (trackedTabDomain) {
     saveTimeData();
   }
@@ -446,13 +580,16 @@ function handleDomainSwitch(url: string): void {
 
   if (!trackedTabDomain) {
     log(`Switched to non-trackable URL: ${url}`);
-    todaysTotalTimeInActiveDomain = 0;
+    setDailyTotal(0);
     updateTimerDisplay(0);
     return;
   }
 
   const todayData = timeHistory[currentDateStr] || {};
-  todaysTotalTimeInActiveDomain = todayData[trackedTabDomain] || 0;
+  setDailyTotal(todayData[trackedTabDomain] || 0);
+  // The new domain may have a cooldown or other gate of its own, so re-evaluate
+  // rather than assuming the clock should resume.
+  syncClock();
   // NOTE: We deliberately do NOT clear the session for this domain here. An
   // earlier version reset session state on every domain switch to handle
   // settings changes made for an inactive domain — but that wiped legitimate
@@ -460,13 +597,14 @@ function handleDomainSwitch(url: string): void {
   // back. Settings changes are handled in the SETTINGS_UPDATED handler, which
   // touches only the changed domain. So domain switches safely preserve the
   // session object across tabs of the same domain.
-  log(`Switched to domain: ${trackedTabDomain}, time: ${todaysTotalTimeInActiveDomain}`);
-  updateTimerDisplay(todaysTotalTimeInActiveDomain);
+  log(`Switched to domain: ${trackedTabDomain}, time: ${dailyTotal()}`);
+  updateTimerDisplay(dailyTotal());
 }
 
 function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
   const isWebUrl = activeTab.url?.startsWith('http://') || activeTab.url?.startsWith('https://');
   if (!isWebUrl) {
+    activeTabIsEngaged = false;
     stopTimer();
     return;
   }
@@ -474,7 +612,9 @@ function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
   const lastActivity = tabLastActivity[tabId] || 0;
   const isUserActive = (Date.now() - lastActivity) < inactivityThresholdMs;
 
-  if (activeTab.audible || isUserActive) {
+  activeTabIsEngaged = Boolean(activeTab.audible) || isUserActive;
+
+  if (activeTabIsEngaged) {
     startTimer();
   } else {
     stopTimer();
@@ -489,6 +629,9 @@ function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
 function handleWindowFocusChanged(windowId: number): void {
   browserIsFocused = windowId !== browser.windows.WINDOW_ID_NONE;
   log(`Browser focus changed: ${browserIsFocused ? 'foreground' : 'background'}`);
+  // Act on the gate now rather than waiting for the next tick: under MV3 the
+  // tick may never come, and losing focus is exactly when the worker goes idle.
+  syncClock();
   if (activeTabId !== null) updateTimingState(activeTabId);
 }
 
@@ -544,7 +687,7 @@ function handleMessageReceived(
 
   if (message.type === "CONTENT_SCRIPT_READY" && sender.tab?.id) {
     trackedTabIds.add(sender.tab.id);
-    updateTimerDisplay(todaysTotalTimeInActiveDomain);
+    updateTimerDisplay(dailyTotal());
 
     // If the domain is currently in cooldown, immediately show the blocker on
     // this new tab with the SAME text every other tab shows (correct session
@@ -559,6 +702,11 @@ function handleMessageReceived(
 
   if (message.type === "USER_ACTIVE" && sender.tab?.id) {
     tabLastActivity[sender.tab.id] = Date.now();
+    // Resume immediately rather than waiting for the activity poll. This
+    // message is also the main thing that wakes the worker under MV3, so
+    // handling it here is what makes "the user came back" take effect at all
+    // when nothing of ours has been running.
+    if (sender.tab.id === activeTabId) syncClock();
   }
 
   if (message.type === "END_SESSION_EARLY") {
@@ -576,18 +724,22 @@ function handleMessageReceived(
 
   if (message.type === "END_SESSION_CONFIRM_OPEN") {
     endSessionConfirmOpen = true;
+    syncClock();
   }
 
   if (message.type === "END_SESSION_CONFIRM_CLOSE") {
     endSessionConfirmOpen = false;
+    syncClock();
   }
 
   if (message.type === "AVERAGE_POPUP_OPEN") {
     averagePopupOpen = true;
+    syncClock();
   }
 
   if (message.type === "AVERAGE_POPUP_CLOSE") {
     averagePopupOpen = false;
+    syncClock();
   }
 
   // A tab is asking for the current blocker state — typically on visibilitychange
@@ -621,8 +773,8 @@ function handleMessageReceived(
           saveTimeData();
           currentDateStr = newDateStr;
           const todayData = timeHistory[currentDateStr] || {};
-          todaysTotalTimeInActiveDomain = trackedTabDomain ? (todayData[trackedTabDomain] || 0) : 0;
-          updateTimerDisplay(todaysTotalTimeInActiveDomain);
+          setDailyTotal(trackedTabDomain ? (todayData[trackedTabDomain] || 0) : 0);
+          updateTimerDisplay(dailyTotal());
           log(`Date changed to ${currentDateStr} due to reset time change`);
         }
       }
@@ -668,7 +820,7 @@ function handleMessageReceived(
           }
           clearWindDown(domain);
           saveSessionState();
-          if (domain === trackedTabDomain) updateTimerDisplay(todaysTotalTimeInActiveDomain);
+          if (domain === trackedTabDomain) updateTimerDisplay(dailyTotal());
           continue;
         }
 
@@ -691,14 +843,14 @@ function handleMessageReceived(
           // No session ever existed — start one NOW (not "next tick"), so the
           // timer appears immediately on the tracked tab instead of after a
           // refresh. Anchored at the current daily total.
-          existing = getOrStartSession(domain, todaysTotalTimeInActiveDomain, newLimitSeconds);
-          updateTimerDisplay(todaysTotalTimeInActiveDomain);
+          existing = getOrStartSession(domain, dailyTotal(), newLimitSeconds);
+          updateTimerDisplay(dailyTotal());
         }
 
         // Live length change. Anchored to startDaily, so elapsed time is
         // preserved: shrinking the limit by N shrinks remaining by N.
         const { session: updated, expired } = changeLength(existing, {
-          dailyTotal: todaysTotalTimeInActiveDomain,
+          dailyTotal: dailyTotal(),
           newBaseLength: newLimitSeconds,
         });
         sessions[domain] = updated;
@@ -707,22 +859,22 @@ function handleMessageReceived(
           // The new (shorter) limit puts the user at/past the end → end now.
           // Treat it as a natural end of the (now-expired) session.
           const result = naturalEnd(updated, {
-            dailyTotal: todaysTotalTimeInActiveDomain,
+            dailyTotal: dailyTotal(),
             cooldownIncrement: cooldownIncrementSeconds,
           });
           fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum);
           log(
             `Session limit shrunk past elapsed for ${domain}: session ended immediately ` +
-            `(daily=${todaysTotalTimeInActiveDomain}s, newLimit=${newLimitSeconds}s)`
+            `(daily=${dailyTotal()}s, newLimit=${newLimitSeconds}s)`
           );
         } else {
           saveSessionState(); // persist the live-resized session
-          const display = displayFor(updated, todaysTotalTimeInActiveDomain);
-          updateTimerDisplay(todaysTotalTimeInActiveDomain);
+          const display = displayFor(updated, dailyTotal());
+          updateTimerDisplay(dailyTotal());
           log(
             `Session limit changed for ${domain}: ` +
             `effLimit=${display.sessionLimitSeconds}s remaining=${display.remaining}s ` +
-            `(daily=${todaysTotalTimeInActiveDomain}s, base=${newLimitSeconds}s, ` +
+            `(daily=${dailyTotal()}s, base=${newLimitSeconds}s, ` +
             `carryover=${updated.carryover}s, grace=${updated.graceSeconds}s)`
           );
         }
@@ -770,7 +922,7 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
     domainSettings,
     averageSeconds,
     daysWithData,
-    timeInSeconds: todaysTotalTimeInActiveDomain,
+    timeInSeconds: dailyTotal(),
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
     cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0
   };
@@ -781,17 +933,17 @@ function checkPhiNudges(settings: InterventionSettings): void {
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
 
   const domain = trackedTabDomain;
-  const session = getOrStartSession(domain, todaysTotalTimeInActiveDomain, sessionLimitSeconds);
+  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
 
   // Catch-up selection: the latest unfired nudge at/before now. Robust to both
   // skipped ticks and live length changes — a nudge that moved behind us after a
   // shrink just fires once here.
-  const nudgeTime = nextNudgeToFire(session, todaysTotalTimeInActiveDomain, settings.domainSettings.nudgeCount);
+  const nudgeTime = nextNudgeToFire(session, dailyTotal(), settings.domainSettings.nudgeCount);
   if (nudgeTime !== null) {
     sendNudge();
     sessions[domain] = markNudgeFired(session, nudgeTime);
     saveSessionState(); // persist firedNudges so a restart doesn't re-fire
-    const remaining = displayFor(sessions[domain], todaysTotalTimeInActiveDomain).remaining;
+    const remaining = displayFor(sessions[domain], dailyTotal()).remaining;
     log(`φ-nudge at ${Math.round(nudgeTime / 60)}min into session (${remaining}s remaining)`);
   }
 }
@@ -857,8 +1009,8 @@ function checkWindDown(settings: InterventionSettings): void {
   const domain = trackedTabDomain;
   if ((cooldownEndTime[domain] || 0) > Date.now()) return;
 
-  const session = getOrStartSession(domain, todaysTotalTimeInActiveDomain, sessionLimitSeconds);
-  const wd = windDownState(session, todaysTotalTimeInActiveDomain);
+  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
+  const wd = windDownState(session, dailyTotal());
 
   if (wd.active && !windDownActive[domain]) {
     windDownActive[domain] = true;
@@ -959,6 +1111,7 @@ function startCooldownTicker(domain: Domain, totalCooldownSeconds: number, sessi
       delete cooldownEndTime[domain];
       delete cooldownTotalSec[domain];
       saveSessionState(); // cooldown cleared — persist so a restart doesn't re-arm it
+      syncClock(); // the cooldown gate just lifted — resume counting if applicable
       // The next session was already created when the cooldown was fired and
       // anchored at the daily total of that moment — nothing to start here.
       sendHideBlockerToAllTabsOfDomain(domain);
@@ -966,7 +1119,7 @@ function startCooldownTicker(domain: Domain, totalCooldownSeconds: number, sessi
       // Push a fresh timer update so all tabs of this domain immediately show
       // the new session's full extended length (sessionTime=0, limit=base+carry).
       if (trackedTabDomain === domain) {
-        updateTimerDisplay(todaysTotalTimeInActiveDomain);
+        updateTimerDisplay(dailyTotal());
       }
       log(`Cooldown expired for ${domain}`);
     } else {
@@ -995,13 +1148,17 @@ function fireCooldown(
 ): void {
   cooldownEndTime[domain] = Date.now() + cooldownSeconds * 1000;
   cooldownTotalSec[domain] = cooldownSeconds; // the bar's denominator — never recompute it
+  // Freeze the clock before adopting the next session: that session is anchored
+  // at the current daily total, so any time still accruing here would land in
+  // the new session's elapsed count and eat into a limit the user hasn't begun.
+  syncClock();
   sessions[domain] = nextSession;
   clearWindDown(domain);
   saveSessionState(); // persist new session number + active cooldown
 
   sendBlockerToAllTabsOfDomain(domain, cooldownSeconds, cooldownSeconds, endedSessionNum, cooldownIncrementSeconds);
   startCooldownTicker(domain, cooldownSeconds, endedSessionNum, cooldownIncrementSeconds);
-  updateTimerDisplay(todaysTotalTimeInActiveDomain);
+  updateTimerDisplay(dailyTotal());
 }
 
 /**
@@ -1021,10 +1178,10 @@ async function endSessionEarly(): Promise<void> {
   const { sessionLimitSeconds, cooldownIncrementSeconds } = settings;
   if (sessionLimitSeconds <= 0) return;
 
-  const session = getOrStartSession(domain, todaysTotalTimeInActiveDomain, sessionLimitSeconds);
+  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
 
   const result = computeEndEarly(session, {
-    dailyTotal: todaysTotalTimeInActiveDomain,
+    dailyTotal: dailyTotal(),
     cooldownIncrement: cooldownIncrementSeconds,
   });
   if (!result) return; // no time left to claim — normal cooldown will fire on its own
@@ -1032,7 +1189,7 @@ async function endSessionEarly(): Promise<void> {
   fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum);
   log(
     `Session ${session.sessionNum} ended early for ${domain} ` +
-    `(daily=${todaysTotalTimeInActiveDomain}s, carryoverToNext=${result.nextSession.carryover}s, ` +
+    `(daily=${dailyTotal()}s, carryoverToNext=${result.nextSession.carryover}s, ` +
     `graceEarned=${result.graceEarned}s, cooldown=${result.cooldownSeconds}s)`
   );
 }
@@ -1050,24 +1207,24 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
 
   // Lazily start the session for this domain. Runs once on the first tick after
   // a domain switch / extension load / settings change.
-  const session = getOrStartSession(domain, todaysTotalTimeInActiveDomain, sessionLimitSeconds);
+  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
 
   // Not at the end yet → session continues. Grace and carryover are already
   // baked into the session's effective length, so there's no mid-session
   // "extend the boundary" step anymore.
-  if (displayFor(session, todaysTotalTimeInActiveDomain).remaining > 0) return false;
+  if (displayFor(session, dailyTotal()).remaining > 0) return false;
 
   // Reached the end — natural cooldown. Carryover is consumed; next session is
   // a clean baseLength session anchored at the current daily total.
   const result = naturalEnd(session, {
-    dailyTotal: todaysTotalTimeInActiveDomain,
+    dailyTotal: dailyTotal(),
     cooldownIncrement: cooldownIncrementSeconds,
   });
 
   fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum);
   log(
     `Session ${session.sessionNum} limit reached for ${domain} ` +
-    `(daily=${todaysTotalTimeInActiveDomain}s, cooldown=${result.cooldownSeconds}s, ` +
+    `(daily=${dailyTotal()}s, cooldown=${result.cooldownSeconds}s, ` +
     `nextSession=${result.nextSession.sessionNum})`
   );
   return true;
