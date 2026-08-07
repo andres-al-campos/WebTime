@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "MV3 Probe",
+  "version": "1.0",
+  "description": "Measures service-worker lifetime and alarm precision.",
+  "permissions": ["alarms", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "sw.js" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["probe-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
