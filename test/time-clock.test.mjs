@@ -182,3 +182,20 @@ test('a typical death-and-wake cycle loses nothing', () => {
   const revived = restore(c.banked, T + s(60), T + s(300), MAX_GAP);
   assert.equal(totalSeconds(revived, T + s(300)), 300);
 });
+
+test('a long video is counted in full across many worker deaths', () => {
+  // The bound is on the gap BETWEEN BOOTS, not on session length. The 1-minute
+  // heartbeat re-anchors the clock, so watching for 30 minutes is 30 short
+  // gaps, never one long one — no gap ever approaches MAX_GAP.
+  let c = start(createClock(0), T);
+  let saved = 0;
+  let anchor = T;
+  for (let minute = 1; minute <= 30; minute++) {
+    const now = T + s(minute * 60);
+    // Heartbeat fires: credit the gap since the last anchor, then checkpoint.
+    c = restore(saved, anchor, now, MAX_GAP);
+    saved = totalSeconds(c, now);
+    anchor = now;
+  }
+  assert.equal(saved, 30 * 60);
+});

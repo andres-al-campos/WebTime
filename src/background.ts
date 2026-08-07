@@ -880,6 +880,25 @@ function recoverTime(): void {
 
   if (!trackedTabDomain || domain !== trackedTabDomain) return;
 
+  // Don't credit a gap we can already see the user wasn't present for. The
+  // bound below rejects long absences (a closed laptop overnight), but a SHORT
+  // one — a few minutes with the lid shut — falls under it and would otherwise
+  // be counted as time on the site. If the machine is idle or locked right now,
+  // it very likely was during the gap too, so keep the saved total.
+  //
+  // init() refreshes osIdleState before loadTimeData(), so this is a real
+  // reading rather than the optimistic 'active' default.
+  if (osIdleState !== 'active') {
+    log(`Skipping recovery: machine is ${osIdleState}.`);
+    return;
+  }
+
+  // The browser being in the background is the same story from the other side.
+  if (!browserIsFocused) {
+    log('Skipping recovery: browser not focused.');
+    return;
+  }
+
   const before = dailyTotal();
   dailyClock = restore(before, since, Date.now(), MAX_RECOVERABLE_GAP_MS);
   const recovered = dailyTotal() - before;
