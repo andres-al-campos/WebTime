@@ -1,6 +1,7 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
 import { cooldownLength } from './shared/session-model.js';
+import { displayIsVerified as isVerified } from './shared/display-trust.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -53,12 +54,22 @@ let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
 let clockRunning = false;
 let receivedAt = 0;
 
-// How long we keep extrapolating after the last background update before
-// declaring the display unverified. The background refreshes every second
-// while running, so several seconds of silence is already anomalous; 10s is
-// well past that while staying short enough that a wrong number is never shown
-// for long.
-const STALE_AFTER_MS = 10000;
+// How long we keep extrapolating after the user's last real interaction.
+//
+// Deliberately NOT keyed on silence from the background. Under MV3 the service
+// worker is killed after ~30s idle, so silence is the normal case, not a fault
+// — an earlier version treated it as staleness and the timer hid itself every
+// 10s during ordinary reading.
+//
+// Local input is the right signal because it's the thing we can actually
+// observe here, and it's what the number depends on: while the user is
+// interacting the clock is running, so extrapolating forward is correct. Once
+// they've stopped we can't tell whether the background froze the clock (tab
+// blurred, idle, cooldown), so we stop claiming to know.
+//
+// 60s is past the worker's ~30s death and past the default 30s inactivity
+// timeout, so a normal working session never trips it.
+const STALE_AFTER_MS = 60000;
 
 /** Seconds elapsed locally since the last background update, if running. */
 function localElapsedSeconds(): number {
@@ -66,17 +77,15 @@ function localElapsedSeconds(): number {
   return Math.max(0, (Date.now() - receivedAt) / 1000);
 }
 
-/**
- * Whether the displayed time can still be trusted.
- *
- * A stopped clock is always trustworthy — it isn't advancing, so the last
- * value stays correct indefinitely. A running clock is only trustworthy while
- * the background keeps confirming it.
- */
+/** See src/shared/display-trust.ts for the rule and why it's shaped this way. */
 function displayIsVerified(): boolean {
-  if (receivedAt === 0) return false;
-  if (!clockRunning) return true;
-  return Date.now() - receivedAt < STALE_AFTER_MS;
+  return isVerified({
+    receivedAt,
+    clockRunning,
+    lastActivityTime,
+    staleAfterMs: STALE_AFTER_MS,
+    nowMs: Date.now(),
+  });
 }
 
 // CSS reset applied to all popup/dialog root elements to prevent site styles from bleeding in
@@ -1194,17 +1203,35 @@ function handleIncomingMessage(
   }
 }
 
+// Minimum gap between USER_ACTIVE messages. Every one of these wakes the MV3
+// service worker, and mousemove alone fires hundreds of times a second — left
+// unthrottled it keeps the worker booting continuously, which costs battery and
+// makes the worker slower to answer the things that matter.
+//
+// The background only compares this against its inactivity threshold (30s by
+// default), so once every 5s carries exactly the same information.
+const ACTIVITY_PING_INTERVAL_MS = 5000;
+let lastActivityPing = 0;
+
 function updateActivityState(): void {
-  lastActivityTime = Date.now();
+  const now = Date.now();
+  // Always update locally and immediately: this gates whether the timer is
+  // shown, so it has to react on the first event, not on the next ping.
+  lastActivityTime = now;
+
+  if (now - lastActivityPing < ACTIVITY_PING_INTERVAL_MS) return;
+  lastActivityPing = now;
   browser.runtime.sendMessage({ type: "USER_ACTIVE" });
 }
 
 // Exported for testing but also needed to prevent unused variable warning
 export { lastActivityTime };
 
-document.addEventListener("scroll", updateActivityState);
-document.addEventListener("keydown", updateActivityState);
-document.addEventListener("mousemove", updateActivityState);
+// passive: these never preventDefault, and saying so keeps scroll off the
+// main thread on the sites where it matters most.
+document.addEventListener("scroll", updateActivityState, { passive: true });
+document.addEventListener("keydown", updateActivityState, { passive: true });
+document.addEventListener("mousemove", updateActivityState, { passive: true });
 
 function init(): void {
   log("initTimer()");
