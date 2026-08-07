@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MV3 Probe",
-  "version": "1.0",
-  "description": "Measures service-worker lifetime and alarm precision.",
+  "name": "MV3 Probe (lifetime mode)",
+  "version": "2.0",
+  "description": "Run 2: no heartbeat — measures whether the worker dies unaided.",
   "permissions": ["alarms", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "sw.js" },

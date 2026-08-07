@@ -102,21 +102,33 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
+// Enforce the alarm set-up for the current MODE. Runs from onInstalled AND on
+// every cold start, because alarms persist across reloads and browser restarts:
+// a heartbeat left over from a precision run would keep the worker alive and
+// silently invalidate a lifetime run — the exact failure that wasted run 1.
+// Making this idempotent and unconditional means the mode can't be half-applied.
+async function enforceMode() {
+  const existing = await chrome.alarms.get('heartbeat');
+  if (MODE === 'lifetime') {
+    if (existing) {
+      await chrome.alarms.clear('heartbeat');
+      await append({ ev: 'CLEARED_STALE_HEARTBEAT' });
+    }
+  } else if (!existing) {
+    chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.local.set({ log: [], pIdx: 0 });
   await append({ ev: 'INSTALLED', mode: MODE });
-  // The heartbeat is the thing that kept the worker alive in run 1, so it is
-  // deliberately not created in lifetime mode.
-  if (MODE === 'lifetime') {
-    // Alarms persist across extension reloads, so a heartbeat left over from a
-    // previous precision run would keep the worker alive and silently invalidate
-    // this one — the same failure as run 1. Clear it explicitly.
-    await chrome.alarms.clear('heartbeat');
-  } else {
-    chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
-  }
+  await enforceMode();
   await armPrecisionAlarm();
 });
+
+// Also on every cold start, so a browser restart (which does not re-fire
+// onInstalled) can't leave a stale heartbeat running.
+enforceMode();
 
 chrome.runtime.onStartup.addListener(() => {
   append({ ev: 'BROWSER_STARTUP' });

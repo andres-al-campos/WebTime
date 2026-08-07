@@ -65,7 +65,15 @@ With `MODE = 'lifetime'` in [sw.js](sw.js) there is no heartbeat and a single
 play a video, and leave the machine alone for ~5 minutes. Then:
 
 ```js
-chrome.storage.local.get('log').then(({log = []}) => {
+chrome.storage.local.get('log').then(async ({log = []}) => {
+  // Sanity-check the run before reading it: a surviving heartbeat means the
+  // worker was kept alive artificially and the result is meaningless.
+  const hb = await chrome.alarms.get('heartbeat');
+  console.log('heartbeat alarm present:', !!hb,
+    hb ? '*** INVALID RUN — reload the extension and redo ***' : '(good)');
+  console.log('mode recorded at install:',
+    (log.find(e => e.ev === 'INSTALLED') || {}).mode);
+
   const boots = [...new Set(log.map(e => e.boot))];
   console.log('distinct worker boots:', boots.length);
   console.log(boots.length > 1
