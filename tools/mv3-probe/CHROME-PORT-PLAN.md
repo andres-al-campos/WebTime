@@ -111,6 +111,18 @@ care what was running.
 This is a stronger guarantee than the current Firefox build, which loses time
 outright on OS sleep with no way to recover it.
 
+### Step 0 — Work on a branch
+
+Do the port on **`chrome-mv3`**, not `main`. Every change here (timestamps,
+alarms, `chrome.idle`, content-script rendering) touches the tracking core that
+the shipping Firefox add-on depends on, and `main` is what goes to AMO.
+
+Firefox supports all of it — MV3, `alarms`, `idle`, service workers since v109 —
+so the intent is to merge back once both platforms are verified, not to keep a
+permanent fork. Until then a regression on `main` would ship to real users.
+
+Merge only after verification step 10 (Firefox regression) passes.
+
 ### Step 1 — Timestamp accounting (required, do this first)
 
 Replace the tick counter with two persisted values:
@@ -355,7 +367,33 @@ Try a repair first — send a message requesting a state push (the message itsel
 wakes the worker) and only slide out if nothing arrives within ~2s. A transient
 hiccup then self-heals with no visible change.
 
-#### 3c — Wind-down bar
+#### 3c — Nudges
+
+Same treatment, and the easiest piece: `computeNudgeTimes(sessionLimitSeconds,
+nudgeSeed, count)` is already pure and returns **all** nudge offsets up front,
+so they are known at session start exactly like `sessionEndsAt`. Schedule one
+alarm per unfired nudge.
+
+Two safeguards already exist:
+
+- `firedNudges` is persisted ([src/background.ts:793](../../src/background.ts)),
+  so a worker restart can't re-fire one. This is the hard part of scheduling,
+  already done.
+- `nextNudgeToFire()`
+  ([src/shared/session-model.ts](../../src/shared/session-model.ts)) returns the
+  *latest* unfired nudge at or before now — so a missed alarm fires once on the
+  next wake instead of replaying a backlog. Written for skipped ticks; works
+  identically for missed alarms.
+
+So: alarms as the primary path, `nextNudgeToFire` on every wake as
+reconciliation. Keep `checkPhiNudges` as that reconciliation step rather than
+deleting it.
+
+Nudge times shift when the session length changes mid-session (`changeLength`),
+so they reschedule on the same paths as `sessionEndsAt` — the `commitSession`
+funnel in Step 2, no extra machinery.
+
+#### 3d — Wind-down bar
 
 Currently `checkWindDown()` ([src/background.ts:853](../../src/background.ts))
 re-sends `SHOW_WIND_DOWN` **every second** with fresh `progress` and
@@ -376,6 +414,16 @@ changes signature to take `endsAt`.
 
 Two side benefits: the animation gets smoother than 1Hz steps, and 60 messages
 per session become 1.
+
+**The bar hides under the same rule as the countdown (3b)** — and it matters
+more here. A half-filled bar asserts something stronger and more specific than
+a number does ("your session ends in ~40 seconds"), and it's the component
+whose whole job is easing the user toward the cooldown. A stale one either
+warns for a session that already ended or fails to warn for one that's about to.
+
+Since the bar is driven by a local `endsAt` after this change, it stays correct
+exactly when the countdown does. If the deadline can't be verified, hide the bar
+rather than animate an unverified one — same detection, same slide-out.
 
 ### Step 4 — Heartbeat (backstop)
 
