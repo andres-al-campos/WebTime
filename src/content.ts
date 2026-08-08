@@ -265,6 +265,13 @@ let lastTimerMode: 'session' | 'daily' | null = null;
 function updateTimerText(): void {
   if (!timerText) return;
 
+  // Orphaned by an extension reload: no further updates can ever arrive, so
+  // stay hidden rather than leaving a frozen number on the page.
+  if (orphaned) {
+    setTimerVisible(false);
+    return;
+  }
+
   // Can't justify the number any more — slide out rather than show a stale one.
   // setTimerVisible re-shows on its own once an update arrives.
   setTimerVisible(displayIsVerified());
@@ -617,7 +624,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 
   // Freeze the daily clock while the popup blocks the page, mirroring the
   // end-session confirmation popup.
-  browser.runtime.sendMessage({ type: 'AVERAGE_POPUP_OPEN' }).catch(() => {});
+  sendToBackground({ type: 'AVERAGE_POPUP_OPEN' });
 
   setTimeout(() => { el.style.opacity = '1'; }, 100);
 }
@@ -625,7 +632,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 function hideAveragePopup(): void {
   hideBlurOverlay();
 
-  browser.runtime.sendMessage({ type: 'AVERAGE_POPUP_CLOSE' }).catch(() => {});
+  sendToBackground({ type: 'AVERAGE_POPUP_CLOSE' });
 
   blockKeyboard(false);
   averagePopupPausedMedia.forEach(m => m.play().catch(() => {}));
@@ -1083,10 +1090,10 @@ function showEndSessionConfirm(): void {
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
   // Tell background to freeze the timer while the user decides.
-  browser.runtime.sendMessage({ type: 'END_SESSION_CONFIRM_OPEN' }).catch(() => {});
+  sendToBackground({ type: 'END_SESSION_CONFIRM_OPEN' });
 
   const confirmAndClose = (): void => {
-    browser.runtime.sendMessage({ type: 'END_SESSION_EARLY' }).catch(() => {});
+    sendToBackground({ type: 'END_SESSION_EARLY' });
     close(false);
   };
 
@@ -1100,7 +1107,7 @@ function showEndSessionConfirm(): void {
     if (resumeMedia) {
       playingMedia.forEach(m => m.play().catch(() => {}));
     }
-    browser.runtime.sendMessage({ type: 'END_SESSION_CONFIRM_CLOSE' }).catch(() => {});
+    sendToBackground({ type: 'END_SESSION_CONFIRM_CLOSE' });
     setTimeout(() => {
       endSessionDialog?.parentNode?.removeChild(endSessionDialog);
       endSessionDialog = null;
@@ -1122,13 +1129,37 @@ function showEndSessionConfirm(): void {
 // extension was updated and this content script is orphaned — reload the tab
 // so it picks up the new version instead of running stale code.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    browser.runtime.sendMessage({ type: 'REQUEST_BLOCKER_STATE' }).catch(() => {
-      console.warn('WebTime: extension context invalidated, reloading tab');
-      location.reload();
-    });
+  if (document.visibilityState !== 'visible') return;
+  // Reaching for the background is also the orphan check. The synchronous
+  // throw is the usual signal after an extension reload, so both paths
+  // (throw and rejection) have to lead to the same recovery.
+  if (!sendToBackground({ type: 'REQUEST_BLOCKER_STATE' })) {
+    recoverFromOrphan();
   }
 });
+
+/**
+ * This content script belongs to an extension version that no longer exists.
+ *
+ * Reloading is the only real repair — a fresh script gets a live bridge. Do it
+ * only while the tab is visible and not mid-dialog: silently reloading a page
+ * someone is reading (or typing into) is worse than a dead timer. Otherwise
+ * just take the timer down, since we can no longer stand behind the number.
+ */
+function recoverFromOrphan(): void {
+  hideTimerForOrphan();
+  const busy = endSessionDialog || averagePopupDialog || blockerDialog;
+  if (document.visibilityState === 'visible' && !busy) {
+    console.warn('WebTime: extension context invalidated, reloading tab');
+    location.reload();
+  }
+}
+
+/** Take the timer down for good — an orphaned script can't verify it again. */
+function hideTimerForOrphan(): void {
+  orphaned = true;
+  setTimerVisible(false);
+}
 
 // Entering fullscreen puts the video at the FRONT of the top layer, above
 // anything we promoted earlier — including the timer, whose only showPopover()
@@ -1213,6 +1244,35 @@ function handleIncomingMessage(
 const ACTIVITY_PING_INTERVAL_MS = 5000;
 let lastActivityPing = 0;
 
+// Set once the extension context is known to be dead. The local tick checks it
+// so an orphaned script stops rendering a number it can no longer verify,
+// rather than freezing a stale one on screen forever.
+let orphaned = false;
+
+/**
+ * Send to the background, tolerating an orphaned content script.
+ *
+ * After the extension reloads or updates, scripts injected by the OLD version
+ * keep running in already-open tabs with a dead browser.* bridge. Calls then
+ * fail with "Extension context invalidated" — and crucially they throw
+ * SYNCHRONOUSLY, before any promise exists, so a trailing .catch() never runs.
+ * That's what surfaced as uncaught errors on the extension card.
+ *
+ * Returns false when the context is gone, so callers can skip follow-up work.
+ */
+function sendToBackground(message: object): boolean {
+  try {
+    const p = browser.runtime.sendMessage(message);
+    // Firefox returns a promise; Chrome may too. Swallow async failures the
+    // same way — a dead background is not something a page can act on.
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    return true;
+  } catch {
+    orphaned = true;
+    return false;
+  }
+}
+
 function updateActivityState(): void {
   const now = Date.now();
   // Always update locally and immediately: this gates whether the timer is
@@ -1221,7 +1281,7 @@ function updateActivityState(): void {
 
   if (now - lastActivityPing < ACTIVITY_PING_INTERVAL_MS) return;
   lastActivityPing = now;
-  browser.runtime.sendMessage({ type: "USER_ACTIVE" });
+  sendToBackground({ type: "USER_ACTIVE" });
 }
 
 // Exported for testing but also needed to prevent unused variable warning
@@ -1247,36 +1307,44 @@ function init(): void {
   createTimerElement();
   createBlurOverlay();
   createWindDownOverlay();
-  browser.runtime.onMessage.addListener(handleIncomingMessage);
+  // Registering listeners touches the same bridge, so it throws too when a
+  // previous-version script is re-running against a dead context.
+  try {
+    browser.runtime.onMessage.addListener(handleIncomingMessage);
+
+    // React to settings changes (currently just the end-session shortcut).
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.webTimeSettings) {
+        const newSettings = changes.webTimeSettings.newValue;
+        const sc = newSettings?.global?.endSessionShortcut;
+        // null = explicitly disabled, undefined = use default
+        endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
+      }
+    });
+  } catch {
+    orphaned = true;
+  }
 
   // Start hidden: nothing has been received yet, so there is no number we can
   // stand behind. The first TIME_UPDATE slides it in.
   setTimerVisible(false);
   startLocalTick();
 
-  // React to settings changes (currently just the end-session shortcut).
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.webTimeSettings) {
-      const newSettings = changes.webTimeSettings.newValue;
-      const sc = newSettings?.global?.endSessionShortcut;
-      // null = explicitly disabled, undefined = use default
-      endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
-    }
-  });
-
-  // Load the end-session shortcut from settings
-  browser.storage.local.get('webTimeSettings').then(data => {
-    const sc = data.webTimeSettings?.global?.endSessionShortcut;
-    endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
-  });
-
+  // Load the end-session shortcut from settings. Wrapped because storage is
+  // part of the same bridge that dies with an orphaned context; the default
+  // shortcut is a fine fallback.
   try {
-    const readyMessage = { type: "CONTENT_SCRIPT_READY" };
-    browser.runtime.sendMessage(readyMessage);
-  } catch (error) {
-    console.error("Error sending CONTENT_SCRIPT_READY message:", error);
+    browser.storage.local.get('webTimeSettings').then(data => {
+      const sc = data.webTimeSettings?.global?.endSessionShortcut;
+      endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
+    }).catch(() => {});
+  } catch {
+    orphaned = true;
   }
-  log("Sent CONTENT_SCRIPT_READY message to background.");
+
+  if (sendToBackground({ type: "CONTENT_SCRIPT_READY" })) {
+    log("Sent CONTENT_SCRIPT_READY message to background.");
+  }
 }
 
 init();
