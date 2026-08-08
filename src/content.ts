@@ -1141,24 +1141,21 @@ document.addEventListener('visibilitychange', () => {
 /**
  * This content script belongs to an extension version that no longer exists.
  *
- * Reloading is the only real repair — a fresh script gets a live bridge. Do it
- * only while the tab is visible and not mid-dialog: silently reloading a page
- * someone is reading (or typing into) is worse than a dead timer. Otherwise
- * just take the timer down, since we can no longer stand behind the number.
+ * We do NOT reload the tab. Reloading looks like the repair — a fresh script
+ * gets a live bridge — but the new page's script can be orphaned just as
+ * easily (extension disabled, still reloading, being removed), and then it
+ * reloads again. Across every open tab simultaneously that is an infinite
+ * reload loop, which is enough to hang or crash the browser.
+ *
+ * So we degrade quietly instead: take the timer down, stop talking to a
+ * background that isn't there. The tab recovers on the user's own next reload,
+ * which costs them one keystroke and can't run away.
  */
 function recoverFromOrphan(): void {
-  hideTimerForOrphan();
-  const busy = endSessionDialog || averagePopupDialog || blockerDialog;
-  if (document.visibilityState === 'visible' && !busy) {
-    console.warn('WebTime: extension context invalidated, reloading tab');
-    location.reload();
-  }
-}
-
-/** Take the timer down for good — an orphaned script can't verify it again. */
-function hideTimerForOrphan(): void {
+  if (orphaned) return;   // report once, not on every visibilitychange
   orphaned = true;
   setTimerVisible(false);
+  console.warn('WebTime: extension was reloaded or updated. Reload this tab to resume tracking.');
 }
 
 // Entering fullscreen puts the video at the FRONT of the top layer, above
@@ -1268,7 +1265,7 @@ function sendToBackground(message: object): boolean {
     if (p && typeof p.catch === 'function') p.catch(() => {});
     return true;
   } catch {
-    orphaned = true;
+    recoverFromOrphan();
     return false;
   }
 }
@@ -1322,7 +1319,7 @@ function init(): void {
       }
     });
   } catch {
-    orphaned = true;
+    recoverFromOrphan();
   }
 
   // Start hidden: nothing has been received yet, so there is no number we can
@@ -1339,7 +1336,7 @@ function init(): void {
       endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
     }).catch(() => {});
   } catch {
-    orphaned = true;
+    recoverFromOrphan();
   }
 
   if (sendToBackground({ type: "CONTENT_SCRIPT_READY" })) {
