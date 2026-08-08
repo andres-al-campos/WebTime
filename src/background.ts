@@ -18,6 +18,7 @@ import {
   createClock,
   isRunning,
   totalSeconds,
+  exactSeconds,
   start,
   stop,
   setTotal,
@@ -754,11 +755,29 @@ function stopTimer(): void {
   saveTimeData();
 }
 
+/**
+ * The daily total to put on the wire, with sub-second precision preserved.
+ *
+ * The content script extrapolates fractionally from whatever it receives, so a
+ * floored value made the two clocks disagree by up to a second: it would reach
+ * 40.9s, be told "40", and restart from 40.0. On screen that's a stall or a
+ * step backward once a second — the jumpiness.
+ *
+ * Only the live clock can supply the fraction. Callers that pass a total from
+ * somewhere else (a domain switch reading storage) are already whole seconds
+ * and pass through unchanged; the floor check is what distinguishes them.
+ */
+function wireTime(updatedTime: number): number {
+  if (!isRunning(dailyClock)) return updatedTime;
+  const exact = exactSeconds(dailyClock, Date.now());
+  return Math.floor(exact) === updatedTime ? exact : updatedTime;
+}
+
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
   const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; clockRunning?: boolean } = {
     type: "TIME_UPDATE",
-    time: updatedTime
+    time: wireTime(updatedTime)
   };
 
   if (trackedTabDomain) {
@@ -840,7 +859,11 @@ function handleDomainSwitch(url: string): void {
   if (!trackedTabDomain) {
     log(`Switched to non-trackable URL: ${url}`);
     setDailyTotal(0);
-    updateTimerDisplay(0);
+    // Deliberately no broadcast. updateTimerDisplay() goes to EVERY tracked
+    // tab, so sending 0 here told a video tab showing 12:34 that its total was
+    // zero — the timer dropped to 0 and sprang back on the next update. The
+    // other tabs' numbers didn't change just because this tab isn't trackable;
+    // they keep their own last value and their local clock.
     return;
   }
 

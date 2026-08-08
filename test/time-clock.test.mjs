@@ -21,7 +21,7 @@ await build({
   platform: 'node',
 });
 const {
-  createClock, isRunning, totalSeconds, start, stop, setTotal, bank, restore,
+  createClock, isRunning, totalSeconds, exactSeconds, start, stop, setTotal, bank, restore,
 } = await import(pathToFileURL(outFile).href);
 
 const T = 1_700_000_000_000;
@@ -198,4 +198,54 @@ test('a long video is counted in full across many worker deaths', () => {
     anchor = now;
   }
   assert.equal(saved, 30 * 60);
+});
+
+// --- exactSeconds(): the handoff to the content script's clock -------------
+//
+// The display jumped because the two clocks were quantised differently. The
+// background floored before sending; the content script extrapolated
+// fractionally from that floored value, so every update discarded up to a
+// second and the number stalled or stepped backward.
+
+test('exactSeconds keeps the fraction totalSeconds throws away', () => {
+  const c = start(createClock(0), T);
+  assert.equal(totalSeconds(c, T + 40900), 40);
+  assert.equal(exactSeconds(c, T + 40900), 40.9);
+});
+
+test('exact and floored agree on whole seconds', () => {
+  const c = start(createClock(0), T);
+  assert.equal(exactSeconds(c, T + s(40)), 40);
+  assert.equal(totalSeconds(c, T + s(40)), 40);
+});
+
+test('a stopped clock has no fraction to preserve', () => {
+  assert.equal(exactSeconds(createClock(75), T + s(999)), 75);
+});
+
+test('handing off the exact value never loses time', () => {
+  // What the content script does: take the received value, add locally
+  // measured elapsed, floor for display. With the exact value the displayed
+  // second never repeats or reverses.
+  const c = start(createClock(0), T);
+  const sentAt = T + 40900;
+  const received = exactSeconds(c, sentAt);       // 40.9
+  // One second later the content script shows floor(40.9 + 1.0) = 41,
+  // matching what the background itself would say.
+  assert.equal(Math.floor(received + 1.0), totalSeconds(c, sentAt + 1000));
+});
+
+test('handing off a floored value is what lost the second', () => {
+  // Pins the old behaviour as wrong: the content script would still show 40
+  // a full second after the background had moved to 41.
+  const c = start(createClock(0), T);
+  const sentAt = T + 40900;
+  const flooredHandoff = totalSeconds(c, sentAt); // 40
+  assert.equal(Math.floor(flooredHandoff + 1.0), 41);
+  assert.equal(totalSeconds(c, sentAt + 1000), 41);
+  // ...but at the moment of the update it snapped back:
+  assert.equal(Math.floor(flooredHandoff), 40);
+  assert.equal(totalSeconds(c, sentAt), 40);
+  // The visible defect is the ~0.9s of progress discarded on every update.
+  assert.ok(Math.abs((exactSeconds(c, sentAt) - flooredHandoff) - 0.9) < 1e-6);
 });

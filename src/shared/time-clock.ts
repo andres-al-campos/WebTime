@@ -51,11 +51,25 @@ export function isRunning(c: ClockState): boolean {
  * nudge times and the display are all integer seconds.
  */
 export function totalSeconds(c: ClockState, nowMs: number): number {
-  if (c.runningSince === null) return Math.floor(c.banked);
+  return Math.floor(exactSeconds(c, nowMs));
+}
+
+/**
+ * The same total without flooring.
+ *
+ * For handing the number to another clock. The content script extrapolates
+ * fractionally from whatever it was sent, so sending it a floored value made
+ * the two disagree by up to a second: it would reach 40.9s, receive "40", and
+ * restart from 40.0 — the display stalling or stepping backward on every
+ * update. Send the exact value and the handoff is seamless; floor only at the
+ * point of display.
+ */
+export function exactSeconds(c: ClockState, nowMs: number): number {
+  if (c.runningSince === null) return c.banked;
   const elapsed = (nowMs - c.runningSince) / 1000;
   // A backwards clock (NTP correction, DST, machine sleep) must never make the
   // total go down: time already spent was still spent. Clamp at zero.
-  return Math.floor(c.banked + Math.max(0, elapsed));
+  return c.banked + Math.max(0, elapsed);
 }
 
 /**
