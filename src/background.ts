@@ -425,6 +425,11 @@ function handleKeepAliveConnect(port: chrome.runtime.Port): void {
  * reporting.
  */
 async function reviveOrphanedTabs(): Promise<void> {
+  // MV3-only. Firefox aliases `chrome` and does ship scripting in MV2, so
+  // feature-detecting the API passes there and then every injection rejects for
+  // want of the permission — which the MV2 manifest deliberately omits, because
+  // a persistent background page never orphans its content scripts.
+  if (browser.runtime.getManifest().manifest_version < 3) return;
   if (typeof chrome === 'undefined' || !chrome.scripting) return;
 
   let tabs: chrome.tabs.Tab[];
