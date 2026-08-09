@@ -1,7 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
 import { cooldownLength } from './shared/session-model.js';
-import { displayIsVerified as isVerified, localElapsed } from './shared/display-trust.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -31,63 +30,27 @@ let endSessionDialog: HTMLDivElement | null = null;
 let windDownOverlay: HTMLDivElement | null = null;
 let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
 
-// --- Local countdown -------------------------------------------------------
+// --- Display state ---------------------------------------------------------
 //
-// The timer used to render only what the background last sent. Under Chrome
-// MV3 the background is a service worker that dies after ~30s idle, so those
-// updates simply stop arriving while real time keeps passing — the displayed
-// number silently freezes and then jumps when the worker next wakes.
+// The timer renders what the background last sent, and nothing else.
 //
-// So the content script keeps its own clock. The background sends the time
-// AND whether the clock is running; between updates we extrapolate from the
-// local wall clock, which needs nothing of ours to be alive.
+// It used to keep a local clock and extrapolate between updates, because the
+// MV3 service worker died every ~30s and updates stopped arriving. That local
+// clock and the background's clock then disagreed at the edges, which is what
+// produced every display bug in this port: the number drifting above the truth,
+// snapping back down, hiding on a schedule unrelated to any user setting.
 //
-// The rule that makes this safe: we only extrapolate while we can still
-// justify it. If the background goes quiet for longer than STALE_AFTER_MS
-// while claiming to be running, we no longer know whether the user paused,
-// switched tabs, or the worker died mid-session — so the timer HIDES rather
-// than showing a number that might be wrong. Showing nothing beats showing
-// something false.
+// The keep-alive document (src/offscreen.ts) keeps the worker resident, so
+// updates arrive every second and there is nothing left to paper over. One
+// clock, in the background, which is also the only place that can see tab
+// focus, idle state and cooldowns.
 //
-// receivedAt is the local timestamp of the last update, so drift between the
-// two machines' clocks never enters the arithmetic — only local deltas do.
-let clockRunning = false;
+// If the worker does die anyway, the displayed number freezes at its last value
+// until the worker returns — at which point the background credits the elapsed
+// gap (see restore() in shared/time-clock.ts) and the timer corrects itself. A
+// frozen number is visible and self-correcting; that was the deliberate choice
+// over hiding the timer, which cost a disappearing UI for the same outcome.
 let receivedAt = 0;
-
-// How long we keep extrapolating after the last update from the background.
-//
-// Silence is a fault signal again. It briefly wasn't: while the MV3 worker was
-// being killed every ~30s, silence was the normal case, so this was keyed on
-// local input instead — which is what made the timer hide after 60s while the
-// settings screen said 30s. Two different numbers measuring two different
-// things, and the user saw the wrong one.
-//
-// The keep-alive document (src/offscreen.ts) removed that reason: the worker
-// stays up and sends an update every second, so several seconds of silence
-// means something is genuinely wrong rather than routine. Keyed here, the
-// inactivity timeout is the background's business alone — when it stops the
-// clock it says so, and clockRunning goes false.
-//
-// A few seconds' grace absorbs a slow tick without ever showing a stale number.
-const STALE_AFTER_MS = 5000;
-
-// The background sends TIME_UPDATE once a second.
-const UPDATE_INTERVAL_S = 1;
-
-/** See src/shared/display-trust.ts for why this is capped. */
-function localElapsedSeconds(): number {
-  return localElapsed(clockRunning, receivedAt, Date.now(), UPDATE_INTERVAL_S);
-}
-
-/** See src/shared/display-trust.ts for the rule and why it's shaped this way. */
-function displayIsVerified(): boolean {
-  return isVerified({
-    receivedAt,
-    clockRunning,
-    staleAfterMs: STALE_AFTER_MS,
-    nowMs: Date.now(),
-  });
-}
 
 // CSS reset applied to all popup/dialog root elements to prevent site styles from bleeding in
 const CSS_RESET = `
@@ -229,11 +192,10 @@ function setTimerVisible(visible: boolean): void {
 /**
  * Local render tick.
  *
- * Independent of the background: this is what keeps the countdown moving while
- * the service worker is dead. It only re-renders from state the content script
- * already has, and updateTimerText() decides whether that state is still
- * trustworthy — so a long gap ends in the timer hiding itself, not in a wrong
- * number ticking on.
+ * The timer text is driven by TIME_UPDATE, so this no longer advances it — it
+ * re-renders the same value, which is a no-op once the text matches. It stays
+ * because the wind-down bar animates against its own deadline and needs a tick
+ * of its own.
  */
 function startLocalTick(): void {
   setInterval(() => {
@@ -266,29 +228,33 @@ let lastTimerMode: 'session' | 'daily' | null = null;
 function updateTimerText(): void {
   if (!timerText) return;
 
-  // Orphaned by an extension reload: no further updates can ever arrive, so
-  // stay hidden rather than leaving a frozen number on the page.
+  // Orphaned by an extension reload: this script's bridge is dead, so no update
+  // can ever arrive and the number would freeze permanently with nothing to
+  // correct it. That's the one case that still hides — unlike a dead worker,
+  // which comes back and fixes the display itself.
   if (orphaned) {
     setTimerVisible(false);
     return;
   }
 
-  // Can't justify the number any more — slide out rather than show a stale one.
-  // setTimerVisible re-shows on its own once an update arrives.
-  setTimerVisible(displayIsVerified());
-  if (!displayIsVerified()) return;
+  // Nothing received yet: no number to show.
+  if (receivedAt === 0) {
+    setTimerVisible(false);
+    return;
+  }
 
-  const elapsed = localElapsedSeconds();
+  setTimerVisible(true);
+
   let text: string;
   let mode: 'session' | 'daily';
   // Session is the default view; daily only while peeking, or when there is no
   // session for this site at all.
   if (hasSession() && !peekingDaily) {
-    const remaining = Math.max(0, lastSessionLimitSeconds! - lastSessionTime! - elapsed);
+    const remaining = Math.max(0, lastSessionLimitSeconds! - lastSessionTime!);
     text = `⏱ ${formatTimeAdaptive(remaining)}`;
     mode = 'session';
   } else {
-    text = formatTimeAdaptive(lastDailyTime + elapsed);
+    text = formatTimeAdaptive(lastDailyTime);
     mode = 'daily';
   }
 
@@ -878,19 +844,13 @@ let windDownEndsAt = 0;
 /**
  * Advance the wind-down bar from its local deadline.
  *
- * Runs on the local tick. The bar makes a STRONGER claim than the timer — "you
- * are almost out of time, right now" — so it hides under the same rule: if the
- * display can't be verified, the whole overlay goes rather than showing a
- * progress level we can't stand behind.
+ * Runs on the local tick. Unlike the timer this doesn't need the background at
+ * all: windDownEndsAt is an absolute deadline, so the bar stays correct on its
+ * own even if updates stop arriving.
  */
 function updateWindDownLocal(): void {
   if (!windDownOverlay || windDownEndsAt === 0) return;
   if (windDownOverlay.style.visibility !== 'visible') return;
-
-  if (!displayIsVerified()) {
-    hideWindDown();
-    return;
-  }
 
   const remaining = (windDownEndsAt - Date.now()) / 1000;
   const progress = Math.min(1, Math.max(0, 1 - remaining / WIND_DOWN_DURATION_S));
@@ -1207,9 +1167,8 @@ function handleIncomingMessage(
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
     lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
-    // Anchor the local clock. receivedAt is a LOCAL timestamp, so the two
-    // sides' clocks never have to agree — only local deltas are used.
-    clockRunning = message.clockRunning === true;
+    // Marks that a real value has arrived, which is what lets the timer show at
+    // all. Not used for arithmetic any more — the background sends the number.
     receivedAt = Date.now();
     // Note: don't touch peekingDaily here — a peek is a deliberate, time-boxed
     // user action. updateTimerText() falls back to daily on its own when session
