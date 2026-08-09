@@ -179,11 +179,18 @@ let endSessionConfirmOpen = false;
 // time keeps accruing against a page the user can't actually use.
 let averagePopupOpen = false;
 
-// Whether the active tab currently counts as engaged: recent user input, or
-// audible playback. Maintained by handleTimerState (the only place that can
-// see the tab object) and read by shouldClockRun, so the engagement test and
-// the freeze gates are one predicate rather than two that can disagree.
-let activeTabIsEngaged = false;
+// Whether the active tab is playing audio. This is a property of the tab, not
+// of the passage of time, so caching it is safe — tabs.onUpdated fires on every
+// change to it.
+//
+// Engagement itself is NOT cached. It used to be, and that was the bug behind
+// "the timer stopped during a video and then jumped 30s": the flag was written
+// only by handleTimerState, which runs on tab and focus events, so during silent
+// playback nothing recomputed it. It decayed to false, the clock stopped, and
+// the next mouse move both restarted it and credited the gap. Engagement is now
+// derived live in activeTabIsEngaged() from timestamps that stay meaningful
+// however long nothing runs.
+let activeTabAudible = false;
 
 // --- OS-level idle ---------------------------------------------------------
 //
@@ -349,6 +356,54 @@ async function rescheduleWakes(): Promise<void> {
 // it can be slow without breaking the timer.
 const HEARTBEAT_ALARM = 'webtime-heartbeat';
 const HEARTBEAT_PERIOD_MINUTES = 1;
+
+// --- Keep-alive ------------------------------------------------------------
+//
+// Chrome kills the service worker after ~30s idle. WebTime is a timer, so a
+// background that stops running is the one failure it can't absorb. An
+// offscreen document holds a message port open, which keeps the worker
+// resident and lets the ordinary 1-second tick do the counting.
+//
+// Firefox has a persistent background page and no offscreen API, so every one
+// of these calls is guarded — on Firefox they no-op and nothing changes.
+
+const KEEPALIVE_PORT = 'webtime-keepalive';
+
+function supportsOffscreen(): boolean {
+  return typeof chrome !== 'undefined' && chrome.offscreen !== undefined;
+}
+
+async function ensureKeepAlive(): Promise<void> {
+  if (!supportsOffscreen()) return;
+  try {
+    // createDocument throws if one already exists, and hasDocument isn't on
+    // every Chrome version — so just attempt it and treat "exists" as success.
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      // The document holds a message port and nothing else. BLOBS is the
+      // closest of Chrome's fixed reason values that doesn't claim a capability
+      // we don't use (no audio, no clipboard, no DOM scraping).
+      reasons: [chrome.offscreen.Reason.BLOBS],
+      justification:
+        'Keeps the service worker alive so the usage timer keeps counting in real time.',
+    });
+    log('Keep-alive document created.');
+  } catch (err) {
+    // Already exists is the common, benign case on a worker restart.
+    log(`Keep-alive document not created: ${String(err)}`);
+  }
+}
+
+/**
+ * Accept the keep-alive port. Holding the reference and receiving its periodic
+ * messages is what resets Chrome's idle timer; there is nothing to act on.
+ */
+function handleKeepAliveConnect(port: chrome.runtime.Port): void {
+  if (port.name !== KEEPALIVE_PORT) return;
+  log('Keep-alive port connected.');
+  port.onMessage.addListener(() => { /* traffic alone is the point */ });
+  port.onDisconnect.addListener(() => log('Keep-alive port disconnected.'));
+}
 
 function ensureHeartbeat(): void {
   // create() with the same name replaces any existing alarm, so this is
@@ -683,14 +738,34 @@ function shouldClockRun(): boolean {
   // script has nothing to report because nothing is happening.
   if (osIdleState === 'locked' || osIdleState === 'idle') return false;
 
-  // Activity gate: an idle user on an open tab isn't spending time on it. This
-  // used to live only in handleTimerState (deciding whether the interval ran),
-  // but the clock is what counts now, so the test has to be part of this
-  // predicate — otherwise a display tick would restart a clock that was
-  // deliberately stopped for inactivity.
-  if (!activeTabIsEngaged) return false;
+  // Activity gate: an idle user on an open tab isn't spending time on it.
+  if (!activeTabIsEngaged()) return false;
 
   return true;
+}
+
+/**
+ * Whether the user is engaged with the active tab right now.
+ *
+ * Computed on every call rather than cached. The inputs are timestamps and OS
+ * state, both of which stay correct across a service-worker death — unlike a
+ * boolean, which is only as fresh as the last event that happened to write it.
+ */
+function activeTabIsEngaged(): boolean {
+  // Audible playback counts on its own: a video the user is listening to is
+  // time spent, whether or not they touch the keyboard.
+  if (activeTabAudible) return true;
+
+  if (activeTabId === null) return false;
+
+  const lastActivity = tabLastActivity[activeTabId] || 0;
+
+  // No recorded activity is AMBIGUOUS, not evidence of idleness: tabLastActivity
+  // is in-memory only, so every worker boot starts empty even for a user who is
+  // right there. chrome.idle is the one signal that survives the worker.
+  if (lastActivity === 0) return osIdleState === 'active';
+
+  return Date.now() - lastActivity < inactivityThresholdMs;
 }
 
 /**
@@ -832,7 +907,7 @@ async function updateTimingState(tabId: number): Promise<void> {
     }
 
     handleDomainSwitch(activeTab.url);
-    handleTimerState(activeTab, tabId);
+    handleTimerState(activeTab);
 
   } catch (error) {
     console.error(`Error in updateTimingState for tab ${tabId}:`, error);
@@ -933,28 +1008,18 @@ function recoverTime(): void {
   }
 }
 
-function handleTimerState(activeTab: chrome.tabs.Tab, tabId: number): void {
+function handleTimerState(activeTab: chrome.tabs.Tab): void {
   const isWebUrl = activeTab.url?.startsWith('http://') || activeTab.url?.startsWith('https://');
   if (!isWebUrl) {
-    activeTabIsEngaged = false;
+    activeTabAudible = false;
     stopTimer();
     return;
   }
 
-  const lastActivity = tabLastActivity[tabId] || 0;
-  // No recorded activity for this tab is AMBIGUOUS, not evidence of idleness:
-  // tabLastActivity is in-memory only, so every MV3 worker boot starts empty
-  // even for a user who is right there. Fall back to the OS idle state, which
-  // is the one signal that survives the worker. Without this, a user quietly
-  // reading stops being counted on every worker restart until they happen to
-  // move the mouse.
-  const isUserActive = lastActivity === 0
-    ? osIdleState === 'active'
-    : (Date.now() - lastActivity) < inactivityThresholdMs;
+  // Record audibility; engagement itself is derived live by shouldClockRun.
+  activeTabAudible = Boolean(activeTab.audible);
 
-  activeTabIsEngaged = Boolean(activeTab.audible) || isUserActive;
-
-  if (activeTabIsEngaged) {
+  if (activeTabIsEngaged()) {
     startTimer();
   } else {
     stopTimer();
@@ -1605,6 +1670,7 @@ async function init(): Promise<void> {
   browser.tabs.onRemoved.addListener(handleTabRemoved);
   browser.windows.onFocusChanged.addListener(handleWindowFocusChanged);
   browser.runtime.onMessage.addListener(handleMessageReceived);
+  browser.runtime.onConnect.addListener(handleKeepAliveConnect);
   browser.alarms.onAlarm.addListener(handleAlarm);
   browser.idle.onStateChanged.addListener(handleIdleStateChanged);
 
@@ -1623,6 +1689,11 @@ async function init(): Promise<void> {
   // just loaded, and the state has to be real rather than the 'active' default.
   applyIdleDetectionInterval();
   await syncOsIdleState();
+
+  // Keep the worker resident so the 1-second tick actually ticks. This is what
+  // makes the timer behave like a timer under MV3; everything else here is a
+  // backstop for the case where it fails.
+  void ensureKeepAlive();
 
   // Arm the backstop on every worker boot. clearWakes() only touches the
   // WAKE_ALARM_PREFIX alarms, so rescheduling never removes this one.

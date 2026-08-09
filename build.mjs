@@ -32,6 +32,15 @@ await Promise.all([
     entryPoints: ['src/popup/popup-init.ts'],
     outfile: 'extension/dist/popup/popup-bundle.js',
   }),
+  // Chrome-only keep-alive. Bundled unconditionally because the Firefox build
+  // simply never loads it — a persistent background page has nothing to keep
+  // alive — and a second build path would be more to get wrong than a few
+  // unused kilobytes.
+  esbuild.build({
+    ...commonOptions,
+    entryPoints: ['src/offscreen.ts'],
+    outfile: 'extension/dist/offscreen.js',
+  }),
 ]);
 
 // Assemble the Chrome build from what we just bundled. Runs here rather than

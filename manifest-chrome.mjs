@@ -46,6 +46,13 @@ export function toMv3(mv2) {
   const isHostPattern = p => p.includes('://') || p === '<all_urls>';
   const permissions = (mv3.permissions || []).filter(p => !isHostPattern(p));
   const hosts = (mv3.permissions || []).filter(isHostPattern);
+
+  // "offscreen" is added here rather than in the shared manifest because the
+  // API is Chrome-only and MV3-only. It backs the keep-alive document that stops
+  // Chrome killing the service worker mid-count; Firefox has a persistent
+  // background page and would only warn about an unknown permission.
+  if (!permissions.includes('offscreen')) permissions.push('offscreen');
+
   mv3.permissions = permissions;
   if (hosts.length) {
     mv3.host_permissions = [...new Set([...(mv3.host_permissions || []), ...hosts])];
@@ -60,7 +67,7 @@ export function toMv3(mv2) {
 // Everything in extension/ that ships, minus the manifest (which is derived,
 // not copied). Listed explicitly rather than globbed so a new stray file in
 // extension/ doesn't silently end up in the Chrome build.
-const COPIED = ['dist', 'images', 'popup', 'timer.css'];
+const COPIED = ['dist', 'images', 'popup', 'timer.css', 'offscreen.html'];
 
 /** Assemble dist-chrome/ — the directory Chrome loads unpacked. */
 export async function buildChrome() {
