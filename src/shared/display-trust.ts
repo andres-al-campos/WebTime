@@ -37,3 +37,27 @@ export function displayIsVerified(input: TrustInput): boolean {
   if (!input.clockRunning) return true;
   return input.nowMs - input.receivedAt < input.staleAfterMs;
 }
+
+/**
+ * How much to add to the last received value while waiting for the next update.
+ *
+ * Smoothing, not timekeeping: it fills the gap between one-second updates so the
+ * display doesn't visibly step. Capped at one interval because past that point
+ * it is guessing, and guessing high is what made the timer look like it ran
+ * backwards — the number climbed off a frozen anchor, then snapped down to the
+ * truth when a real update arrived.
+ *
+ * Returns 0 when the clock is stopped: a frozen number is correct, and adding to
+ * it would invent time the background is deliberately not counting.
+ */
+export function localElapsed(
+  clockRunning: boolean,
+  receivedAt: number,
+  nowMs: number,
+  capSeconds: number,
+): number {
+  if (!clockRunning || receivedAt === 0) return 0;
+  const elapsed = (nowMs - receivedAt) / 1000;
+  if (elapsed < 0) return 0;   // clock moved backwards (NTP, DST)
+  return Math.min(elapsed, capSeconds);
+}

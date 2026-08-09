@@ -1,7 +1,7 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
 import { cooldownLength } from './shared/session-model.js';
-import { displayIsVerified as isVerified } from './shared/display-trust.js';
+import { displayIsVerified as isVerified, localElapsed } from './shared/display-trust.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -71,10 +71,12 @@ let receivedAt = 0;
 // A few seconds' grace absorbs a slow tick without ever showing a stale number.
 const STALE_AFTER_MS = 5000;
 
-/** Seconds elapsed locally since the last background update, if running. */
+// The background sends TIME_UPDATE once a second.
+const UPDATE_INTERVAL_S = 1;
+
+/** See src/shared/display-trust.ts for why this is capped. */
 function localElapsedSeconds(): number {
-  if (!clockRunning || receivedAt === 0) return 0;
-  return Math.max(0, (Date.now() - receivedAt) / 1000);
+  return localElapsed(clockRunning, receivedAt, Date.now(), UPDATE_INTERVAL_S);
 }
 
 /** See src/shared/display-trust.ts for the rule and why it's shaped this way. */

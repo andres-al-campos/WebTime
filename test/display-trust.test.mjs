@@ -31,7 +31,7 @@ await build({
   format: 'esm',
   outfile: outFile,
 });
-const { displayIsVerified } = await import(pathToFileURL(outFile).href);
+const { displayIsVerified, localElapsed } = await import(pathToFileURL(outFile).href);
 
 const NOW = 1_000_000;
 const STALE = 5_000;
@@ -89,4 +89,46 @@ test('local user input does not enter the rule', () => {
   const busy = displayIsVerified(base({ lastActivityTime: NOW }));
   assert.equal(quiet, busy);
   assert.equal(quiet, true);
+});
+
+// --- localElapsed(): smoothing between updates ------------------------------
+//
+// The reported symptom: the timer slid up out of view showing one number and
+// slid back down showing a smaller one. Nothing had gone backwards — the value
+// on the way out was locally extrapolated past the truth, and the slide back
+// in showed the real number again. Capping the extrapolation is the fix.
+
+const CAP = 1;
+
+test('fills the gap between updates so the display does not step', () => {
+  assert.equal(localElapsed(true, NOW - 400, NOW, CAP), 0.4);
+});
+
+test('a stopped clock adds nothing', () => {
+  // The background froze the count deliberately; adding to it would invent time.
+  assert.equal(localElapsed(false, NOW - 5000, NOW, CAP), 0);
+});
+
+test('nothing received yet adds nothing', () => {
+  assert.equal(localElapsed(true, 0, NOW, CAP), 0);
+});
+
+test('extrapolation is capped at one update interval', () => {
+  // The regression. Uncapped this returns 30, so the display would read 30s
+  // above the truth and then snap down when a real update arrived.
+  assert.equal(localElapsed(true, NOW - 30_000, NOW, CAP), CAP);
+});
+
+test('the cap is what stops the timer appearing to run backwards', () => {
+  // Background says 100s and goes quiet. Whatever the display shows during the
+  // gap must never exceed what the next update can legitimately report.
+  const base = 100;
+  const nextUpdateAfterGap = 101;          // one second really elapsed
+  const shown = base + localElapsed(true, NOW, NOW + 30_000, CAP);
+  assert.ok(shown <= nextUpdateAfterGap + CAP,
+    `displayed ${shown} would snap down to ${nextUpdateAfterGap}`);
+});
+
+test('a backwards wall clock adds nothing', () => {
+  assert.equal(localElapsed(true, NOW, NOW - 5000, CAP), 0);
 });
