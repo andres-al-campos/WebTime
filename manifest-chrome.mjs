@@ -47,11 +47,17 @@ export function toMv3(mv2) {
   const permissions = (mv3.permissions || []).filter(p => !isHostPattern(p));
   const hosts = (mv3.permissions || []).filter(isHostPattern);
 
-  // "offscreen" is added here rather than in the shared manifest because the
-  // API is Chrome-only and MV3-only. It backs the keep-alive document that stops
-  // Chrome killing the service worker mid-count; Firefox has a persistent
-  // background page and would only warn about an unknown permission.
-  if (!permissions.includes('offscreen')) permissions.push('offscreen');
+  // Added here rather than in the shared manifest: both APIs are MV3-only, and
+  // Firefox would warn about unknown permissions.
+  //
+  //   offscreen  — the keep-alive document that stops Chrome killing the
+  //                service worker mid-count.
+  //   scripting  — re-injecting the content script into tabs orphaned by an
+  //                extension reload or auto-update. MV2 used tabs.executeScript,
+  //                which the "tabs" permission already covers on Firefox.
+  for (const p of ['offscreen', 'scripting']) {
+    if (!permissions.includes(p)) permissions.push(p);
+  }
 
   mv3.permissions = permissions;
   if (hosts.length) {

@@ -405,6 +405,59 @@ function handleKeepAliveConnect(port: chrome.runtime.Port): void {
   port.onDisconnect.addListener(() => log('Keep-alive port disconnected.'));
 }
 
+/**
+ * Re-inject the content script into tabs that lost theirs.
+ *
+ * A content script is injected when its page LOADS, so it belongs to whatever
+ * extension version was current at that moment. Reload or update the extension
+ * and every already-open tab keeps running the old script against a dead bridge:
+ * the timer disappears and that tab silently stops being tracked until the user
+ * happens to reload it. Chrome updates extensions on its own schedule, so this
+ * is a real-world gap, not only a development annoyance.
+ *
+ * Injecting a second script into a tab that still has a live one is harmless —
+ * the content script's init() clears leftover UI before building its own, so no
+ * duplicate timers — which means this doesn't need to distinguish the two cases.
+ *
+ * Failures are expected and ignored per-tab: chrome:// pages, the Web Store, PDF
+ * viewers and discarded tabs all reject injection, and none of that is worth
+ * reporting.
+ */
+async function reviveOrphanedTabs(): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.scripting) return;
+
+  let tabs: chrome.tabs.Tab[];
+  try {
+    tabs = await browser.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+  } catch (err) {
+    log(`Could not query tabs for reinjection: ${String(err)}`);
+    return;
+  }
+
+  let revived = 0;
+  await Promise.all(tabs.map(async (tab) => {
+    if (tab.id === undefined || tab.discarded) return;
+    try {
+      // CSS first: the script builds UI as soon as it runs, and the manifest's
+      // declared stylesheet is not reapplied on a programmatic injection.
+      // insertCSS is idempotent, so a tab that still has it is unaffected.
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: ['timer.css'],
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['dist/content.js'],
+      });
+      revived++;
+    } catch {
+      // Restricted URL, or the tab went away mid-flight. Neither is actionable.
+    }
+  }));
+
+  log(`Reinjected content script into ${revived}/${tabs.length} tab(s).`);
+}
+
 function ensureHeartbeat(): void {
   // create() with the same name replaces any existing alarm, so this is
   // idempotent and safe to call on every worker boot.
@@ -1719,6 +1772,10 @@ async function init(): Promise<void> {
   // worker restart, so seeding them means the same dead tabs are re-added and
   // re-dropped on each boot. Live tabs announce themselves with
   // CONTENT_SCRIPT_READY, which is the only signal that a listener exists.
+  //
+  // Reinjection is what gets a script INTO those tabs in the first place; the
+  // ones it revives then announce themselves normally.
+  void reviveOrphanedTabs();
 
   const activeTabs = await browser.tabs.query({
     active: true,

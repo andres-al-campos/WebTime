@@ -64,23 +64,27 @@ test('the permissions the MV3 port depends on are present', () => {
 // it Chrome kills the worker every ~30s and the count freezes and jumps. It is
 // also invisible when broken — the extension loads and just keeps worse time —
 // so the wiring is asserted here rather than left to manual testing.
-test('the offscreen permission is added for Chrome', () => {
-  assert.ok(toMv3(real).permissions.includes('offscreen'), 'offscreen permission missing');
+test('the MV3-only permissions are added for Chrome', () => {
+  const mv3 = toMv3(real);
+  assert.ok(mv3.permissions.includes('offscreen'), 'offscreen permission missing');
+  assert.ok(mv3.permissions.includes('scripting'), 'scripting permission missing');
 });
 
-test('offscreen is Chrome-only and stays out of the shared manifest', () => {
-  // Firefox has a persistent background page and no offscreen API; the
-  // permission there would only produce a warning.
-  assert.ok(!(real.permissions || []).includes('offscreen'));
+test('MV3-only permissions stay out of the shared manifest', () => {
+  // Firefox has a persistent background page and no offscreen API, and reaches
+  // injection through tabs.executeScript; both would only produce warnings.
+  for (const p of ['offscreen', 'scripting']) {
+    assert.ok(!(real.permissions || []).includes(p), `${p} leaked into MV2`);
+  }
 });
 
-test('adding offscreen is idempotent', () => {
-  // Guards the case where the shared manifest later gains it for some reason:
-  // a duplicated permission is a load-time warning in Chrome.
-  const once = toMv3(real).permissions.filter(p => p === 'offscreen');
-  assert.equal(once.length, 1);
-  const twice = toMv3(toMv3(real)).permissions.filter(p => p === 'offscreen');
-  assert.equal(twice.length, 1);
+test('adding the MV3-only permissions is idempotent', () => {
+  // Guards the case where the shared manifest later gains one: a duplicated
+  // permission is a load-time warning in Chrome.
+  for (const p of ['offscreen', 'scripting']) {
+    assert.equal(toMv3(real).permissions.filter(x => x === p).length, 1, p);
+    assert.equal(toMv3(toMv3(real)).permissions.filter(x => x === p).length, 1, p);
+  }
 });
 
 test('the Firefox-only block is dropped', () => {
