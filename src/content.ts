@@ -1149,12 +1149,19 @@ document.addEventListener('visibilitychange', () => {
  * So we degrade quietly instead: take the timer down, stop talking to a
  * background that isn't there. The tab recovers on the user's own next reload,
  * which costs them one keystroke and can't run away.
+ *
+ * Logged through log() rather than console.warn deliberately. Chrome collects
+ * anything a content script writes to warn/error and shows it as "Errors" on the
+ * extension card — so reloading the extension lit up the card with one entry per
+ * open tab, all of them describing the reload the user had just performed. This
+ * is an expected consequence of reloading, not a fault, and it must not look
+ * like one.
  */
 function recoverFromOrphan(): void {
   if (orphaned) return;   // report once, not on every visibilitychange
   orphaned = true;
   setTimerVisible(false);
-  console.warn('WebTime: extension was reloaded or updated. Reload this tab to resume tracking.');
+  log('Extension was reloaded or updated; this tab is orphaned until it reloads.');
 }
 
 // Entering fullscreen puts the video at the FRONT of the top layer, above
