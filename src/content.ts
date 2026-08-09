@@ -54,22 +54,22 @@ let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
 let clockRunning = false;
 let receivedAt = 0;
 
-// How long we keep extrapolating after the user's last real interaction.
+// How long we keep extrapolating after the last update from the background.
 //
-// Deliberately NOT keyed on silence from the background. Under MV3 the service
-// worker is killed after ~30s idle, so silence is the normal case, not a fault
-// — an earlier version treated it as staleness and the timer hid itself every
-// 10s during ordinary reading.
+// Silence is a fault signal again. It briefly wasn't: while the MV3 worker was
+// being killed every ~30s, silence was the normal case, so this was keyed on
+// local input instead — which is what made the timer hide after 60s while the
+// settings screen said 30s. Two different numbers measuring two different
+// things, and the user saw the wrong one.
 //
-// Local input is the right signal because it's the thing we can actually
-// observe here, and it's what the number depends on: while the user is
-// interacting the clock is running, so extrapolating forward is correct. Once
-// they've stopped we can't tell whether the background froze the clock (tab
-// blurred, idle, cooldown), so we stop claiming to know.
+// The keep-alive document (src/offscreen.ts) removed that reason: the worker
+// stays up and sends an update every second, so several seconds of silence
+// means something is genuinely wrong rather than routine. Keyed here, the
+// inactivity timeout is the background's business alone — when it stops the
+// clock it says so, and clockRunning goes false.
 //
-// 60s is past the worker's ~30s death and past the default 30s inactivity
-// timeout, so a normal working session never trips it.
-const STALE_AFTER_MS = 60000;
+// A few seconds' grace absorbs a slow tick without ever showing a stale number.
+const STALE_AFTER_MS = 5000;
 
 /** Seconds elapsed locally since the last background update, if running. */
 function localElapsedSeconds(): number {
@@ -82,7 +82,6 @@ function displayIsVerified(): boolean {
   return isVerified({
     receivedAt,
     clockRunning,
-    lastActivityTime,
     staleAfterMs: STALE_AFTER_MS,
     nowMs: Date.now(),
   });
@@ -1231,13 +1230,12 @@ function handleIncomingMessage(
   }
 }
 
-// Minimum gap between USER_ACTIVE messages. Every one of these wakes the MV3
-// service worker, and mousemove alone fires hundreds of times a second — left
-// unthrottled it keeps the worker booting continuously, which costs battery and
-// makes the worker slower to answer the things that matter.
+// Minimum gap between USER_ACTIVE messages. mousemove alone fires hundreds of
+// times a second, and every message is work for the background.
 //
-// The background only compares this against its inactivity threshold (30s by
-// default), so once every 5s carries exactly the same information.
+// The background only compares the timestamp against its inactivity threshold
+// (30s by default), so once every 5s carries the same information at a fraction
+// of the traffic.
 const ACTIVITY_PING_INTERVAL_MS = 5000;
 let lastActivityPing = 0;
 
