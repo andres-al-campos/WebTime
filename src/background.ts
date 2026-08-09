@@ -25,6 +25,7 @@ import {
   bank,
   restore,
 } from './shared/time-clock.js';
+import { shouldClockRun as gatesAllowClock } from './shared/clock-gates.js';
 import type {
   TimeHistory,
   Domain,
@@ -765,36 +766,21 @@ function rolloverIfNewDay(): boolean {
  * conditions themselves are unchanged.
  */
 function shouldClockRun(): boolean {
-  // Foreground gate: if the browser isn't the current OS app, don't count —
-  // the user is in another application, not spending time on the page.
-  if (!browserIsFocused) return false;
-
-  // There has to be a trackable domain to count against.
-  if (!trackedTabDomain) return false;
-
-  // Cooldown gate: if the current domain is in an active cooldown, freeze the
-  // timer entirely. No daily increment, no interventions, nothing. The
-  // cooldown ticker (startCooldownTicker) handles the blocker UI countdown.
-  if ((cooldownEndTime[trackedTabDomain] || 0) > Date.now()) return false;
-
-  // End-session confirmation popup is open — freeze daily count so the
-  // displayed remaining/elapsed time stays put while the user decides.
-  if (endSessionConfirmOpen) return false;
-
-  // Average popup is open — same deal: the page is blurred and media paused,
-  // so don't count time the user can't spend.
-  if (averagePopupOpen) return false;
-
-  // OS idle gate: the machine is locked, or has had no input at all for the
-  // detection interval. This is a stronger statement than the per-tab activity
-  // test below — it covers walking away with a tab focused, where the content
-  // script has nothing to report because nothing is happening.
-  if (osIdleState === 'locked' || osIdleState === 'idle') return false;
-
-  // Activity gate: an idle user on an open tab isn't spending time on it.
-  if (!activeTabIsEngaged()) return false;
-
-  return true;
+  // The gates and their ORDER live in shared/clock-gates.ts so they can be
+  // tested. The cooldown ticker (startCooldownTicker) still handles the blocker
+  // UI countdown while this returns false.
+  return gatesAllowClock({
+    browserIsFocused,
+    trackedDomain: trackedTabDomain,
+    inCooldown: trackedTabDomain
+      ? (cooldownEndTime[trackedTabDomain] || 0) > Date.now()
+      : false,
+    endSessionConfirmOpen,
+    averagePopupOpen,
+    osIdleState,
+    activeTabAudible,
+    tabIsEngaged: activeTabIsEngaged(),
+  });
 }
 
 /**
@@ -805,10 +791,7 @@ function shouldClockRun(): boolean {
  * boolean, which is only as fresh as the last event that happened to write it.
  */
 function activeTabIsEngaged(): boolean {
-  // Audible playback counts on its own: a video the user is listening to is
-  // time spent, whether or not they touch the keyboard.
-  if (activeTabAudible) return true;
-
+  // Audible playback is handled by the caller, ahead of the idle gate.
   if (activeTabId === null) return false;
 
   const lastActivity = tabLastActivity[activeTabId] || 0;
