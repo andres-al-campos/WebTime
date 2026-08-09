@@ -3,9 +3,9 @@
 // WHY THIS EXISTS
 //
 // Chrome terminates the service worker after ~30 seconds idle (measured: 7
-// deaths in 10 minutes of untouched video playback, tools/mv3-probe). WebTime
-// is a timer, so a background that stops running is the one thing it can't
-// tolerate — the count freezes, then jumps when the worker next wakes.
+// deaths in 10 minutes of untouched video playback). WebTime is a timer, so a
+// background that stops running is the one thing it can't tolerate — the count
+// freezes, then jumps when the worker next wakes.
 //
 // Everything else we tried worked around the death rather than preventing it:
 // the content script kept its own clock, a staleness rule decided when to

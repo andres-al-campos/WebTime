@@ -269,8 +269,8 @@ function syncOsIdleState(): Promise<void> {
 //
 // Under MV3 nothing of ours is guaranteed to be running when a session ends:
 // the worker dies after ~30s idle, and video playback does not keep it alive
-// (measured — 7 deaths in 10 untouched minutes, tools/mv3-probe). A blocker
-// that fires whenever the worker next happens to wake is not a timer.
+// (measured — 7 deaths in 10 untouched minutes). A blocker that fires whenever
+// the worker next happens to wake is not a timer.
 //
 // So each deadline gets a chrome.alarms one-shot at its absolute instant.
 // Alarms wake a dead worker and fire on time regardless of its state — the
@@ -886,7 +886,7 @@ function wireTime(updatedTime: number): number {
 
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
-  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; clockRunning?: boolean } = {
+  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number } = {
     type: "TIME_UPDATE",
     time: wireTime(updatedTime)
   };
@@ -911,17 +911,11 @@ function updateTimerDisplay(updatedTime: number): void {
     }
   }
 
-  const running = isRunning(dailyClock);
-
   trackedTabIds.forEach((tabId) => {
-    // Only the ACTIVE tab may extrapolate locally. Every tracked tab gets the
-    // number (so a background tab shows the right value when you return to it),
-    // but a tab that isn't the one being counted must not advance its own
-    // countdown — the time isn't accruing against it.
-    browser.tabs.sendMessage(tabId, {
-      ...message,
-      clockRunning: running && tabId === activeTabId,
-    }).catch(() => {
+    // Every tracked tab gets the number, so a background tab shows the right
+    // value when you return to it. Tabs only render what they're sent; the
+    // background is the single clock.
+    browser.tabs.sendMessage(tabId, message).catch(() => {
       // Expected whenever a tab closes or navigates between the send and its
       // delivery, so this is log(), not console.warn() — it's routine, and the
       // tab re-announces itself if it's still alive. Dropping it here is what

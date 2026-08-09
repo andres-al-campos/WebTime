@@ -6,9 +6,8 @@
 // inside a 1-second setInterval. Under Chrome MV3 the background is a service
 // worker that Chrome kills after ~30 seconds idle, and a pending setInterval
 // neither keeps it alive nor survives it. Measured: 7 worker deaths in 10
-// minutes of untouched video playback (tools/mv3-probe). Tick-counting there
-// doesn't run slow, it stops — the daily total freezes and the session never
-// ends.
+// minutes of untouched video playback. Tick-counting there doesn't run slow,
+// it stops — the daily total freezes and the session never ends.
 //
 // So elapsed time is derived from wall-clock timestamps instead:
 //

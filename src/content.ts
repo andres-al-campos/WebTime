@@ -7,7 +7,6 @@ declare const browser: typeof chrome;
 
 let timerText: HTMLDivElement | null = null;
 let timerElement: HTMLDivElement | null = null;
-let lastActivityTime = Date.now();
 // The session timer is the resting/home state on any site with an active
 // session limit. Clicking the timer "peeks" at the daily total for a few
 // seconds, then it snaps back to the session view. peekingDaily is per-tab and
@@ -1238,17 +1237,10 @@ function sendToBackground(message: object): boolean {
 
 function updateActivityState(): void {
   const now = Date.now();
-  // Always update locally and immediately: this gates whether the timer is
-  // shown, so it has to react on the first event, not on the next ping.
-  lastActivityTime = now;
-
   if (now - lastActivityPing < ACTIVITY_PING_INTERVAL_MS) return;
   lastActivityPing = now;
   sendToBackground({ type: "USER_ACTIVE" });
 }
-
-// Exported for testing but also needed to prevent unused variable warning
-export { lastActivityTime };
 
 // passive: these never preventDefault, and saying so keeps scroll off the
 // main thread on the sites where it matters most.
