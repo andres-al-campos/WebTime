@@ -1,5 +1,6 @@
 import * as esbuild from 'esbuild';
 import { rm } from 'node:fs/promises';
+import { buildChrome } from './manifest-chrome.mjs';
 
 // Start from a clean dist so stale orphans from older build layouts can't
 // linger and ship inside the packaged extension. (A previous tsc-based build
@@ -31,6 +32,19 @@ await Promise.all([
     entryPoints: ['src/popup/popup-init.ts'],
     outfile: 'extension/dist/popup/popup-bundle.js',
   }),
+  // Chrome-only keep-alive. Bundled unconditionally because the Firefox build
+  // simply never loads it — a persistent background page has nothing to keep
+  // alive — and a second build path would be more to get wrong than a few
+  // unused kilobytes.
+  esbuild.build({
+    ...commonOptions,
+    entryPoints: ['src/offscreen.ts'],
+    outfile: 'extension/dist/offscreen.js',
+  }),
 ]);
+
+// Assemble the Chrome build from what we just bundled. Runs here rather than
+// as a separate script step so it can't be ordered before the bundle exists.
+await buildChrome();
 
 console.log('Build complete.');

@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebTime keep-alive</title>
+<!--
+  Invisible document whose only job is to keep the MV3 service worker alive.
+
+  Chrome kills the worker after ~30s idle. An offscreen document holding an
+  open message port counts as activity, so the worker stays up and the ordinary
+  1-second tick keeps running — which is what makes the timer behave like a
+  timer instead of freezing and jumping.
+
+  Nothing is rendered; this page is never visible to the user.
+-->
+<script src="dist/offscreen.js"></script>

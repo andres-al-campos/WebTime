@@ -7,7 +7,9 @@
   "permissions": [
     "tabs",
     "<all_urls>",
-    "storage"
+    "storage",
+    "alarms",
+    "idle"
   ],
 
   "browser_action": {

@@ -1,8 +1,8 @@
 # Chrome (MV3) port plan
 
 Handoff document. Written 2026-08-06 after measuring Chrome's service-worker
-behavior with the probe in this directory. Read this first if you're picking the
-port up cold.
+behavior with a throwaway probe extension, since deleted. Read this first if
+you're picking the port up cold.
 
 ## Why
 
@@ -12,12 +12,12 @@ idle**. The manifest changes are trivial. The problem is the timer.
 
 Today, time is counted by incrementing a counter inside a 1-second interval:
 
-- `incrementTimer()` — [src/background.ts:330](../../src/background.ts) —
+- `incrementTimer()` — [src/background.ts:330](../src/background.ts) —
   does `todaysTotalTimeInActiveDomain++` once per tick
-- `startTimer()` — [src/background.ts:368](../../src/background.ts) —
+- `startTimer()` — [src/background.ts:368](../src/background.ts) —
   `setInterval(incrementTimer, 1000)`
 - `checkForInterventions()` is called from the **last line of the tick**
-  ([src/background.ts:365](../../src/background.ts)), so the session-limit
+  ([src/background.ts:365](../src/background.ts)), so the session-limit
   check only runs as a consequence of a tick firing
 
 A pending `setInterval` neither keeps a service worker alive nor survives its
@@ -32,10 +32,8 @@ death. Under MV3 the worker dies, ticks stop, the counter stops advancing, and:
 
 ## Measured facts
 
-From the probe in this directory (9-minute YouTube run, no interaction):
-
-Two runs: run 1 with a 30s heartbeat (precision mode), run 2 without (lifetime
-mode). Both ~10 minutes of YouTube playback with no interaction.
+Two probe runs: run 1 with a 30s heartbeat (precision mode), run 2 without
+(lifetime mode). Both ~10 minutes of YouTube playback with no interaction.
 
 | Question | Result |
 |---|---|
@@ -136,12 +134,12 @@ Current total becomes a function:
 `accumulatedToday + (activeSince ? (now - activeSince)/1000 : 0)`
 
 `todaysTotalTimeInActiveDomain` has **~30 read sites and one write site**
-(`++` at [src/background.ts:358](../../src/background.ts)). Convert it to a
+(`++` at [src/background.ts:358](../src/background.ts)). Convert it to a
 `currentDailyTotal()` function and most read sites keep working unchanged. This
 is what makes the refactor tractable.
 
 The five freeze gates in `incrementTimer()`
-([src/background.ts:330-365](../../src/background.ts)) stop being per-tick
+([src/background.ts:330-365](../src/background.ts)) stop being per-tick
 skips and become **clock-stop / clock-start transitions**:
 
 | Gate | Today | After |
@@ -153,7 +151,7 @@ skips and become **clock-stop / clock-start transitions**:
 | tab switch / inactivity | `stopTimer()` | bank + `activeSince = null` |
 
 Each of these already has an event that fires at the right moment
-(`windows.onFocusChanged` at [src/background.ts:490](../../src/background.ts),
+(`windows.onFocusChanged` at [src/background.ts:490](../src/background.ts),
 the popup open/close messages, etc.), so the transition is recorded when it
 happens rather than inferred later. **This is what makes the gates survive
 worker death** — a dead worker can't evaluate a gate, but the timestamp written
@@ -186,7 +184,7 @@ were already `++`'d and are unrecoverable. So the data is *more* accurate than
 Firefox today, just less prompt.
 
 The display is the problem. `updateTimerText()`
-([src/content.ts:179](../../src/content.ts)) is **passive** — it renders
+([src/content.ts:179](../src/content.ts)) is **passive** — it renders
 whatever the background last sent and has no clock of its own. So during the lag
 it freezes at a stale value, and the late correction makes the number jump
 **backward** (time is given back, because the freeze happened later than the
@@ -202,9 +200,9 @@ exactly what timestamp accounting wants (bank on close, restart on open).
 
 | Signal | Catches | Wakes worker | Status |
 |---|---|---|---|
-| `browserIsFocused` | user is in another app | `windows.onFocusChanged` | exists, [background.ts:490](../../src/background.ts) |
+| `browserIsFocused` | user is in another app | `windows.onFocusChanged` | exists, [background.ts:490](../src/background.ts) |
 | `chrome.idle.onStateChanged` | user is away from the machine | **yes** | **new** — needs `"idle"` permission |
-| content-script input events | in Chrome, but not on this page | message | exists, [content.ts:1068-1070](../../src/content.ts) |
+| content-script input events | in Chrome, but not on this page | message | exists, [content.ts:1068-1070](../src/content.ts) |
 
 Count only while all three agree the user is present.
 
@@ -245,7 +243,7 @@ doing trivial work, exactly as the Firefox build does today, and it only
 repaints. If it lags or dies, accounting is unaffected.
 
 **No idle indicator.** Two reasons. `.web-time-timer:hover` already uses
-`opacity: 0.25` ([extension/timer.css:29](../../extension/timer.css)), so
+`opacity: 0.25` ([extension/timer.css:29](../extension/timer.css)), so
 dimming for idle would be indistinguishable from hover and would break the
 "see what's behind the widget" gesture on an already-dim timer. And with the
 freeze happening at the right moment with the right value, a stopped timer
@@ -275,7 +273,7 @@ content script can only cause an early wake that gets rejected.
 
 **Main implementation risk:** rescheduling must happen on every path that
 mutates session state — `getOrStartSession`, the `changeLength` path
-(~[src/background.ts:694-725](../../src/background.ts)), `naturalEnd`,
+(~[src/background.ts:694-725](../src/background.ts)), `naturalEnd`,
 `endEarly`, cooldown start/end, settings changes. A missed call site leaves a
 stale alarm, which means the blocker doesn't fire — the worst failure this
 extension has. Scattered manual calls are the kind of thing that reviews clean
@@ -284,7 +282,7 @@ and still breaks in the one path nobody considered.
 Three mitigations, all cheap, meant to be used together:
 
 1. **A pure deadline function.** `sessionEndsAt(session, dailyTotal) → epoch ms`
-   lives in [session-model.ts](../../src/shared/session-model.ts) alongside the
+   lives in [session-model.ts](../src/shared/session-model.ts) alongside the
    existing pure helpers, and gets unit tests in the current harness (34 tests,
    no browser needed). The scheduling layer becomes a thin wrapper with nothing
    to get wrong.
@@ -312,7 +310,7 @@ places.
 This closes the last real gap in the design: **watching a silent video.** Time
 is accruing (the user is watching) but no events are generated, so the worker
 dies and no updates arrive. `updateTimerText()`
-([src/content.ts:179](../../src/content.ts)) is passive — it renders whatever
+([src/content.ts:179](../src/content.ts)) is passive — it renders whatever
 the background last sent — so the corner number goes stale while the count
 itself stays correct.
 
@@ -355,11 +353,11 @@ if (Date.now() - lastActivityTime < IDLE_THRESHOLD_MS &&
 
 **Then slide the timer out.** Showing nothing beats showing a number that might
 be wrong. Motion also avoids the `opacity: 0.25` hover collision
-([extension/timer.css:29](../../extension/timer.css)) and reads as deliberate
+([extension/timer.css:29](../extension/timer.css)) and reads as deliberate
 rather than broken.
 
 Coming back is already free: `mousemove` / `scroll` / `keydown`
-([src/content.ts:1068-1070](../../src/content.ts)) send `USER_ACTIVE`, which
+([src/content.ts:1068-1070](../src/content.ts)) send `USER_ACTIVE`, which
 wakes the worker and produces a fresh push. Slide back in on the next verified
 update.
 
@@ -376,11 +374,11 @@ alarm per unfired nudge.
 
 Two safeguards already exist:
 
-- `firedNudges` is persisted ([src/background.ts:793](../../src/background.ts)),
+- `firedNudges` is persisted ([src/background.ts:793](../src/background.ts)),
   so a worker restart can't re-fire one. This is the hard part of scheduling,
   already done.
 - `nextNudgeToFire()`
-  ([src/shared/session-model.ts](../../src/shared/session-model.ts)) returns the
+  ([src/shared/session-model.ts](../src/shared/session-model.ts)) returns the
   *latest* unfired nudge at or before now — so a missed alarm fires once on the
   next wake instead of replaying a backlog. Written for skipped ticks; works
   identically for missed alarms.
@@ -395,10 +393,10 @@ funnel in Step 2, no extra machinery.
 
 #### 3d — Wind-down bar
 
-Currently `checkWindDown()` ([src/background.ts:853](../../src/background.ts))
+Currently `checkWindDown()` ([src/background.ts:853](../src/background.ts))
 re-sends `SHOW_WIND_DOWN` **every second** with fresh `progress` and
 `remainingSeconds` — 60 messages per session, each needing a live worker. The
-content script comment at [src/content.ts:775](../../src/content.ts) notes the
+content script comment at [src/content.ts:775](../src/content.ts) notes the
 per-second arrival explicitly.
 
 Replace with **one** message carrying the deadline:
@@ -409,7 +407,7 @@ Replace with **one** message carrying the deadline:
 
 The content script animates locally via `requestAnimationFrame` against its own
 clock. Handler is the if/else chain at
-[src/content.ts:1053](../../src/content.ts); `showWindDown(progress, remaining)`
+[src/content.ts:1053](../src/content.ts); `showWindDown(progress, remaining)`
 changes signature to take `endsAt`.
 
 Two side benefits: the animation gets smoother than 1Hz steps, and 60 messages
@@ -429,7 +427,7 @@ rather than animate an unverified one — same detection, same slide-out.
 
 `chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 })` — 30s is the
 hard floor for the periodic form. Replaces the activity-check interval at
-[src/background.ts:1141](../../src/background.ts).
+[src/background.ts:1141](../src/background.ts).
 
 Run 2 made a periodic wake look mandatory: the worker dies within ~30s of idle
 and silent video generates no events, so there were long stretches with no wake
@@ -456,18 +454,18 @@ all and the content script is the only detector.
   `background.service_worker`; add `"alarms"` and `"idle"` permissions
   (neither shows a scary install warning)
 - API shim: `const browser = globalThis.browser ?? chrome;`. Types already use
-  `declare const browser: typeof chrome` ([src/types.ts:6](../../src/types.ts)),
+  `declare const browser: typeof chrome` ([src/types.ts:6](../src/types.ts)),
   so there is no Firefox-specific type surface to unwind. All 26 `await
   browser.*` calls work as-is — Chrome MV3 promisifies everything.
 - Listeners must be registered **synchronously at top level**. They already are;
   verify this holds after the refactor. `init()` at
-  [src/background.ts:1149](../../src/background.ts) re-runs on every wake, which
+  [src/background.ts:1149](../src/background.ts) re-runs on every wake, which
   is correct MV3 behavior.
-- [build.mjs](../../build.mjs): emit two manifests from one source. Firefox
+- [build.mjs](../build.mjs): emit two manifests from one source. Firefox
   MV3 prefers event pages (`background.scripts`) over service workers, so the
   manifests differ in that key. Single-source with a build-time transform beats
   two diverging codebases, and keeps the AMO listing working.
-- [build.sh](../../build.sh) uses `web-ext build` (Mozilla's tool). It zips a
+- [build.sh](../build.sh) uses `web-ext build` (Mozilla's tool). It zips a
   Chrome extension fine but you'll want a second artifact.
 
 ## What other extensions do (surveyed 2026-08-06)
@@ -533,7 +531,7 @@ is the forcing function, not the only reason to do it.
 ## Verification
 
 1. `npm run typecheck && npm test` — 34 tests currently pass; the session model
-   in [src/shared/session-model.ts](../../src/shared/session-model.ts) is pure
+   in [src/shared/session-model.ts](../src/shared/session-model.ts) is pure
    functions over an `ActiveSession` with a `startDaily` anchor, so it should
    need little change. **It is already timestamp-style** — this refactor makes
    the daily counter consistent with it.

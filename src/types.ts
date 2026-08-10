@@ -23,6 +23,11 @@ export interface TrackedTimeData {
   lastDate: DateString;
   timeHistory: TimeHistory;
   version: number;
+  /** Epoch ms the clock was running from at save time, null if stopped. Lets a
+   *  restarting worker recover the seconds the save interval didn't capture. */
+  runningSince?: number | null;
+  /** The domain that anchor belongs to, so the gap is never credited elsewhere. */
+  runningDomain?: Domain | null;
 }
 
 /** Storage format for trackedTime key */

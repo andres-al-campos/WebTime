@@ -30,5 +30,30 @@
   opacity: 0.25;
 }
 
+/*
+ * Hidden state: the displayed time can no longer be verified.
+ *
+ * Under MV3 the background service worker dies after ~30s idle, so its updates
+ * stop arriving while real time keeps passing. Rather than leave a frozen
+ * number on screen — which reads as a working timer and is wrong — the timer
+ * slides up out of view until an update confirms it again.
+ *
+ * Slide rather than fade: hover already uses opacity (above), so a fade would
+ * be ambiguous with "the user is hovering to see through it". Motion off the
+ * edge reads unmistakably as "gone", and it returns by the same path.
+ *
+ * The transition is on transform/opacity only, so it never triggers layout on
+ * the host page.
+ */
+.web-time-timer {
+  transition: opacity 0.2s ease, transform 0.25s ease !important;
+}
+
+.web-time-timer.web-time-timer-hidden {
+  transform: translateY(-150%) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 
 

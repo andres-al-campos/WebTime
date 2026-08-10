@@ -275,6 +275,122 @@ export function markNudgeFired(s: ActiveSession, nudgeTime: number): ActiveSessi
 }
 
 // ---------------------------------------------------------------------------
+// Scheduling — converting session-relative seconds into wall-clock instants.
+//
+// Under MV3 nothing can be assumed to run every second: the service worker is
+// killed after ~30s idle, so the session must be able to end (and nudge, and
+// wind down) with nothing of ours running in between. The way out is to turn
+// each session-relative deadline into an absolute instant that a
+// chrome.alarms one-shot and a content-script setTimeout can both be aimed at.
+//
+// The conversion holds only while the clock is RUNNING — the session's elapsed
+// time advances with wall-clock time only when the user is actually on the
+// tracked domain, focused and not idle. So every deadline must be recomputed
+// whenever the clock stops or starts. `secondsUntil` is deliberately separate
+// from `instantFor` to make that dependency explicit at the call site: the
+// caller passes the `now` it is scheduling from.
+// ---------------------------------------------------------------------------
+
+/** Session-relative second at which the session ends. */
+export function endsAtSessionTime(s: ActiveSession): number {
+  return effectiveLength(s);
+}
+
+/** Session-relative second at which the wind-down bar should appear. */
+export function windDownAtSessionTime(s: ActiveSession): number {
+  return Math.max(0, effectiveLength(s) - WIND_DOWN_DURATION);
+}
+
+/**
+ * Seconds of RUNNING CLOCK from now until a session-relative deadline.
+ * Negative or zero means the deadline is already due.
+ */
+export function secondsUntil(
+  s: ActiveSession,
+  dailyTotal: number,
+  targetSessionTime: number,
+): number {
+  const { sessionTime } = displayFor(s, dailyTotal);
+  return targetSessionTime - sessionTime;
+}
+
+/**
+ * Absolute epoch-ms instant for a session-relative deadline, assuming the
+ * clock runs continuously from `nowMs`. Null when the deadline is already due
+ * (the caller should act immediately rather than schedule).
+ */
+export function instantFor(
+  s: ActiveSession,
+  dailyTotal: number,
+  targetSessionTime: number,
+  nowMs: number,
+): number | null {
+  const secs = secondsUntil(s, dailyTotal, targetSessionTime);
+  if (secs <= 0) return null;
+  return nowMs + secs * 1000;
+}
+
+/**
+ * Whether wakes should be armed at all right now.
+ *
+ * Separated from scheduleFor so the "should we schedule" decision is testable
+ * without an alarms API. Each false case means the session is not advancing
+ * toward any deadline, so an armed alarm could only wake the worker to
+ * discover there is nothing to do.
+ */
+export function shouldScheduleWakes(opts: {
+  clockRunning: boolean;
+  hasSession: boolean;
+  inCooldown: boolean;
+}): boolean {
+  return opts.clockRunning && opts.hasSession && !opts.inCooldown;
+}
+
+export interface ScheduledWake {
+  /** What is due at this instant. */
+  kind: 'nudge' | 'windDown' | 'sessionEnd';
+  /** Session-relative second of the deadline. */
+  sessionTime: number;
+  /** Epoch ms, assuming the clock runs continuously from nowMs. */
+  at: number;
+}
+
+/**
+ * Every future deadline for this session as absolute instants, soonest first.
+ *
+ * Returns the whole list rather than just the next one so the caller can arm
+ * one alarm per deadline. Arming only the next would mean a missed wake
+ * silently drops everything after it; with all of them armed, an alarm that
+ * fires late still fires, and the catch-up logic in nextNudgeToFire collapses
+ * a backlog into a single nudge.
+ *
+ * Already-fired nudges are excluded, so this is safe to call on every
+ * clock-start without re-firing history.
+ */
+export function scheduleFor(
+  s: ActiveSession,
+  dailyTotal: number,
+  nowMs: number,
+  overrideCount?: number,
+): ScheduledWake[] {
+  const wakes: ScheduledWake[] = [];
+  const fired = new Set(s.firedNudges);
+
+  const push = (kind: ScheduledWake['kind'], t: number) => {
+    const at = instantFor(s, dailyTotal, t, nowMs);
+    if (at !== null) wakes.push({ kind, sessionTime: t, at });
+  };
+
+  for (const t of computeNudgeTimes(effectiveLength(s), s.nudgeSeed, overrideCount)) {
+    if (!fired.has(t)) push('nudge', t);
+  }
+  push('windDown', windDownAtSessionTime(s));
+  push('sessionEnd', endsAtSessionTime(s));
+
+  return wakes.sort((a, b) => a.at - b.at);
+}
+
+// ---------------------------------------------------------------------------
 // Wind-down — also derived live.
 // ---------------------------------------------------------------------------
 

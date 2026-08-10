@@ -7,7 +7,6 @@ declare const browser: typeof chrome;
 
 let timerText: HTMLDivElement | null = null;
 let timerElement: HTMLDivElement | null = null;
-let lastActivityTime = Date.now();
 // The session timer is the resting/home state on any site with an active
 // session limit. Clicking the timer "peeks" at the daily total for a few
 // seconds, then it snaps back to the session view. peekingDaily is per-tab and
@@ -19,6 +18,7 @@ let peekRevertTimer: ReturnType<typeof setTimeout> | null = null;
 let lastDailyTime = 0;
 let lastSessionTime: number | undefined;
 let lastSessionLimitSeconds: number | undefined;
+
 let lastSessionNum: number | undefined;
 let lastCooldownIncrementSeconds: number | undefined;
 let blurOverlay: HTMLDivElement | null = null;
@@ -28,6 +28,28 @@ let blockerDialog: HTMLDivElement | null = null;
 let endSessionDialog: HTMLDivElement | null = null;
 let windDownOverlay: HTMLDivElement | null = null;
 let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
+
+// --- Display state ---------------------------------------------------------
+//
+// The timer renders what the background last sent, and nothing else.
+//
+// It used to keep a local clock and extrapolate between updates, because the
+// MV3 service worker died every ~30s and updates stopped arriving. That local
+// clock and the background's clock then disagreed at the edges, which is what
+// produced every display bug in this port: the number drifting above the truth,
+// snapping back down, hiding on a schedule unrelated to any user setting.
+//
+// The keep-alive document (src/offscreen.ts) keeps the worker resident, so
+// updates arrive every second and there is nothing left to paper over. One
+// clock, in the background, which is also the only place that can see tab
+// focus, idle state and cooldowns.
+//
+// If the worker does die anyway, the displayed number freezes at its last value
+// until the worker returns — at which point the background credits the elapsed
+// gap (see restore() in shared/time-clock.ts) and the timer corrects itself. A
+// frozen number is visible and self-correcting; that was the deliberate choice
+// over hiding the timer, which cost a disappearing UI for the same outcome.
+let receivedAt = 0;
 
 // CSS reset applied to all popup/dialog root elements to prevent site styles from bleeding in
 const CSS_RESET = `
@@ -155,6 +177,32 @@ function createTimerElement(): void {
   log("Timer element created and added to page.");
 }
 
+/**
+ * Show or hide the timer by sliding it off the top edge.
+ *
+ * Called on every render, so it must be cheap and idempotent — classList
+ * toggle with a matching value is a no-op and won't restart the transition.
+ */
+function setTimerVisible(visible: boolean): void {
+  if (!timerElement) return;
+  timerElement.classList.toggle('web-time-timer-hidden', !visible);
+}
+
+/**
+ * Local render tick.
+ *
+ * The timer text is driven by TIME_UPDATE, so this no longer advances it — it
+ * re-renders the same value, which is a no-op once the text matches. It stays
+ * because the wind-down bar animates against its own deadline and needs a tick
+ * of its own.
+ */
+function startLocalTick(): void {
+  setInterval(() => {
+    updateTimerText();
+    updateWindDownLocal();
+  }, 1000);
+}
+
 /** Adaptive time format: MM:SS when < 1h, H:MM:SS when >= 1h */
 function formatTimeAdaptive(timeInSeconds: number): string {
   timeInSeconds = Math.max(0, Math.floor(timeInSeconds));
@@ -178,6 +226,24 @@ let lastTimerMode: 'session' | 'daily' | null = null;
 
 function updateTimerText(): void {
   if (!timerText) return;
+
+  // Orphaned by an extension reload: this script's bridge is dead, so no update
+  // can ever arrive and the number would freeze permanently with nothing to
+  // correct it. That's the one case that still hides — unlike a dead worker,
+  // which comes back and fixes the display itself.
+  if (orphaned) {
+    setTimerVisible(false);
+    return;
+  }
+
+  // Nothing received yet: no number to show.
+  if (receivedAt === 0) {
+    setTimerVisible(false);
+    return;
+  }
+
+  setTimerVisible(true);
+
   let text: string;
   let mode: 'session' | 'daily';
   // Session is the default view; daily only while peeking, or when there is no
@@ -524,7 +590,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 
   // Freeze the daily clock while the popup blocks the page, mirroring the
   // end-session confirmation popup.
-  browser.runtime.sendMessage({ type: 'AVERAGE_POPUP_OPEN' }).catch(() => {});
+  sendToBackground({ type: 'AVERAGE_POPUP_OPEN' });
 
   setTimeout(() => { el.style.opacity = '1'; }, 100);
 }
@@ -532,7 +598,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 function hideAveragePopup(): void {
   hideBlurOverlay();
 
-  browser.runtime.sendMessage({ type: 'AVERAGE_POPUP_CLOSE' }).catch(() => {});
+  sendToBackground({ type: 'AVERAGE_POPUP_CLOSE' });
 
   blockKeyboard(false);
   averagePopupPausedMedia.forEach(m => m.play().catch(() => {}));
@@ -768,7 +834,38 @@ function createWindDownOverlay(): void {
   windDownOverlay = overlay;
 }
 
-function showWindDown(progress: number, _remainingSeconds: number): void {
+// Wind-down deadline in LOCAL time, derived from the remainingSeconds the
+// background sends. Like the timer, the bar has to advance on its own between
+// updates — the worker can die mid-wind-down, and a bar frozen at 40% while
+// the session actually ends is worse than no bar.
+let windDownEndsAt = 0;
+
+/**
+ * Advance the wind-down bar from its local deadline.
+ *
+ * Runs on the local tick. Unlike the timer this doesn't need the background at
+ * all: windDownEndsAt is an absolute deadline, so the bar stays correct on its
+ * own even if updates stop arriving.
+ */
+function updateWindDownLocal(): void {
+  if (!windDownOverlay || windDownEndsAt === 0) return;
+  if (windDownOverlay.style.visibility !== 'visible') return;
+
+  const remaining = (windDownEndsAt - Date.now()) / 1000;
+  const progress = Math.min(1, Math.max(0, 1 - remaining / WIND_DOWN_DURATION_S));
+  renderWindDown(progress);
+}
+
+const WIND_DOWN_DURATION_S = 60;
+
+function showWindDown(progress: number, remainingSeconds: number): void {
+  if (!windDownOverlay) return;
+  // Anchor the local deadline so the bar keeps moving without the background.
+  windDownEndsAt = Date.now() + remainingSeconds * 1000;
+  renderWindDownVisible(progress);
+}
+
+function renderWindDownVisible(progress: number): void {
   if (!windDownOverlay) return;
 
   // Promote only on the transition into visible, NOT on every progress tick.
@@ -780,6 +877,17 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
   const wasHidden = windDownOverlay.style.visibility !== 'visible';
   windDownOverlay.style.visibility = 'visible';
   if (wasHidden) promoteToTopLayer(windDownOverlay);
+  renderWindDown(progress);
+}
+
+/**
+ * Paint the darkening and bar for a given progress. Split out from the show
+ * path so the local tick can advance the bar without re-promoting the overlay
+ * in the top layer — re-promoting every second would push the darkening above
+ * a blur overlay that opened mid-wind-down.
+ */
+function renderWindDown(progress: number): void {
+  if (!windDownOverlay) return;
   const opacity = 0.3 * progress;
   windDownOverlay.style.background = `rgba(0, 0, 0, ${opacity})`;
 
@@ -792,6 +900,7 @@ function showWindDown(progress: number, _remainingSeconds: number): void {
 
 function hideWindDown(): void {
   if (!windDownOverlay) return;
+  windDownEndsAt = 0; // drop the local deadline so the tick stops advancing it
   windDownOverlay.style.visibility = 'hidden';
   try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
   windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
@@ -941,10 +1050,10 @@ function showEndSessionConfirm(): void {
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
   // Tell background to freeze the timer while the user decides.
-  browser.runtime.sendMessage({ type: 'END_SESSION_CONFIRM_OPEN' }).catch(() => {});
+  sendToBackground({ type: 'END_SESSION_CONFIRM_OPEN' });
 
   const confirmAndClose = (): void => {
-    browser.runtime.sendMessage({ type: 'END_SESSION_EARLY' }).catch(() => {});
+    sendToBackground({ type: 'END_SESSION_EARLY' });
     close(false);
   };
 
@@ -958,7 +1067,7 @@ function showEndSessionConfirm(): void {
     if (resumeMedia) {
       playingMedia.forEach(m => m.play().catch(() => {}));
     }
-    browser.runtime.sendMessage({ type: 'END_SESSION_CONFIRM_CLOSE' }).catch(() => {});
+    sendToBackground({ type: 'END_SESSION_CONFIRM_CLOSE' });
     setTimeout(() => {
       endSessionDialog?.parentNode?.removeChild(endSessionDialog);
       endSessionDialog = null;
@@ -980,13 +1089,41 @@ function showEndSessionConfirm(): void {
 // extension was updated and this content script is orphaned — reload the tab
 // so it picks up the new version instead of running stale code.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    browser.runtime.sendMessage({ type: 'REQUEST_BLOCKER_STATE' }).catch(() => {
-      console.warn('WebTime: extension context invalidated, reloading tab');
-      location.reload();
-    });
+  if (document.visibilityState !== 'visible') return;
+  // Reaching for the background is also the orphan check. The synchronous
+  // throw is the usual signal after an extension reload, so both paths
+  // (throw and rejection) have to lead to the same recovery.
+  if (!sendToBackground({ type: 'REQUEST_BLOCKER_STATE' })) {
+    recoverFromOrphan();
   }
 });
+
+/**
+ * This content script belongs to an extension version that no longer exists.
+ *
+ * We do NOT reload the tab. Reloading looks like the repair — a fresh script
+ * gets a live bridge — but the new page's script can be orphaned just as
+ * easily (extension disabled, still reloading, being removed), and then it
+ * reloads again. Across every open tab simultaneously that is an infinite
+ * reload loop, which is enough to hang or crash the browser.
+ *
+ * So we degrade quietly instead: take the timer down, stop talking to a
+ * background that isn't there. The tab recovers on the user's own next reload,
+ * which costs them one keystroke and can't run away.
+ *
+ * Logged through log() rather than console.warn deliberately. Chrome collects
+ * anything a content script writes to warn/error and shows it as "Errors" on the
+ * extension card — so reloading the extension lit up the card with one entry per
+ * open tab, all of them describing the reload the user had just performed. This
+ * is an expected consequence of reloading, not a fault, and it must not look
+ * like one.
+ */
+function recoverFromOrphan(): void {
+  if (orphaned) return;   // report once, not on every visibilitychange
+  orphaned = true;
+  setTimerVisible(false);
+  log('Extension was reloaded or updated; this tab is orphaned until it reloads.');
+}
 
 // Entering fullscreen puts the video at the FRONT of the top layer, above
 // anything we promoted earlier — including the timer, whose only showPopover()
@@ -1029,6 +1166,9 @@ function handleIncomingMessage(
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
     lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
+    // Marks that a real value has arrived, which is what lets the timer show at
+    // all. Not used for arithmetic any more — the background sends the number.
+    receivedAt = Date.now();
     // Note: don't touch peekingDaily here — a peek is a deliberate, time-boxed
     // user action. updateTimerText() falls back to daily on its own when session
     // data is unavailable for this tab (e.g. domain has no session limit, or
@@ -1057,17 +1197,56 @@ function handleIncomingMessage(
   }
 }
 
-function updateActivityState(): void {
-  lastActivityTime = Date.now();
-  browser.runtime.sendMessage({ type: "USER_ACTIVE" });
+// Minimum gap between USER_ACTIVE messages. mousemove alone fires hundreds of
+// times a second, and every message is work for the background.
+//
+// The background only compares the timestamp against its inactivity threshold
+// (30s by default), so once every 5s carries the same information at a fraction
+// of the traffic.
+const ACTIVITY_PING_INTERVAL_MS = 5000;
+let lastActivityPing = 0;
+
+// Set once the extension context is known to be dead. The local tick checks it
+// so an orphaned script stops rendering a number it can no longer verify,
+// rather than freezing a stale one on screen forever.
+let orphaned = false;
+
+/**
+ * Send to the background, tolerating an orphaned content script.
+ *
+ * After the extension reloads or updates, scripts injected by the OLD version
+ * keep running in already-open tabs with a dead browser.* bridge. Calls then
+ * fail with "Extension context invalidated" — and crucially they throw
+ * SYNCHRONOUSLY, before any promise exists, so a trailing .catch() never runs.
+ * That's what surfaced as uncaught errors on the extension card.
+ *
+ * Returns false when the context is gone, so callers can skip follow-up work.
+ */
+function sendToBackground(message: object): boolean {
+  try {
+    const p = browser.runtime.sendMessage(message);
+    // Firefox returns a promise; Chrome may too. Swallow async failures the
+    // same way — a dead background is not something a page can act on.
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    return true;
+  } catch {
+    recoverFromOrphan();
+    return false;
+  }
 }
 
-// Exported for testing but also needed to prevent unused variable warning
-export { lastActivityTime };
+function updateActivityState(): void {
+  const now = Date.now();
+  if (now - lastActivityPing < ACTIVITY_PING_INTERVAL_MS) return;
+  lastActivityPing = now;
+  sendToBackground({ type: "USER_ACTIVE" });
+}
 
-document.addEventListener("scroll", updateActivityState);
-document.addEventListener("keydown", updateActivityState);
-document.addEventListener("mousemove", updateActivityState);
+// passive: these never preventDefault, and saying so keeps scroll off the
+// main thread on the sites where it matters most.
+document.addEventListener("scroll", updateActivityState, { passive: true });
+document.addEventListener("keydown", updateActivityState, { passive: true });
+document.addEventListener("mousemove", updateActivityState, { passive: true });
 
 function init(): void {
   log("initTimer()");
@@ -1083,31 +1262,44 @@ function init(): void {
   createTimerElement();
   createBlurOverlay();
   createWindDownOverlay();
-  browser.runtime.onMessage.addListener(handleIncomingMessage);
-
-  // React to settings changes (currently just the end-session shortcut).
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.webTimeSettings) {
-      const newSettings = changes.webTimeSettings.newValue;
-      const sc = newSettings?.global?.endSessionShortcut;
-      // null = explicitly disabled, undefined = use default
-      endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
-    }
-  });
-
-  // Load the end-session shortcut from settings
-  browser.storage.local.get('webTimeSettings').then(data => {
-    const sc = data.webTimeSettings?.global?.endSessionShortcut;
-    endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
-  });
-
+  // Registering listeners touches the same bridge, so it throws too when a
+  // previous-version script is re-running against a dead context.
   try {
-    const readyMessage = { type: "CONTENT_SCRIPT_READY" };
-    browser.runtime.sendMessage(readyMessage);
-  } catch (error) {
-    console.error("Error sending CONTENT_SCRIPT_READY message:", error);
+    browser.runtime.onMessage.addListener(handleIncomingMessage);
+
+    // React to settings changes (currently just the end-session shortcut).
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.webTimeSettings) {
+        const newSettings = changes.webTimeSettings.newValue;
+        const sc = newSettings?.global?.endSessionShortcut;
+        // null = explicitly disabled, undefined = use default
+        endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
+      }
+    });
+  } catch {
+    recoverFromOrphan();
   }
-  log("Sent CONTENT_SCRIPT_READY message to background.");
+
+  // Start hidden: nothing has been received yet, so there is no number we can
+  // stand behind. The first TIME_UPDATE slides it in.
+  setTimerVisible(false);
+  startLocalTick();
+
+  // Load the end-session shortcut from settings. Wrapped because storage is
+  // part of the same bridge that dies with an orphaned context; the default
+  // shortcut is a fine fallback.
+  try {
+    browser.storage.local.get('webTimeSettings').then(data => {
+      const sc = data.webTimeSettings?.global?.endSessionShortcut;
+      endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
+    }).catch(() => {});
+  } catch {
+    recoverFromOrphan();
+  }
+
+  if (sendToBackground({ type: "CONTENT_SCRIPT_READY" })) {
+    log("Sent CONTENT_SCRIPT_READY message to background.");
+  }
 }
 
 init();
