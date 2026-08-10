@@ -1148,9 +1148,8 @@ function handleMessageReceived(
         void sendBlockerToLateJoiningTab(sender.tab.id, domain);
       }
     }
-  }
+  } else if (message.type === "USER_ACTIVE" && sender.tab?.id) {
 
-  if (message.type === "USER_ACTIVE" && sender.tab?.id) {
     // Re-adopt the tab. The worker restarts constantly under MV3 and comes back
     // with an empty trackedTabIds, but a tab loaded before that restart only
     // ever sent CONTENT_SCRIPT_READY once and will never send it again. This
@@ -1163,46 +1162,39 @@ function handleMessageReceived(
     // handling it here is what makes "the user came back" take effect at all
     // when nothing of ours has been running.
     if (sender.tab.id === activeTabId) syncClock();
-  }
+  } else if (message.type === "END_SESSION_EARLY") {
 
-  if (message.type === "END_SESSION_EARLY") {
     void endSessionEarly();
-  }
+  } else if (message.type === "SHOW_END_SESSION_CONFIRM") {
 
-  if (message.type === "SHOW_END_SESSION_CONFIRM") {
     // Popup asks us to open the confirmation overlay on the active tab (instead
     // of ending immediately). The popup closes itself; the user confirms there.
     if (activeTabId !== null) {
       browser.tabs.sendMessage(activeTabId, { type: "SHOW_END_SESSION_CONFIRM" })
         .catch(() => { /* tab may have closed or have no content script */ });
     }
-  }
+  } else if (message.type === "END_SESSION_CONFIRM_OPEN") {
 
-  if (message.type === "END_SESSION_CONFIRM_OPEN") {
     endSessionConfirmOpen = true;
     syncClock();
-  }
+  } else if (message.type === "END_SESSION_CONFIRM_CLOSE") {
 
-  if (message.type === "END_SESSION_CONFIRM_CLOSE") {
     endSessionConfirmOpen = false;
     syncClock();
-  }
+  } else if (message.type === "AVERAGE_POPUP_OPEN") {
 
-  if (message.type === "AVERAGE_POPUP_OPEN") {
     averagePopupOpen = true;
     syncClock();
-  }
+  } else if (message.type === "AVERAGE_POPUP_CLOSE") {
 
-  if (message.type === "AVERAGE_POPUP_CLOSE") {
     averagePopupOpen = false;
     syncClock();
-  }
 
   // A tab is asking for the current blocker state — typically on visibilitychange
   // after waking from a discarded/hidden state. Respond with SHOW or HIDE so the
   // tab's UI matches reality (it may have missed the original HIDE_BLOCKER while
   // suspended).
-  if (message.type === "REQUEST_BLOCKER_STATE" && sender.tab?.id && sender.tab?.url) {
+  } else if (message.type === "REQUEST_BLOCKER_STATE" && sender.tab?.id && sender.tab?.url) {
     const tabId = sender.tab.id;
     const domain = extractDomain(sender.tab.url);
     if (domain) {
@@ -1210,10 +1202,9 @@ function handleMessageReceived(
       // reconstructed text if in cooldown, HIDE otherwise.
       void sendBlockerToLateJoiningTab(tabId, domain);
     }
-  }
+  } else if (message.type === "SETTINGS_UPDATED") {
 
 
-  if (message.type === "SETTINGS_UPDATED") {
     browser.storage.local.get('webTimeSettings').then(data => {
       const settings: WebTimeSettings = data.webTimeSettings || { global: {}, domains: {} };
 
