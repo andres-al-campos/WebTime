@@ -1054,7 +1054,13 @@ function handleTimerState(activeTab: chrome.tabs.Tab): void {
   // Record audibility; engagement itself is derived live by shouldClockRun.
   activeTabAudible = Boolean(activeTab.audible);
 
-  if (activeTabIsEngaged()) {
+  // Ask the same gate as everything else. This used to test activeTabIsEngaged()
+  // directly, which made it a second decider that didn't know about audio: a
+  // playing video went unengaged after the inactivity threshold and this stopped
+  // the clock, even though shouldClockRun() would have kept it running. Chrome
+  // hid it — the keep-alive re-derives via syncClock() constantly — but on
+  // Firefox's persistent background nothing re-ran and the stop stuck.
+  if (shouldClockRun()) {
     startTimer();
   } else {
     stopTimer();

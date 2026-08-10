@@ -53,6 +53,18 @@ test('a playing video keeps counting once the machine looks idle', () => {
   })), true);
 });
 
+test('a playing video keeps counting once the tab looks disengaged', () => {
+  // The Firefox showing of the same bug. chrome.idle stays 'active' there, so
+  // the idle gate never fires and the per-tab engagement test is what expires
+  // after the inactivity threshold. Audio has to outrank that too — and the
+  // caller must consult this function rather than testing engagement alone.
+  assert.equal(shouldClockRun(base({
+    osIdleState: 'active',
+    activeTabAudible: true,
+    tabIsEngaged: false,
+  })), true);
+});
+
 test('audio outranks the idle gate specifically', () => {
   // Same state, audio off: this is the case the idle gate is FOR.
   assert.equal(shouldClockRun(base({
