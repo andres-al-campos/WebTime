@@ -7,12 +7,14 @@ import {
   naturalEnd,
   endEarly as computeEndEarly,
   changeLength,
-  nextNudgeToFire,
-  markNudgeFired,
   windDownState,
   scheduleFor,
   shouldScheduleWakes,
 } from './shared/session-model.js';
+import {
+  checkSessionLimit as decideSessionLimit,
+  checkNudge as decideNudge,
+} from './shared/interventions.js';
 import {
   type ClockState,
   createClock,
@@ -1391,17 +1393,19 @@ function checkPhiNudges(settings: InterventionSettings): void {
   const domain = trackedTabDomain;
   const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
 
-  // Catch-up selection: the latest unfired nudge at/before now. Robust to both
-  // skipped ticks and live length changes — a nudge that moved behind us after a
-  // shrink just fires once here.
-  const nudgeTime = nextNudgeToFire(session, dailyTotal(), settings.domainSettings.nudgeCount);
-  if (nudgeTime !== null) {
-    sendNudge();
-    sessions[domain] = markNudgeFired(session, nudgeTime);
-    saveSessionState(); // persist firedNudges so a restart doesn't re-fire
-    const remaining = displayFor(sessions[domain], dailyTotal()).remaining;
-    log(`φ-nudge at ${Math.round(nudgeTime / 60)}min into session (${remaining}s remaining)`);
-  }
+  const outcome = decideNudge({
+    session,
+    dailyTotal: dailyTotal(),
+    sessionLimitSeconds,
+    nudgeCount: settings.domainSettings.nudgeCount,
+  });
+  if (!outcome) return;
+
+  sendNudge();
+  sessions[domain] = outcome.session;
+  saveSessionState(); // persist firedNudges so a restart doesn't re-fire
+  const remaining = displayFor(sessions[domain], dailyTotal()).remaining;
+  log(`φ-nudge at ${Math.round(outcome.nudgeTime / 60)}min into session (${remaining}s remaining)`);
 }
 
 // Require a full week of history before the average is meaningful: all 7 days
@@ -1656,30 +1660,31 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
 
   const domain = trackedTabDomain;
 
-  // Defensive: if a cooldown is already active, the incrementTimer() gate
-  // should have prevented us from getting here at all, but return true to
-  // short-circuit any other intervention work just in case.
+  // Check the cooldown before touching the session: getOrStartSession creates
+  // and persists one as a side effect, and a domain sitting in cooldown must
+  // not get a session started for it.
   if ((cooldownEndTime[domain] || 0) > Date.now()) return true;
 
   // Lazily start the session for this domain. Runs once on the first tick after
   // a domain switch / extension load / settings change.
   const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
 
-  // Not at the end yet → session continues. Grace and carryover are already
-  // baked into the session's effective length, so there's no mid-session
-  // "extend the boundary" step anymore.
-  if (displayFor(session, dailyTotal()).remaining > 0) return false;
-
-  // Reached the end — natural cooldown. Carryover is consumed; next session is
-  // a clean baseLength session anchored at the current daily total.
-  const result = naturalEnd(session, {
+  const outcome = decideSessionLimit({
+    session,
     dailyTotal: dailyTotal(),
-    cooldownIncrement: cooldownIncrementSeconds,
+    sessionLimitSeconds,
+    cooldownIncrementSeconds,
+    cooldownEndsAt: cooldownEndTime[domain] || 0,
+    now: Date.now(),
   });
 
-  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum);
+  if (outcome.kind === 'continue') return false;
+  if (outcome.kind === 'in-cooldown') return true;
+
+  const { result, endedSessionNum } = outcome;
+  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, endedSessionNum);
   log(
-    `Session ${session.sessionNum} limit reached for ${domain} ` +
+    `Session ${endedSessionNum} limit reached for ${domain} ` +
     `(daily=${dailyTotal()}s, cooldown=${result.cooldownSeconds}s, ` +
     `nextSession=${result.nextSession.sessionNum})`
   );
