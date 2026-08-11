@@ -512,7 +512,7 @@ function handleAlarm(alarm: chrome.alarms.Alarm): void {
  * switch / extension load / settings change. `baseLength` is the live limit in
  * seconds; callers only invoke this when baseLength > 0.
  */
-function getOrStartSession(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession {
+function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession {
   let s = sessions[domain];
   if (!s) {
     s = startSession({ dailyTotal: anchorDaily, baseLength });
@@ -906,7 +906,7 @@ function updateTimerDisplay(updatedTime: number): void {
     const data = cachedDomainSessionLimit[trackedTabDomain];
     const baseLimitSec = data?.sessionLimitSeconds || 0;
     if (baseLimitSec > 0) {
-      const session = getOrStartSession(trackedTabDomain, updatedTime, baseLimitSec);
+      const session = ensureSessionStarted(trackedTabDomain, updatedTime, baseLimitSec);
       const display = displayFor(session, updatedTime);
       message.sessionTime = display.sessionTime;
       message.sessionLimitSeconds = display.sessionLimitSeconds;
@@ -1295,7 +1295,7 @@ function handleMessageReceived(
           // No session ever existed — start one NOW (not "next tick"), so the
           // timer appears immediately on the tracked tab instead of after a
           // refresh. Anchored at the current daily total.
-          existing = getOrStartSession(domain, dailyTotal(), newLimitSeconds);
+          existing = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
           updateTimerDisplay(dailyTotal());
         }
 
@@ -1386,7 +1386,7 @@ function checkPhiNudges(settings: InterventionSettings): void {
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
 
   const domain = trackedTabDomain;
-  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
+  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
 
   const outcome = decideNudge({
     session,
@@ -1464,7 +1464,7 @@ function checkWindDown(settings: InterventionSettings): void {
   const domain = trackedTabDomain;
   if ((cooldownEndTime[domain] || 0) > Date.now()) return;
 
-  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
+  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
   const wd = windDownState(session, dailyTotal());
 
   if (wd.active && !windDownActive[domain]) {
@@ -1633,7 +1633,7 @@ async function endSessionEarly(): Promise<void> {
   const { sessionLimitSeconds, cooldownIncrementSeconds } = settings;
   if (sessionLimitSeconds <= 0) return;
 
-  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
+  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
 
   const result = computeEndEarly(session, {
     dailyTotal: dailyTotal(),
@@ -1655,14 +1655,14 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
 
   const domain = trackedTabDomain;
 
-  // Check the cooldown before touching the session: getOrStartSession creates
+  // Check the cooldown before touching the session: ensureSessionStarted creates
   // and persists one as a side effect, and a domain sitting in cooldown must
   // not get a session started for it.
   if ((cooldownEndTime[domain] || 0) > Date.now()) return true;
 
   // Lazily start the session for this domain. Runs once on the first tick after
   // a domain switch / extension load / settings change.
-  const session = getOrStartSession(domain, dailyTotal(), sessionLimitSeconds);
+  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
 
   const outcome = decideSessionLimit({
     session,
