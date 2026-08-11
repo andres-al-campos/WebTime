@@ -132,10 +132,22 @@ export function formatDateWithDayOfWeek(dateString: string): string {
 }
 
 /**
- * Debug logging, off in production. Flip DEBUG_ENABLED to true to get the full
- * trace (tab switches, saves, ticks, session/cooldown lifecycle) back.
+ * Debug logging: the full trace (tab switches, saves, ticks, session and
+ * cooldown lifecycle).
+ *
+ * Set by build.mjs — on for a normal build, off when WEBTIME_DEBUG=0, which is
+ * what release/ uses. esbuild substitutes the literal, so a release build drops
+ * these calls entirely rather than shipping dead branches.
  */
-const DEBUG_ENABLED = false;
+declare const __WEBTIME_DEBUG__: boolean;
+
+// typeof guard, not a bare read: tests bundle these modules without the define,
+// where a bare __WEBTIME_DEBUG__ is a ReferenceError rather than undefined. This
+// keeps log() safe to call from anything a test imports, and esbuild still
+// folds the whole branch away once the literal is substituted.
+const DEBUG_ENABLED =
+  typeof __WEBTIME_DEBUG__ !== 'undefined' && __WEBTIME_DEBUG__;
+
 export function log(...args: unknown[]): void {
   if (DEBUG_ENABLED) {
     console.log('[WebTime Debug]:', ...args);

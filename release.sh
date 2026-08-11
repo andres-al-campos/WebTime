@@ -40,9 +40,12 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 fi
 
 # --- Build fresh (typecheck + tests + package) ---
+# WEBTIME_DEBUG=0 compiles out the debug trace. A normal ./build.sh leaves it on
+# for development, so without this the published add-on would log every tab
+# switch and tick to users' consoles.
 echo ""
 echo "🏗  Building a fresh artifact..."
-./build.sh
+WEBTIME_DEBUG=0 ./build.sh
 
 if [ ! -f "$ARTIFACT" ]; then
   echo "❌ Expected artifact not found: ${ARTIFACT}" >&2

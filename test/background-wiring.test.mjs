@@ -71,3 +71,28 @@ test('the dispatch is a single chain, so message types stay mutually exclusive',
     'every dispatch branch after the first must be chained with else',
   );
 });
+
+// --- debug logging ---------------------------------------------------------
+
+test('release.sh builds with debug logging compiled out', () => {
+  // ./build.sh leaves the trace on for development. If release.sh ever stops
+  // passing WEBTIME_DEBUG=0, the published add-on logs every tab switch and
+  // tick to users' consoles — visible to them, invisible to us.
+  const release = readFileSync('release.sh', 'utf8');
+  assert.match(
+    release,
+    /WEBTIME_DEBUG=0\s+\.\/build\.sh/,
+    'release.sh must invoke build.sh with WEBTIME_DEBUG=0',
+  );
+});
+
+test('log() survives being imported without the build-time define', () => {
+  // Tests bundle modules directly, with no esbuild `define`, so a bare read of
+  // __WEBTIME_DEBUG__ would be a ReferenceError rather than undefined.
+  const utils = readFileSync('src/shared/utils.ts', 'utf8');
+  assert.match(
+    utils,
+    /typeof __WEBTIME_DEBUG__ !== 'undefined'/,
+    'log() must typeof-guard the define so it is safe under test',
+  );
+});

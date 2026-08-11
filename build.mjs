@@ -9,11 +9,20 @@ import { buildChrome } from './manifest-chrome.mjs';
 // AMO's linter even though nothing loads them.)
 await rm('extension/dist', { recursive: true, force: true });
 
+// Debug logging is on for a plain `./build.sh` and off for a release build.
+// It used to be a constant edited by hand, which meant every debugging session
+// ended one forgotten flip away from shipping the full trace to AMO — or, more
+// often, from wondering why nothing logs. WEBTIME_DEBUG=0 forces it off.
+const DEBUG_ENABLED = process.env.WEBTIME_DEBUG !== '0';
+
 const commonOptions = {
   bundle: true,
   sourcemap: true,
   target: 'es2020',
   format: 'iife',
+  define: {
+    __WEBTIME_DEBUG__: JSON.stringify(DEBUG_ENABLED),
+  },
 };
 
 await Promise.all([
