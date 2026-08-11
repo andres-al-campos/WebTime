@@ -517,7 +517,11 @@ function getOrStartSession(domain: Domain, anchorDaily: number, baseLength: numb
   if (!s) {
     s = startSession({ dailyTotal: anchorDaily, baseLength });
     sessions[domain] = s;
-    saveSessionState(); // persist the freshly-started session (incl. its sessionNum)
+    // Not just persistence. saveSessionState() also calls rescheduleWakes(),
+    // which is what arms the alarms for this session's deadlines — and those
+    // alarms are the only thing that fires the cooldown once the worker dies.
+    // Without this call the session exists in memory with no armed end.
+    saveSessionState();
   }
   return s;
 }
