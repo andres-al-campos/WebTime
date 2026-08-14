@@ -14,6 +14,8 @@ declare const UIManager: {
   updateDailyBreakdown(totalTimeData: GeneralViewData, dataIndex: number): void;
   updatePieChart(totalTimeData: GeneralViewData, dataIndex: number): void;
   renderDetailView(domain: string | null): void;
+  updateDetailPanel(domain: string): void;
+  selectDetailDay(dayIndex: number | null): void;
   showDetailView(): void;
 };
 
@@ -445,14 +447,11 @@ export function buildDetailViewChart(processedData: DetailViewData): ChartConfig
     // lock is the same one the general view uses, so the two stay in step.
     onClick: (_event: unknown, elements: { index: number }[]) => {
       const clickedIndex = elements.length > 0 ? elements[0].index : null;
-      if (clickedIndex === null || AppState.lockedDayIndex === clickedIndex) {
-        AppState.unlockDay();
-      } else {
-        AppState.lockDay(clickedIndex);
-      }
-      // The re-render builds a fresh chart, which re-applies the highlight from
-      // the lock — so don't paint it here, it would be discarded.
-      UIManager.renderDetailView(AppState.selectedDomain);
+      // Clicking the locked bar again, or off the bars, returns to today.
+      // selectDetailDay(null) means today, and it owns the lock + highlight +
+      // panel together — nothing here updates any of the three directly.
+      const deselecting = clickedIndex === null || AppState.lockedDayIndex === clickedIndex;
+      UIManager.selectDetailDay(deselecting ? null : clickedIndex);
     }
   };
 

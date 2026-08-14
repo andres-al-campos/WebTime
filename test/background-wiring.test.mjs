@@ -247,7 +247,7 @@ function uiBody(name) {
 }
 
 test('a past day renders session cards instead of the live session card', () => {
-  const body = uiBody('renderDetailView').replace(/\/\/[^\n]*/g, '');
+  const body = uiBody('updateDetailPanel').replace(/\/\/[^\n]*/g, '');
   const branch = body.indexOf('if (selectedDate)');
   assert.notEqual(branch, -1, 'renderDetailView must branch on the selected date');
   // Search from the branch: renderSessionCard also appears in the no-domain
@@ -287,5 +287,45 @@ test('a day with no recorded sessions renders an empty state, not a gap', () => 
   assert.ok(
     /return \[emptyState\(\)\]/.test(body),
     'the empty day must render an empty state rather than returning []',
+  );
+});
+
+test('clicking a detail bar updates the panel without rebuilding the chart', () => {
+  // renderDetailView constructs a new Chart, which replays the grow-from-zero
+  // entry animation. Calling it from the click handler made every bar click
+  // re-animate the whole chart. The general view has always updated only its
+  // panel; this keeps the two consistent.
+  const cb = readFileSync('src/popup/chart-builder.ts', 'utf8');
+  const at = cb.indexOf('export function buildDetailViewChart(');
+  assert.notEqual(at, -1, 'no buildDetailViewChart');
+  const body = cb.slice(at, cb.indexOf('\n}', at)).replace(/\/\/[^\n]*/g, '');
+  const click = body.indexOf('onClick:');
+  assert.notEqual(click, -1, 'the detail chart must handle clicks');
+  const handler = body.slice(click);
+  assert.ok(
+    !handler.includes('renderDetailView'),
+    'the detail click handler must not call renderDetailView — it rebuilds the ' +
+    'chart and re-animates it on every click',
+  );
+  assert.match(handler, /selectDetailDay\(/,
+    'the click must go through selectDetailDay, which owns lock + highlight + panel');
+});
+
+test('a day is always selected in the detail view', () => {
+  // The panel always describes some day, so a bar must always carry the
+  // highlight. Deselecting means selecting today, not clearing the lock —
+  // an unlocked detail view would show today's panel with no bar marked.
+  const body = uiBody('renderDetailView').replace(/\/\/[^\n]*/g, '');
+  assert.match(
+    body,
+    /AppState\.lockedDayIndex === null[\s\S]*?AppState\.lockDay\(/,
+    'renderDetailView must default the selection to today when nothing is locked',
+  );
+  const cb = readFileSync('src/popup/chart-builder.ts', 'utf8');
+  const at = cb.indexOf('export function buildDetailViewChart(');
+  const handler = cb.slice(at, cb.indexOf('\n}', at)).replace(/\/\/[^\n]*/g, '');
+  assert.ok(
+    !/AppState\.unlockDay\(\)/.test(handler),
+    'the detail click must not clear the lock; deselecting selects today',
   );
 });

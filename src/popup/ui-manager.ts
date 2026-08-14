@@ -230,8 +230,10 @@ function updateDetailUsageCard(selectedDate?: string): void {
   // takes the today branch and restores the live cards.
   if (day !== today) {
     out.push(backToTodayButton(() => {
-      AppState.unlockDay();
-      renderDetailView(AppState.selectedDomain);
+      // Select today rather than clearing the lock: a day is always selected in
+      // this view, and the chart highlight has to follow the panel. Panel only —
+      // rebuilding the chart would replay its entry animation.
+      selectDetailDay(null);
     }));
   }
   host.replaceChildren(...out);
@@ -584,17 +586,35 @@ function lockedDetailDate(domain: string): string | null {
   return day.date === getLocalDateStr(AppState.dayResetTime) ? null : day.date;
 }
 
-export function renderDetailView(domain: string | null): void {
-  if (!domain) {
-    displayMessage('#detail-page .left-panel',
-      "No site to show here. Open a website (any http or https page), then reopen this popup to see its stats.");
-    // Also clear the right-panel cards so nothing bogus lingers beside the message.
-    updateDetailUsageCard();
-    renderSessionSettingsCard(null, AppState.dayResetTime).catch(() => {});
-    renderSessionCard(null, AppState.dayResetTime).catch(() => {});
-    return;
-  }
+/** The live detail chart. AppState.chartInstance is the general view's; keeping
+ *  this one separate stops a highlight meant for one landing on the other. */
+let detailChart: ExtendedChart | null = null;
 
+/** Select a day in the detail view: move the lock, repaint the chart highlight,
+ *  and swap the panel. `null` means today (the last bar).
+ *
+ *  Every selection goes through here — the bar click, the back button — so the
+ *  lock, the highlight and the panel can't drift apart. This view has had two
+ *  bugs from exactly that shape: two callers each doing half the update. */
+export function selectDetailDay(dayIndex: number | null): void {
+  const domain = AppState.selectedDomain;
+  if (!domain || !AppState.allTimeHistory) return;
+  const days = processDetailViewData(AppState.allTimeHistory, domain).dailyData;
+  if (days.length === 0) return;
+
+  AppState.lockDay(dayIndex ?? days.length - 1);
+  // AppState.chartInstance holds the GENERAL chart, so the detail chart is kept
+  // here instead — highlighting through AppState would paint the wrong canvas.
+  if (detailChart) highlightBar(detailChart as any, AppState.lockedDayIndex!);
+  updateDetailPanel(domain);
+}
+
+/** Swap the detail right panel between today's live cards and a past day's
+ *  finished ones, per the lock. This is the ONLY thing a bar click needs to
+ *  redo — the chart itself is unchanged, and rebuilding it would replay the
+ *  grow-from-zero animation on every click (the general view has always
+ *  updated just its panel for the same reason). */
+export function updateDetailPanel(domain: string): void {
   // A locked bar means the panel shows that day instead of today. The lock is
   // shared with the general view, so entering detail with a day already locked
   // lands on that day.
@@ -625,6 +645,27 @@ export function renderDetailView(domain: string | null): void {
     renderSessionCard(domain, AppState.dayResetTime).catch(err =>
       console.error('Error rendering session card:', err));
   }
+}
+
+export function renderDetailView(domain: string | null): void {
+  if (!domain) {
+    displayMessage('#detail-page .left-panel',
+      "No site to show here. Open a website (any http or https page), then reopen this popup to see its stats.");
+    // Also clear the right-panel cards so nothing bogus lingers beside the message.
+    updateDetailUsageCard();
+    renderSessionSettingsCard(null, AppState.dayResetTime).catch(() => {});
+    renderSessionCard(null, AppState.dayResetTime).catch(() => {});
+    return;
+  }
+
+  // Default the selection to today (the last bar) before anything reads the
+  // lock, so the panel and the highlight can't disagree on first paint.
+  if (AppState.lockedDayIndex === null && AppState.allTimeHistory) {
+    const days = processDetailViewData(AppState.allTimeHistory, domain).dailyData;
+    if (days.length > 0) AppState.lockDay(days.length - 1);
+  }
+
+  updateDetailPanel(domain);
 
   const leftPanel = document.querySelector('#detail-page .left-panel');
   if (leftPanel) {
@@ -645,9 +686,10 @@ export function renderDetailView(domain: string | null): void {
   if (!ctx) return;
 
   const chart = new Chart(ctx, chartConfig);
+  detailChart = chart as unknown as ExtendedChart;
 
-  // The lock survives the rebuild, so the highlight has to be re-applied here —
-  // a fresh Chart starts with none.
+  // A day is always selected (defaulted to today above), and a fresh Chart
+  // starts with no highlight — so paint it after building.
   if (AppState.lockedDayIndex !== null) {
     highlightBar(chart as any, AppState.lockedDayIndex);
   }

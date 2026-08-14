@@ -79,11 +79,15 @@ function emptyState(): HTMLElement {
   return el('div', 'past-day-empty', 'No sessions recorded on this day.');
 }
 
-/** The "← Back to today" button appended to the usage card on a past day. */
+/** The "Today →" button appended to the usage card on a past day.
+ *
+ *  The arrow points forward because that is the direction of travel: from a
+ *  past day to the present. A back-arrow would read as navigation while the
+ *  word next to it says the opposite in time. */
 export function backToTodayButton(onClick: () => void): HTMLElement {
   const btn = document.createElement('button');
   btn.className = 'usage-back';
-  btn.textContent = '← Back to today';
+  btn.textContent = 'Today →';
   btn.addEventListener('click', onClick);
   return btn;
 }
