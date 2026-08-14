@@ -615,3 +615,10 @@ body {
   color: var(--text-faint);
 }
 .past-day-cards .cfoot .run { color: var(--text-dim); }
+
+/* Empty day: no card shell — a bordered card holding one sentence would look
+   like a session that failed to render. Quiet text in the cards' place. */
+.past-day-empty {
+  padding: 14px 4px; text-align: center;
+  font: 400 11.5px 'IBM Plex Sans'; color: var(--text-faint);
+}

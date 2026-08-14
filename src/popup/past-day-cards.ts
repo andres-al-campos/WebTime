@@ -61,10 +61,22 @@ function sessionCard(record: SessionRecord, index: number, runningTotal: number)
   return card;
 }
 
-/** The day's cards, oldest first. Empty array when the day has no sessions. */
+/** The day's cards, oldest first, or a single empty state.
+ *
+ *  An empty day is permanent, not a loading state: every day before session
+ *  history started recording has none, and so does any day the site was open
+ *  without a session running. The panel says so rather than leaving a gap
+ *  under the usage card, which reads as a failed render. The usage card above
+ *  still shows the day's time, so "no sessions" is not "no data". */
 export function renderPastDayCards(records: SessionRecord[]): HTMLElement[] {
+  if (records.length === 0) return [emptyState()];
   const totals = runningTotals(records);
   return records.map((r, i) => sessionCard(r, i, totals[i]));
+}
+
+/** Shown in place of the cards when a day recorded no sessions. */
+function emptyState(): HTMLElement {
+  return el('div', 'past-day-empty', 'No sessions recorded on this day.');
 }
 
 /** The "← Back to today" button appended to the usage card on a past day. */

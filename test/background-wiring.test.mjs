@@ -270,3 +270,22 @@ test('today is not treated as a past day', () => {
     'lockedDetailDate must compare the locked day against today');
   assert.match(body, /return null/, 'today must resolve to null (the today branch)');
 });
+
+test('a day with no recorded sessions renders an empty state, not a gap', () => {
+  // Permanent condition: every day before history recording started has none,
+  // as does any day browsed without a session. Returning [] leaves the panel
+  // blank under the usage card, which reads as a failed render.
+  const cards = readFileSync('src/popup/past-day-cards.ts', 'utf8');
+  const at = cards.indexOf('export function renderPastDayCards(');
+  assert.notEqual(at, -1, 'no renderPastDayCards');
+  const body = cards.slice(at, cards.indexOf('\n}', at)).replace(/\/\/[^\n]*/g, '');
+  assert.match(
+    body,
+    /records\.length === 0/,
+    'renderPastDayCards must special-case the empty day',
+  );
+  assert.ok(
+    /return \[emptyState\(\)\]/.test(body),
+    'the empty day must render an empty state rather than returning []',
+  );
+});
