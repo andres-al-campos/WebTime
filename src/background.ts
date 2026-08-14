@@ -28,6 +28,13 @@ import {
   restore,
 } from './shared/time-clock.js';
 import { clockVerdict as gatesVerdict, type ClockVerdict } from './shared/clock-gates.js';
+import {
+  type SessionHistory,
+  type SessionEndState,
+  toRecord,
+  appendRecord,
+  pruneHistory,
+} from './shared/session-history.js';
 import type {
   TimeHistory,
   Domain,
@@ -644,6 +651,69 @@ function clearSessionState(): void {
   browser.storage.local.remove(SESSION_STATE_KEY).catch(() => {});
 }
 
+// ---------------------------------------------------------------------------
+// FINISHED-SESSION HISTORY
+//
+// Deliberately NOT part of SESSION_STATE_KEY: that key is wiped every rollover
+// by design (clearSessionState), which is exactly what history must survive.
+// Its own key also keeps the blast radius off trackedTime, which is read
+// everywhere.
+//
+// ~20 bytes per session, ~120/day — a rounding error against a 10MB quota.
+// ---------------------------------------------------------------------------
+const SESSION_HISTORY_KEY = 'webTimeSessionHistory';
+
+/** Days of history to keep. Two years is far below any storage concern. */
+const SESSION_HISTORY_KEEP_DAYS = 730;
+
+/**
+ * In-memory mirror of the stored history.
+ *
+ * The write path is read-modify-write against storage, but an MV3 worker can
+ * die between a record and its flush; keeping the mirror means a rehydrate
+ * reads storage rather than trusting memory that may have missed a write.
+ */
+let sessionHistory: SessionHistory = {};
+
+async function loadSessionHistory(): Promise<void> {
+  try {
+    const data = await browser.storage.local.get(SESSION_HISTORY_KEY);
+    sessionHistory = data[SESSION_HISTORY_KEY] || {};
+  } catch (err) {
+    console.warn('Failed to load session history:', err);
+    sessionHistory = {};
+  }
+}
+
+/**
+ * Append the session that just ended to the history for `dateStr`.
+ *
+ * `dateStr` is passed rather than read from `currentDateStr` because the
+ * rollover path records the ending day's last session AFTER deciding the date
+ * has changed — reading the module-level value there would file it under the
+ * new day. No-ops when there is no session (nothing ended).
+ */
+function recordFinishedSession(
+  domain: Domain,
+  session: ActiveSession | undefined,
+  cooldownSeconds: number,
+  endState: SessionEndState,
+  dateStr: DateString = currentDateStr
+): void {
+  if (!session) return;
+  const record = toRecord(session, dailyTotal(), cooldownSeconds, endState);
+  sessionHistory = pruneHistory(
+    appendRecord(sessionHistory, dateStr, domain, record),
+    SESSION_HISTORY_KEEP_DAYS
+  );
+  browser.storage.local.set({ [SESSION_HISTORY_KEY]: sessionHistory })
+    .catch(err => console.warn('Failed to persist session history:', err));
+  log(
+    `Recorded ${domain} session ${session.sessionNum} on ${dateStr}: ` +
+    `${record[0]}s/${record[1]}s, ${record[2]}s cooldown, ${endState}`
+  );
+}
+
 
 function getLocalDateStrWithReset(): DateString {
   return getLocalDateStr(dayResetTime);
@@ -753,6 +823,16 @@ function rolloverIfNewDay(): boolean {
   if (newDateStr === currentDateStr) return false;
 
   saveTimeData();
+
+  // Record every still-running session against the day that is ENDING, before
+  // currentDateStr moves and before the deletes below discard them. Ordering is
+  // load-bearing twice over: after the reassignment these file under tomorrow,
+  // and after the delete loop there is nothing left to record. A session cut
+  // short by the rollover never ran a cooldown, so its recorded cooldown is 0.
+  for (const domain of Object.keys(sessions)) {
+    recordFinishedSession(domain, sessions[domain], 0, 'dayEnded', currentDateStr);
+  }
+
   currentDateStr = newDateStr;
   setDailyTotal(0);
   interventionState = {
@@ -1339,7 +1419,7 @@ function handleMessageReceived(
             dailyTotal: dailyTotal(),
             cooldownIncrement: cooldownIncrementSeconds,
           });
-          fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum);
+          fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum, 'completed');
           log(
             `Session limit shrunk past elapsed for ${domain}: session ended immediately ` +
             `(daily=${dailyTotal()}s, newLimit=${newLimitSeconds}s)`
@@ -1624,7 +1704,8 @@ function fireCooldown(
   nextSession: ActiveSession,
   cooldownSeconds: number,
   cooldownIncrementSeconds: number,
-  endedSessionNum: number
+  endedSessionNum: number,
+  endState: SessionEndState
 ): void {
   cooldownEndTime[domain] = Date.now() + cooldownSeconds * 1000;
   cooldownTotalSec[domain] = cooldownSeconds; // the bar's denominator — never recompute it
@@ -1632,6 +1713,11 @@ function fireCooldown(
   // at the current daily total, so any time still accruing here would land in
   // the new session's elapsed count and eat into a limit the user hasn't begun.
   syncClock();
+  // Record the session that just ended BEFORE the assignment below discards it.
+  // This is the only moment it exists: sessions[domain] holds one session per
+  // domain, so adopting the next one is the same act as losing this one.
+  // syncClock() has already banked its final seconds, so dailyTotal() is exact.
+  recordFinishedSession(domain, sessions[domain], cooldownSeconds, endState);
   sessions[domain] = nextSession;
   clearWindDown(domain);
   saveSessionState(); // persist new session number + active cooldown
@@ -1666,7 +1752,7 @@ async function endSessionEarly(): Promise<void> {
   });
   if (!result) return; // no time left to claim — normal cooldown will fire on its own
 
-  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum);
+  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum, 'early');
   log(
     `Session ${session.sessionNum} ended early for ${domain} ` +
     `(daily=${dailyTotal()}s, carryoverToNext=${result.nextSession.carryover}s, ` +
@@ -1702,7 +1788,7 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
   if (outcome.kind === 'in-cooldown') return true;
 
   const { result, endedSessionNum } = outcome;
-  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, endedSessionNum);
+  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, endedSessionNum, 'completed');
   log(
     `Session ${endedSessionNum} limit reached for ${domain} ` +
     `(daily=${dailyTotal()}s, cooldown=${result.cooldownSeconds}s, ` +
@@ -1778,6 +1864,7 @@ async function init(): Promise<void> {
   await loadTimeData();
   await loadAveragePopupShown();
   await loadSessionState(); // rehydrate session numbers / cooldowns after a worker restart
+  await loadSessionHistory(); // finished sessions, for the past-day panel
 
   // Tabs are NOT seeded from tabs.query here. A matching URL says nothing about
   // whether that document has our content script: tabs open from before the

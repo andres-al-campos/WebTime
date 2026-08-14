@@ -96,3 +96,107 @@ test('log() survives being imported without the build-time define', () => {
     'log() must typeof-guard the define so it is safe under test',
   );
 });
+
+// ---------------------------------------------------------------------------
+// SESSION HISTORY WRITE PATH
+//
+// sessions[domain] holds ONE session per domain, so every write point is a
+// last chance: after the next assignment the finished session is gone. Two
+// orderings carry the whole feature and neither can fail loudly.
+//
+//   1. fireCooldown must record BEFORE `sessions[domain] = nextSession`.
+//   2. rolloverIfNewDay must record BEFORE `currentDateStr = newDateStr` (else
+//      the day's last session files under tomorrow) and before the delete loop
+//      (else there is nothing left to record).
+//
+// Both would silently drop data with the extension otherwise working normally.
+// ---------------------------------------------------------------------------
+
+/** The body of a named function declaration, up to the next top-level one. */
+function functionBody(name) {
+  const at = src.indexOf(`function ${name}(`);
+  assert.notEqual(at, -1, `no function ${name}`);
+  const rest = src.slice(at);
+  const next = rest.indexOf('\nfunction ', 1);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+test('fireCooldown records the ending session before replacing it', () => {
+  const body = functionBody('fireCooldown');
+  const record = body.indexOf('recordFinishedSession(');
+  const replace = body.search(/sessions\[domain\]\s*=\s*nextSession/);
+  assert.notEqual(record, -1, 'fireCooldown must call recordFinishedSession');
+  assert.notEqual(replace, -1, 'fireCooldown must still adopt the next session');
+  assert.ok(
+    record < replace,
+    'recordFinishedSession must run BEFORE sessions[domain] = nextSession, ' +
+    'or the session it records is already the new one',
+  );
+});
+
+test('fireCooldown records after syncClock so the final seconds are banked', () => {
+  // Strip comments first: the line above the record call MENTIONS syncClock(),
+  // and matching that instead of the real call let an inverted ordering pass.
+  const body = functionBody('fireCooldown').replace(/\/\/[^\n]*/g, '');
+  const sync = body.indexOf('syncClock()');
+  const record = body.indexOf('recordFinishedSession(');
+  assert.notEqual(sync, -1, 'fireCooldown must still freeze the clock');
+  assert.ok(
+    sync < record,
+    'syncClock() must run BEFORE recordFinishedSession, or dailyTotal() is ' +
+    'stale and the recorded `used` is short by the unbanked tail',
+  );
+});
+
+test('rollover records the day-ended session before the date moves', () => {
+  const body = functionBody('rolloverIfNewDay');
+  const record = body.indexOf('recordFinishedSession(');
+  const reassign = body.search(/currentDateStr\s*=\s*newDateStr/);
+  assert.notEqual(record, -1, 'rolloverIfNewDay must call recordFinishedSession');
+  assert.notEqual(reassign, -1, 'rolloverIfNewDay must still advance the date');
+  assert.ok(
+    record < reassign,
+    'recordFinishedSession must run BEFORE currentDateStr = newDateStr, or the ' +
+    "ending day's last session is filed under the new day",
+  );
+});
+
+test('rollover records before deleting the sessions', () => {
+  const body = functionBody('rolloverIfNewDay');
+  const record = body.indexOf('recordFinishedSession(');
+  const del = body.search(/delete sessions\[domain\]/);
+  assert.notEqual(del, -1, 'rolloverIfNewDay must still clear the sessions');
+  assert.ok(
+    record < del,
+    'recordFinishedSession must run BEFORE the delete loop, or there is ' +
+    'nothing left to record',
+  );
+});
+
+test('rollover passes the ending date explicitly', () => {
+  // The default parameter reads currentDateStr, which is correct everywhere
+  // EXCEPT here — this is the one caller that must name the day it is leaving.
+  const body = functionBody('rolloverIfNewDay');
+  assert.match(
+    body,
+    /recordFinishedSession\([^)]*currentDateStr\s*\)/,
+    'the rollover call must pass currentDateStr explicitly as the date',
+  );
+});
+
+test('history is stored under its own key, not the wiped session state', () => {
+  // SESSION_STATE_KEY is removed on every rollover by design; history living
+  // there would be deleted at precisely the moment it becomes worth keeping.
+  assert.match(src, /SESSION_HISTORY_KEY\s*=\s*'webTimeSessionHistory'/,
+    'history needs its own storage key');
+  // Match the body by braces rather than functionBody(): clearSessionState is
+  // followed by a comment block, not another `function`, so the naive scan runs
+  // past its end and into the history section it is supposed to exclude.
+  const at = src.indexOf('function clearSessionState()');
+  assert.notEqual(at, -1, 'no clearSessionState');
+  const clear = src.slice(at, src.indexOf('\n}', at));
+  assert.ok(
+    !clear.includes('SESSION_HISTORY_KEY'),
+    'clearSessionState must not remove the history key',
+  );
+});
