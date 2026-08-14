@@ -200,3 +200,31 @@ test('history is stored under its own key, not the wiped session state', () => {
     'clearSessionState must not remove the history key',
   );
 });
+
+test('rollover records the cooldown the session would have served, not 0', () => {
+  // The rollover pre-empts the cooldown, but the session still had one due.
+  // Hardcoding 0 there would make every day's last card claim no cooldown was
+  // owed, and would be indistinguishable from a domain with cooldowns off.
+  const body = functionBody('rolloverIfNewDay');
+  assert.match(
+    body,
+    /cooldownLength\(/,
+    'rollover must compute the would-have-been cooldown via cooldownLength()',
+  );
+  assert.ok(
+    !/recordFinishedSession\([^)]*,\s*0\s*,\s*'dayEnded'/.test(body),
+    'rollover must not hardcode a 0 cooldown for the day-ended session',
+  );
+});
+
+test('rollover reads the increment from cache, not an awaited settings load', () => {
+  // rolloverIfNewDay is sync and runs inside the tick path; awaiting a settings
+  // read here would either not compile or silently reorder the record after the
+  // deletes below it.
+  // Strip comments before the await check — the prose above the loop mentions
+  // awaiting, and matching that would fail on correct code.
+  const body = functionBody('rolloverIfNewDay').replace(/\/\/[^\n]*/g, '');
+  assert.match(body, /cachedDomainSessionLimit\[domain\]/,
+    'the increment must come from the in-memory cache');
+  assert.ok(!/\bawait\b/.test(body), 'rolloverIfNewDay must stay synchronous');
+});

@@ -7,6 +7,7 @@ import {
   naturalEnd,
   endEarly as computeEndEarly,
   changeLength,
+  cooldownLength,
   windDownState,
   scheduleFor,
   shouldScheduleWakes,
@@ -827,10 +828,20 @@ function rolloverIfNewDay(): boolean {
   // Record every still-running session against the day that is ENDING, before
   // currentDateStr moves and before the deletes below discard them. Ordering is
   // load-bearing twice over: after the reassignment these file under tomorrow,
-  // and after the delete loop there is nothing left to record. A session cut
-  // short by the rollover never ran a cooldown, so its recorded cooldown is 0.
+  // and after the delete loop there is nothing left to record.
+  //
+  // The rollover pre-empted the cooldown, so we store the one this session
+  // WOULD have served rather than 0. It is a true fact about the session, and
+  // storing it means changing the increment later cannot rewrite this card —
+  // the same reason every other record stores its cooldown instead of a rule
+  // to recompute it from. Read from the in-memory cache: this path is sync and
+  // must not await a settings load.
   for (const domain of Object.keys(sessions)) {
-    recordFinishedSession(domain, sessions[domain], 0, 'dayEnded', currentDateStr);
+    const session = sessions[domain];
+    if (!session) continue;
+    const incrementSec = cachedDomainSessionLimit[domain]?.cooldownIncrementSeconds || 0;
+    const wouldHaveBeen = cooldownLength(session.sessionNum, incrementSec);
+    recordFinishedSession(domain, session, wouldHaveBeen, 'dayEnded', currentDateStr);
   }
 
   currentDateStr = newDateStr;
