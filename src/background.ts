@@ -27,7 +27,7 @@ import {
   bank,
   restore,
 } from './shared/time-clock.js';
-import { shouldClockRun as gatesAllowClock } from './shared/clock-gates.js';
+import { clockVerdict as gatesVerdict, type ClockVerdict } from './shared/clock-gates.js';
 import type {
   TimeHistory,
   Domain,
@@ -776,11 +776,11 @@ function rolloverIfNewDay(): boolean {
  * must not be running", so they are evaluated at transitions instead — but the
  * conditions themselves are unchanged.
  */
-function shouldClockRun(): boolean {
+function currentClockVerdict(): ClockVerdict {
   // The gates and their ORDER live in shared/clock-gates.ts so they can be
   // tested. The cooldown ticker (startCooldownTicker) still handles the blocker
   // UI countdown while this returns false.
-  return gatesAllowClock({
+  return gatesVerdict({
     browserIsFocused,
     trackedDomain: trackedTabDomain,
     inCooldown: trackedTabDomain
@@ -792,6 +792,11 @@ function shouldClockRun(): boolean {
     activeTabAudible,
     tabIsEngaged: activeTabIsEngaged(),
   });
+}
+
+function shouldClockRun(): boolean {
+  const v = currentClockVerdict();
+  return v === 'running' || v === 'audible';
 }
 
 /**
@@ -822,8 +827,28 @@ function activeTabIsEngaged(): boolean {
  * replaces the per-tick gate checks. Both directions are idempotent, so
  * calling it more often than strictly necessary is harmless.
  */
+/**
+ * The last verdict logged, so the trace records transitions rather than one
+ * line per second. syncClock() runs on every display tick, and a stutter is
+ * only legible if the log shows the moments the answer CHANGED.
+ */
+let lastLoggedVerdict: ClockVerdict | null = null;
+
 function syncClock(): void {
-  if (shouldClockRun()) clockStart();
+  const verdict = currentClockVerdict();
+
+  if (verdict !== lastLoggedVerdict) {
+    log(`Clock verdict: ${lastLoggedVerdict ?? '(none)'} -> ${verdict}`, {
+      audible: activeTabAudible,
+      osIdle: osIdleState,
+      engaged: activeTabIsEngaged(),
+      focused: browserIsFocused,
+      domain: trackedTabDomain,
+    });
+    lastLoggedVerdict = verdict;
+  }
+
+  if (verdict === 'running' || verdict === 'audible') clockStart();
   else clockStop();
 }
 

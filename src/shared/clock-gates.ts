@@ -26,29 +26,55 @@ export interface GateInput {
 }
 
 /**
+ * Which gate decided, named. `running` and `audible` mean the clock runs; every
+ * other value is the specific gate that stopped it.
+ *
+ * This exists because "the clock stopped" is not a diagnosis — the interesting
+ * question during a stutter is always WHICH condition flipped, and a bare
+ * boolean cannot answer it after the fact.
+ */
+export type ClockVerdict =
+  | 'running'
+  | 'audible'
+  | 'unfocused'
+  | 'untracked'
+  | 'cooldown'
+  | 'end-session-confirm'
+  | 'average-popup'
+  | 'locked'
+  | 'os-idle'
+  | 'tab-unengaged';
+
+/**
  * The gates, in the order they must be applied.
  *
  * Audible playback is checked BEFORE the idle gate and short-circuits to true.
  * A locked machine still wins over audio — a video playing to a locked screen
  * is not time the user is spending.
  */
-export function shouldClockRun(g: GateInput): boolean {
-  if (!g.browserIsFocused) return false;
-  if (!g.trackedDomain) return false;
-  if (g.inCooldown) return false;
-  if (g.endSessionConfirmOpen) return false;
-  if (g.averagePopupOpen) return false;
+export function clockVerdict(g: GateInput): ClockVerdict {
+  if (!g.browserIsFocused) return 'unfocused';
+  if (!g.trackedDomain) return 'untracked';
+  if (g.inCooldown) return 'cooldown';
+  if (g.endSessionConfirmOpen) return 'end-session-confirm';
+  if (g.averagePopupOpen) return 'average-popup';
 
   // Locked: nobody is watching anything, audible or not.
-  if (g.osIdleState === 'locked') return false;
+  if (g.osIdleState === 'locked') return 'locked';
 
   // Audio separates "watching" from "walked away". It has to outrank idleness,
   // because sitting still through a video is indistinguishable from absence by
   // input alone.
-  if (g.activeTabAudible) return true;
+  if (g.activeTabAudible) return 'audible';
 
-  if (g.osIdleState === 'idle') return false;
-  if (!g.tabIsEngaged) return false;
+  if (g.osIdleState === 'idle') return 'os-idle';
+  if (!g.tabIsEngaged) return 'tab-unengaged';
 
-  return true;
+  return 'running';
+}
+
+/** Whether the clock should run. The verdict, collapsed to the decision. */
+export function shouldClockRun(g: GateInput): boolean {
+  const v = clockVerdict(g);
+  return v === 'running' || v === 'audible';
 }

@@ -20,7 +20,7 @@ await build({
   format: 'esm',
   outfile: outFile,
 });
-const { shouldClockRun } = await import(pathToFileURL(outFile).href);
+const { shouldClockRun, clockVerdict } = await import(pathToFileURL(outFile).href);
 
 /** Everything permitting the clock to run: focused, engaged, nothing blocking. */
 function base(overrides = {}) {
@@ -134,4 +134,70 @@ test('a locked machine does not count', () => {
 test('a disengaged tab does not count even when the machine is active', () => {
   // Reading with the mouse still is covered by tabIsEngaged, not by chrome.idle.
   assert.equal(shouldClockRun(base({ tabIsEngaged: false })), false);
+});
+
+// --- the verdict -----------------------------------------------------------
+//
+// clockVerdict() names which gate decided, so a stop in the debug trace says
+// WHY. shouldClockRun() is derived from it, so the risk this introduces is the
+// two disagreeing — the exact two-deciders shape that caused the audible bug.
+
+test('each gate reports itself by name', () => {
+  assert.equal(clockVerdict(base()), 'running');
+  assert.equal(clockVerdict(base({ activeTabAudible: true })), 'audible');
+  assert.equal(clockVerdict(base({ browserIsFocused: false })), 'unfocused');
+  assert.equal(clockVerdict(base({ trackedDomain: null })), 'untracked');
+  assert.equal(clockVerdict(base({ inCooldown: true })), 'cooldown');
+  assert.equal(
+    clockVerdict(base({ endSessionConfirmOpen: true })),
+    'end-session-confirm',
+  );
+  assert.equal(clockVerdict(base({ averagePopupOpen: true })), 'average-popup');
+  assert.equal(clockVerdict(base({ osIdleState: 'locked' })), 'locked');
+  assert.equal(clockVerdict(base({ osIdleState: 'idle' })), 'os-idle');
+  assert.equal(clockVerdict(base({ tabIsEngaged: false })), 'tab-unengaged');
+});
+
+test('the verdict and the boolean never disagree', () => {
+  // Exhaustive over every combination of the gate inputs: if any input tuple
+  // makes clockVerdict() say "running"/"audible" while shouldClockRun() says
+  // false (or vice versa), the two have drifted apart.
+  const bools = [false, true];
+  const idleStates = ['active', 'idle', 'locked'];
+  let checked = 0;
+
+  for (const browserIsFocused of bools)
+  for (const trackedDomain of [null, 'youtube.com'])
+  for (const inCooldown of bools)
+  for (const endSessionConfirmOpen of bools)
+  for (const averagePopupOpen of bools)
+  for (const osIdleState of idleStates)
+  for (const activeTabAudible of bools)
+  for (const tabIsEngaged of bools) {
+    const input = {
+      browserIsFocused, trackedDomain, inCooldown, endSessionConfirmOpen,
+      averagePopupOpen, osIdleState, activeTabAudible, tabIsEngaged,
+    };
+    const v = clockVerdict(input);
+    assert.equal(
+      shouldClockRun(input),
+      v === 'running' || v === 'audible',
+      `disagreement at ${JSON.stringify(input)} (verdict: ${v})`,
+    );
+    checked++;
+  }
+
+  assert.equal(checked, 2 * 2 * 2 * 2 * 2 * 3 * 2 * 2);
+});
+
+test('a video ending falls through to engagement, it does not force a stop', () => {
+  // The reported stutter: audio ends and the clock stops for a beat. Losing
+  // audio must NOT be a stop on its own — it just stops short-circuiting, and
+  // an engaged user keeps counting through the transition.
+  const watching = base({ activeTabAudible: true, tabIsEngaged: true });
+  assert.equal(clockVerdict(watching), 'audible');
+
+  const videoEnded = { ...watching, activeTabAudible: false };
+  assert.equal(clockVerdict(videoEnded), 'running');
+  assert.equal(shouldClockRun(videoEnded), true);
 });
