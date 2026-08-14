@@ -228,3 +228,45 @@ test('rollover reads the increment from cache, not an awaited settings load', ()
     'the increment must come from the in-memory cache');
   assert.ok(!/\bawait\b/.test(body), 'rolloverIfNewDay must stay synchronous');
 });
+
+// ---------------------------------------------------------------------------
+// PAST-DAY PANEL BRANCH
+//
+// The detail panel now has two shapes, and the failure mode is a mix: today's
+// live session card left standing beside a past day's finished cards, both
+// claiming to describe the same day. Nothing throws — it just lies.
+// ---------------------------------------------------------------------------
+
+const ui = readFileSync('src/popup/ui-manager.ts', 'utf8');
+
+/** The body of a named function in ui-manager.ts, matched by brace column. */
+function uiBody(name) {
+  const at = ui.indexOf(`function ${name}(`);
+  assert.notEqual(at, -1, `no function ${name}`);
+  return ui.slice(at, ui.indexOf('\n}', at));
+}
+
+test('a past day renders session cards instead of the live session card', () => {
+  const body = uiBody('renderDetailView').replace(/\/\/[^\n]*/g, '');
+  const branch = body.indexOf('if (selectedDate)');
+  assert.notEqual(branch, -1, 'renderDetailView must branch on the selected date');
+  // Search from the branch: renderSessionCard also appears in the no-domain
+  // guard above it, which is neither of the two shapes under test.
+  const after = body.slice(branch);
+  const live = after.indexOf('renderSessionCard(');
+  const past = after.indexOf('renderPastDayCards(');
+  const elseAt = after.indexOf('} else {');
+  assert.notEqual(past, -1, 'the past-day branch must render the session cards');
+  assert.notEqual(live, -1, 'the today branch must still render the live card');
+  assert.ok(past < elseAt, 'renderPastDayCards belongs in the selectedDate branch');
+  assert.ok(live > elseAt, 'renderSessionCard belongs in the else (today) branch');
+});
+
+test('today is not treated as a past day', () => {
+  // Locking today's bar must fall through to the live cards; rendering today as
+  // a finished day would hide the running session behind a summary of itself.
+  const body = uiBody('lockedDetailDate').replace(/\/\/[^\n]*/g, '');
+  assert.match(body, /getLocalDateStr\(AppState\.dayResetTime\)/,
+    'lockedDetailDate must compare the locked day against today');
+  assert.match(body, /return null/, 'today must resolve to null (the today branch)');
+});

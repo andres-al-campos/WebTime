@@ -16,6 +16,8 @@ import {
 } from './chart-builder.js';
 import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek } from '../shared/utils.js';
 import { renderSessionCard, renderSessionSettingsCard, stepper } from './session-card.js';
+import { renderPastDayCards, backToTodayButton } from './past-day-cards.js';
+import { sessionsFor } from '../shared/session-history.js';
 import type { ChartInstance } from '../types.js';
 
 declare const browser: typeof chrome;
@@ -187,8 +189,9 @@ function usageSlash(): HTMLElement {
 }
 
 /** Detail page Usage card: this-site / all-sites side by side (value over its
- *  own caption), then how this site compares to THIS domain's 7-day average. */
-function updateDetailUsageCard(): void {
+ *  own caption), then how this site compares to THIS domain's 7-day average.
+ *  Defaults to today; a past day passes its date and gets a back button. */
+function updateDetailUsageCard(selectedDate?: string): void {
   const host = document.getElementById('detail-usage-card');
   if (!host) return;
 
@@ -202,8 +205,9 @@ function updateDetailUsageCard(): void {
   host.hidden = false;
 
   const today = getLocalDateStr(AppState.dayResetTime);
+  const day = selectedDate || today;
   const domain = AppState.selectedDomain;
-  const totals = calculateTodaysTotals(AppState.allTimeHistory, today, domain);
+  const totals = calculateTodaysTotals(AppState.allTimeHistory, day, domain);
 
   const head = usageHeadline(
     usageStat(formatDurationHM(totals.domain), 'This site'),
@@ -212,7 +216,7 @@ function updateDetailUsageCard(): void {
   );
 
   const out: HTMLElement[] = [eyebrow('Usage'), head];
-  const delta = deltaPhrase(domainDayVsAverage(domain, today)?.delta ?? null);
+  const delta = deltaPhrase(domainDayVsAverage(domain, day)?.delta ?? null);
   if (delta) {
     const sub = document.createElement('div');
     sub.className = 'usage-deltaline';
@@ -221,6 +225,14 @@ function updateDetailUsageCard(): void {
     ctx.textContent = ' on this site';
     sub.append(delta, ctx);
     out.push(sub);
+  }
+  // The way back out of a past day. Unlocking re-renders the detail view, which
+  // takes the today branch and restores the live cards.
+  if (day !== today) {
+    out.push(backToTodayButton(() => {
+      AppState.unlockDay();
+      renderDetailView(AppState.selectedDomain);
+    }));
   }
   host.replaceChildren(...out);
 }
@@ -557,6 +569,21 @@ export function renderGeneralView(): void {
   }
 }
 
+/** The locked bar's date, or null when the panel should show today.
+ *
+ *  Today locked is the same as nothing locked: the live cards are what today
+ *  wants, so there is no past-day panel to enter. Out-of-range indices (the
+ *  general view has a different day count) fall back to today rather than
+ *  rendering someone else's day. */
+function lockedDetailDate(domain: string): string | null {
+  const idx = AppState.lockedDayIndex;
+  if (idx === null || !AppState.allTimeHistory) return null;
+  const days = processDetailViewData(AppState.allTimeHistory, domain).dailyData;
+  const day = days[idx];
+  if (!day) return null;
+  return day.date === getLocalDateStr(AppState.dayResetTime) ? null : day.date;
+}
+
 export function renderDetailView(domain: string | null): void {
   if (!domain) {
     displayMessage('#detail-page .left-panel',
@@ -568,14 +595,36 @@ export function renderDetailView(domain: string | null): void {
     return;
   }
 
-  updateDetailHeader(domain);
+  // A locked bar means the panel shows that day instead of today. The lock is
+  // shared with the general view, so entering detail with a day already locked
+  // lands on that day.
+  const selectedDate = lockedDetailDate(domain);
+  updateDetailHeader(domain, selectedDate);
 
-  // Render the per-site limits card + the live session card in the detail
-  // right panel (fire-and-forget; both read their own state from storage).
-  renderSessionSettingsCard(domain, AppState.dayResetTime).catch(err =>
-    console.error('Error rendering session settings card:', err));
-  renderSessionCard(domain, AppState.dayResetTime).catch(err =>
-    console.error('Error rendering session card:', err));
+  const settingsHost = document.getElementById('session-settings-card');
+  const sessionHost = document.getElementById('session-card');
+  const pastHost = document.getElementById('past-day-cards');
+
+  if (selectedDate) {
+    // A past day is finished: no live session card, and no session-rules card —
+    // stored rules are today's, and asserting they were the rules then is a
+    // claim the data can't support. The per-session figures already say it.
+    settingsHost?.replaceChildren();
+    sessionHost?.replaceChildren();
+    if (pastHost) {
+      pastHost.replaceChildren(
+        ...renderPastDayCards(sessionsFor(AppState.sessionHistory, selectedDate, domain))
+      );
+    }
+  } else {
+    pastHost?.replaceChildren();
+    // Render the per-site limits card + the live session card in the detail
+    // right panel (fire-and-forget; both read their own state from storage).
+    renderSessionSettingsCard(domain, AppState.dayResetTime).catch(err =>
+      console.error('Error rendering session settings card:', err));
+    renderSessionCard(domain, AppState.dayResetTime).catch(err =>
+      console.error('Error rendering session card:', err));
+  }
 
   const leftPanel = document.querySelector('#detail-page .left-panel');
   if (leftPanel) {
@@ -597,20 +646,27 @@ export function renderDetailView(domain: string | null): void {
 
   const chart = new Chart(ctx, chartConfig);
 
+  // The lock survives the rebuild, so the highlight has to be re-applied here —
+  // a fresh Chart starts with none.
+  if (AppState.lockedDayIndex !== null) {
+    highlightBar(chart as any, AppState.lockedDayIndex);
+  }
+
   if (processedData.dailyData.length > CONFIG.daysToDisplay) {
     setupDetailViewScrolling(canvasElement, chart, processedData);
   }
 }
 
-export function updateDetailHeader(_domain: string): void {
+export function updateDetailHeader(_domain: string, selectedDate?: string | null): void {
   if (!AppState.allTimeHistory) return;
-  // The detail view's site name + today's numbers now live in the merged
+  // The detail view's site name + the selected day's numbers live in the merged
   // topbar; refresh those instead of the old per-page .header-text/.time-summary.
   if (AppState.currentView === ViewState.DETAIL) {
     updateTopbar();
-    updateDetailUsageCard();
-    // Detail view always reflects today; show the same "<date> · Today" label.
-    setTopbarDate(getLocalDateStr(AppState.dayResetTime));
+    const day = selectedDate || getLocalDateStr(AppState.dayResetTime);
+    updateDetailUsageCard(selectedDate || undefined);
+    // setTopbarDate labels today as "<date> · Today" and a past day as its date.
+    setTopbarDate(day);
   }
 }
 

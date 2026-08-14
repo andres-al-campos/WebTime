@@ -1,5 +1,6 @@
 import { CONFIG, ViewState, ViewStateType } from './config.js';
 import type { TimeHistory, Domain, ChartInstance } from '../types.js';
+import type { SessionHistory } from '../shared/session-history.js';
 
 export interface AppStateInterface {
   currentView: ViewStateType;
@@ -15,6 +16,8 @@ export interface AppStateInterface {
   /** Hour (0-23) the day rolls over, from settings. Matches the background's
    *  day-reset so the popup's notion of "today" agrees with tracked time. */
   dayResetTime: number;
+  /** Finished sessions per day per domain, for the past-day panel. */
+  sessionHistory: SessionHistory;
 
   setCurrentDomain(domain: Domain | null): void;
   setSelectedDomain(domain: Domain | null): void;
@@ -41,6 +44,7 @@ export const AppState: AppStateInterface = {
   pieChartInstance: null,
   lockedDayIndex: null,
   dayResetTime: 0,
+  sessionHistory: {},
 
   setCurrentDomain(domain: Domain | null): void {
     this.activeTabDomain = domain;

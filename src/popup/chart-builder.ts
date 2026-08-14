@@ -13,7 +13,7 @@ type ChartDatasetType = any;
 declare const UIManager: {
   updateDailyBreakdown(totalTimeData: GeneralViewData, dataIndex: number): void;
   updatePieChart(totalTimeData: GeneralViewData, dataIndex: number): void;
-  renderDetailView(domain: string): void;
+  renderDetailView(domain: string | null): void;
   showDetailView(): void;
 };
 
@@ -439,6 +439,20 @@ export function buildDetailViewChart(processedData: DetailViewData): ChartConfig
         labels: { boxHeight: 8, padding: 8, font: { size: 11, family: "'IBM Plex Sans', sans-serif" } }
       },
       tooltip: getDetailViewTooltipConfig(processedData)
+    },
+    // Clicking a bar locks that day and swaps the right panel to its finished
+    // session cards; clicking it again (or off the bars) returns to today. The
+    // lock is the same one the general view uses, so the two stay in step.
+    onClick: (_event: unknown, elements: { index: number }[]) => {
+      const clickedIndex = elements.length > 0 ? elements[0].index : null;
+      if (clickedIndex === null || AppState.lockedDayIndex === clickedIndex) {
+        AppState.unlockDay();
+      } else {
+        AppState.lockDay(clickedIndex);
+      }
+      // The re-render builds a fresh chart, which re-applies the highlight from
+      // the lock — so don't paint it here, it would be discarded.
+      UIManager.renderDetailView(AppState.selectedDomain);
     }
   };
 

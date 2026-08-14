@@ -560,3 +560,58 @@ body {
 /* shared message / empty-state */
 .message { color: var(--text-dim); font-style: italic; padding: 16px; }
 .message.error { color: #ff8a80; }
+
+/* ===========================================================================
+   PAST-DAY SESSION CARDS (filled by past-day-cards.ts)
+   One read-only card per finished session on a locked past day. Empty on today,
+   where the live session card stands in its place.
+   =========================================================================== */
+.past-day-cards { display: flex; flex-direction: column; gap: 10px; }
+
+/* "← Back to today", appended inside the usage card on a past day. */
+.usage-back {
+  display: block; width: 100%; margin-top: 12px;
+  background: rgba(94,142,251,0.10); border: 1px solid rgba(94,142,251,0.22);
+  color: #9dbaff; font: 400 11.5px 'IBM Plex Sans';
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; text-align: center;
+}
+.usage-back:hover { background: rgba(94,142,251,0.16); }
+
+.past-day-cards .card {
+  flex: none; background: var(--bg-raise); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden;
+}
+.past-day-cards .cbody { padding: 11px 14px 12px; }
+.past-day-cards .crow {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 9px; gap: 6px;
+}
+.past-day-cards .cnum {
+  font: 700 10.5px 'IBM Plex Mono'; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.past-day-cards .cval { font: 400 12px 'IBM Plex Mono'; color: var(--text-dim); white-space: nowrap; }
+.past-day-cards .cval b { color: var(--text); font-weight: 600; }
+/* End state, colour-coded: blue ran its course, green stopped early, amber the
+   day rolled over underneath it. */
+.past-day-cards .tag { font: 400 9.5px 'IBM Plex Mono'; padding: 2px 6px; border-radius: 20px; margin-left: 3px; }
+.past-day-cards .tag.done   { background: rgba(94,142,251,0.15); color: #9dbaff; }
+.past-day-cards .tag.early  { background: rgba(86,214,154,0.15); color: var(--good); }
+.past-day-cards .tag.dayend { background: rgba(214,163,86,0.15); color: #e0bd7f; }
+
+.past-day-cards .track {
+  background: rgba(255,255,255,0.06); border-radius: 4px; height: 15px; overflow: hidden;
+}
+.past-day-cards .fill {
+  height: 100%; border-radius: 4px;
+  background: linear-gradient(180deg, #5e8efb, #4a6fd0);
+}
+
+/* Footer sits on a darker ground so the card reads as body + ledger strip. */
+.past-day-cards .cfoot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 14px; font: 400 10px 'IBM Plex Mono';
+  background: rgba(0,0,0,0.22); border-top: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.past-day-cards .cfoot .run { color: var(--text-dim); }

@@ -68,7 +68,11 @@ export const App = {
     const isWebUrl = activeUrl?.startsWith('http://') || activeUrl?.startsWith('https://');
     const currentDomain = isWebUrl && activeUrl ? extractDomain(activeUrl) : null;
 
-    const storedData = await browser.storage.local.get(["trackedTime", "webTimeSettings"]);
+    const storedData = await browser.storage.local.get([
+      "trackedTime",
+      "webTimeSettings",
+      "webTimeSessionHistory",
+    ]);
     const timeHistory = storedData.trackedTime?.timeHistory || {};
     const settings = storedData.webTimeSettings || { global: {}, domains: {} };
 
@@ -82,6 +86,7 @@ export const App = {
 
     AppState.setCurrentDomain(currentDomain);
     AppState.setTimeHistory(timeHistory);
+    AppState.sessionHistory = storedData.webTimeSessionHistory || {};
   },
 
   renderInitialView(): void {
