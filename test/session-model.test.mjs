@@ -25,7 +25,7 @@ await build({
 const mod = await import(pathToFileURL(outFile).href);
 const {
   startSession, effectiveLength, displayFor,
-  naturalEnd, endEarly, changeLength, cooldownLength,
+  naturalEnd, endEarly, changeLength, cooldownLength, incrementSeconds,
   computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
   windDownState, WIND_DOWN_DURATION,
   endsAtSessionTime, windDownAtSessionTime, secondsUntil, instantFor, scheduleFor,
@@ -460,4 +460,42 @@ test('shouldScheduleWakes requires a running clock, a session, and no cooldown',
   assert.equal(shouldScheduleWakes({ ...yes, hasSession: false }), false);
   // Mid-cooldown: the session is not advancing.
   assert.equal(shouldScheduleWakes({ ...yes, inCooldown: true }), false);
+});
+
+// ---------------------------------------------------------------------------
+// incrementSeconds — the minutes/seconds round-trip
+// ---------------------------------------------------------------------------
+
+test('incrementSeconds recovers whole seconds from every stepper combination', () => {
+  // Settings persists coolMin + coolSec/60 and the shell multiplies by 60. That
+  // round-trip is not exact in binary floating point, and 49 of these 3600
+  // combinations land a hair BELOW the true second — which formatClock then
+  // floors to one second short (a 4:30 increment displaying as 4:29).
+  const wrong = [];
+  for (let m = 0; m <= 59; m++) {
+    for (let s = 0; s < 60; s++) {
+      const stored = m + s / 60;
+      const got = incrementSeconds(stored);
+      if (got !== m * 60 + s) wrong.push(`${m}:${s} -> ${got}`);
+    }
+  }
+  assert.deepEqual(wrong, [], 'these combinations do not survive the round-trip');
+});
+
+test('a recorded cooldown divides back out to its exact increment', () => {
+  // What the past-day card does: cooldownSec / sessionNum to recover the
+  // increment it was built from. Exact only because incrementSeconds rounded.
+  for (const [m, s] of [[4, 30], [0, 31], [7, 17], [1, 1], [12, 59]]) {
+    const inc = incrementSeconds(m + s / 60);
+    for (let n = 1; n <= 12; n++) {
+      const total = cooldownLength(n, inc);
+      assert.equal(total / n, inc, `${m}:${s} x ${n} did not divide back out`);
+      assert.ok(Number.isInteger(total), `${m}:${s} x ${n} is not whole seconds`);
+    }
+  }
+});
+
+test('incrementSeconds treats a missing increment as no cooldown', () => {
+  assert.equal(incrementSeconds(undefined), 0);
+  assert.equal(incrementSeconds(0), 0);
 });

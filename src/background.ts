@@ -8,6 +8,7 @@ import {
   endEarly as computeEndEarly,
   changeLength,
   cooldownLength,
+  incrementSeconds,
   windDownState,
   scheduleFor,
   shouldScheduleWakes,
@@ -629,7 +630,7 @@ async function loadSessionState(): Promise<void> {
       // is cooling down is sessionNum - 1.
       const nextSession = sessions[domain];
       const endedSessionNum = nextSession ? Math.max(1, nextSession.sessionNum - 1) : 1;
-      const incrementSec = (settings.domains?.[domain]?.cooldownIncrement || 0) * 60;
+      const incrementSec = incrementSeconds(settings.domains?.[domain]?.cooldownIncrement);
       const remainingSec = Math.ceil(((endTime as number) - Date.now()) / 1000);
       // Restore the bar's denominator: prefer the persisted full length, then
       // reconstruct from the formula, then fall back to remaining (last resort,
@@ -1375,7 +1376,7 @@ function handleMessageReceived(
 
         if (!settingsActuallyChanged && !firstSeenNeedsStart) continue;
         const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
-        const cooldownIncrementSeconds = slEnabled ? (domainCfg?.cooldownIncrement || 0) * 60 : 0;
+        const cooldownIncrementSeconds = slEnabled ? incrementSeconds(domainCfg?.cooldownIncrement) : 0;
         cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
 
         if (newLimitSeconds <= 0) {
@@ -1480,7 +1481,7 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   // cooldown it would trigger without an async settings load per tick.
   cachedDomainSessionLimit[trackedTabDomain] = {
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
-    cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0,
+    cooldownIncrementSeconds: hasSessionLimit ? incrementSeconds(domainSettings.cooldownIncrement) : 0,
     nudgeCount: domainSettings.nudgeCount
   };
 
@@ -1493,7 +1494,7 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
     daysWithData,
     timeInSeconds: dailyTotal(),
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
-    cooldownIncrementSeconds: hasSessionLimit ? (domainSettings.cooldownIncrement || 0) * 60 : 0
+    cooldownIncrementSeconds: hasSessionLimit ? incrementSeconds(domainSettings.cooldownIncrement) : 0
   };
 }
 
@@ -1622,7 +1623,7 @@ async function sendBlockerToLateJoiningTab(tabId: number, domain: Domain): Promi
   const endedSessionNum = nextSession ? Math.max(1, nextSession.sessionNum - 1) : 1;
   const settingsData = await browser.storage.local.get('webTimeSettings');
   const settings: WebTimeSettings = settingsData.webTimeSettings || { global: {}, domains: {} };
-  const incrementSec = (settings.domains?.[domain]?.cooldownIncrement || 0) * 60;
+  const incrementSec = incrementSeconds(settings.domains?.[domain]?.cooldownIncrement);
   // The bar's denominator is the cooldown's FULL length, captured when it fired.
   // Use the stored value — recomputing it from the increment setting is exactly
   // what made the bar start at 100% when that setting read as 0 on a fresh tab.

@@ -354,3 +354,15 @@ test('every UIManager method chart-builder calls is actually exported', () => {
     );
   }
 });
+
+test('the minutes/seconds conversion goes through incrementSeconds', () => {
+  // A bare `* 60` on the stored fractional-minutes increment reintroduces the
+  // float noise that incrementSeconds exists to round away, and it does so
+  // silently — the cooldown is one second short and nothing fails.
+  const bg = readFileSync('src/background.ts', 'utf8');
+  assert.doesNotMatch(
+    bg,
+    /cooldownIncrement[^\n]*\|\| 0\)\s*\*\s*60/,
+    'convert the cooldown increment with incrementSeconds(), not a bare * 60',
+  );
+});

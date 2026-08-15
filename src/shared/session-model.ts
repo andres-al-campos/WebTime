@@ -100,6 +100,24 @@ export interface CooldownResult {
 }
 
 /**
+ * The stored cooldown increment (fractional minutes) as whole seconds.
+ *
+ * Settings persists `coolMin + coolSec / 60`, so the value arrives having been
+ * divided by 60 and about to be multiplied by 60 again. That round-trip is not
+ * exact in binary floating point: 4:30 stores as 4.5 and survives, but 0:31
+ * comes back as 31.000000000000004 and 4:30's neighbours come back a hair
+ * *under* — which formatClock then floors to 4:29. 49 of the 3600 reachable
+ * minute/second combinations display one second short without this round.
+ *
+ * Rounding here rather than at each display site keeps the noise from entering
+ * the system at all: everything downstream — cooldownLength, the recorded
+ * cooldownSec, the card's division back out — is then exact integer work.
+ */
+export function incrementSeconds(cooldownIncrementMinutes: number | undefined): number {
+  return Math.round((cooldownIncrementMinutes || 0) * 60);
+}
+
+/**
  * Cooldown grows with the session number: session N → N * increment seconds.
  * If no increment is configured (0), there is no cooldown. The old code fell
  * back to `baseLength` here — a vestigial "need some number" default that tied
