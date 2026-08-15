@@ -32,46 +32,17 @@ function el(tag: string, className: string, text?: string): HTMLElement {
  * user can change mid-day, which is why the product is stored rather than the
  * factors — two cards from the same day can legitimately show different ones.
  *
- * The increment can be a genuine half-second: it is stored in MINUTES, and
- * values not written by the current minutes/seconds stepper are reachable (a
- * stored 4.375 min is 262.5s — real data, not float noise). formatClock floors,
- * so printing it plainly gives "4:22 × 4 = 17:30" for a true 4:22.5 — visibly
- * wrong arithmetic. Show the tenth when there is one, so the line multiplies
- * out on screen; the total is exact and stays in clock format.
+ * Nothing is rounded here. The settings stepper takes whole minutes and whole
+ * seconds, so the increment is a whole number of seconds by the time it reaches
+ * cooldownLength(), and the recorded total is an exact multiple of it. Clock
+ * format for both, since the increment is settable to the second.
  */
-export function cooldownPhrase(cooldownSec: number, sessionNum: number): string {
+function cooldownPhrase(cooldownSec: number, sessionNum: number): string {
   if (cooldownSec <= 0) return 'no cooldown';
   // Session 1's cooldown IS the increment; "x × 1 = x" is noise.
   if (sessionNum <= 1) return `${formatClock(cooldownSec)} cooldown`;
   const increment = cooldownSec / sessionNum;
-  const shown = formatIncrement(increment);
-  // A repeating fraction (thirds, sixths) cannot be written in one decimal, so
-  // the printed factor would not multiply back to the printed total. Show the
-  // total alone rather than an equation that visibly fails to hold.
-  if (Math.abs(parseIncrement(shown) * sessionNum - cooldownSec) > 0.001) {
-    return `${formatClock(cooldownSec)} cooldown`;
-  }
-  return `${shown} × ${sessionNum} = ${formatClock(cooldownSec)}`;
-}
-
-/** Seconds back out of an "m:ss.s" string, to check it multiplies out. */
-function parseIncrement(shown: string): number {
-  const [mins, secs] = shown.split(':');
-  return Number(mins) * 60 + Number(secs);
-}
-
-/**
- * An increment as m:ss, keeping one decimal on the seconds when it has a
- * fractional part. "4:22.5" rather than a floored "4:22" that would make the
- * card's multiplication read false.
- */
-function formatIncrement(seconds: number): string {
-  if (Number.isInteger(seconds)) return formatClock(seconds);
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds - mins * 60;
-  // One decimal, with no trailing ".0" — that case is Number.isInteger above.
-  const shown = secs.toFixed(1).padStart(4, '0');
-  return `${mins}:${shown}`;
+  return `${formatClock(increment)} × ${sessionNum} = ${formatClock(cooldownSec)}`;
 }
 
 /** One finished session: N, used/length + end tag, a fill bar, cooldown + running total. */
