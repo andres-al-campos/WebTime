@@ -6,7 +6,7 @@
 // wrote when each session ended. Nothing is recomputed from current settings:
 // the recorded cooldown and effective length are facts about *then*, and
 // re-deriving them would let a settings change today rewrite last week.
-import { formatDuration } from '../shared/utils.js';
+import { formatDuration, formatClock } from '../shared/utils.js';
 import { runningTotals } from '../shared/session-history.js';
 import type { SessionRecord, SessionEndState } from '../shared/session-history.js';
 
@@ -52,7 +52,9 @@ function sessionCard(record: SessionRecord, index: number, runningTotal: number)
 
   const foot = el('div', 'cfoot');
   foot.append(
-    el('span', '', cooldownSec > 0 ? `${formatDuration(cooldownSec)} cooldown` : 'no cooldown'),
+    // Clock format, not formatDuration: that floors to whole minutes, and the
+    // recorded cooldown is exact to the second.
+    el('span', '', cooldownSec > 0 ? `${formatClock(cooldownSec)} cooldown` : 'no cooldown'),
     el('span', 'run', `${formatDuration(runningTotal)} total`),
   );
 
