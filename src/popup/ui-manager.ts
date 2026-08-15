@@ -1066,6 +1066,8 @@ export const UIManager = {
   saveSettings,
   renderGeneralView,
   renderDetailView,
+  updateDetailPanel,
+  selectDetailDay,
   updateDetailHeader,
   displayMessage,
   updatePieChart,

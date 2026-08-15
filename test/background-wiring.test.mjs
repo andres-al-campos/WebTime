@@ -329,3 +329,28 @@ test('a day is always selected in the detail view', () => {
     'the detail click must not clear the lock; deselecting selects today',
   );
 });
+
+test('every UIManager method chart-builder calls is actually exported', () => {
+  // chart-builder reaches UIManager through the global, so a missing export is
+  // `undefined` at runtime, not a compile error — the bar-click handler died
+  // exactly this way. The type is now imported type-only so tsc checks the
+  // shape; this pins the runtime half, which tsc cannot see.
+  const cb = readFileSync('src/popup/chart-builder.ts', 'utf8').replace(/\/\/[^\n]*/g, '');
+  const called = new Set(
+    [...cb.matchAll(/UIManager\.(\w+)\(/g)].map(m => m[1]),
+  );
+  assert.ok(called.size > 0, 'expected chart-builder to call UIManager');
+
+  const uiSrc = readFileSync('src/popup/ui-manager.ts', 'utf8');
+  const at = uiSrc.indexOf('export const UIManager = {');
+  assert.notEqual(at, -1, 'no UIManager export object');
+  const exported = uiSrc.slice(at, uiSrc.indexOf('};', at));
+
+  for (const name of called) {
+    assert.match(
+      exported,
+      new RegExp(`(^|[\\s,{])${name}\\s*[,\\n]`),
+      `UIManager.${name}() is called from chart-builder but not in the export object`,
+    );
+  }
+});

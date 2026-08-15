@@ -9,15 +9,18 @@ type ChartConfiguration = any;
 type ChartDatasetType = any;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// Forward declaration for UIManager to avoid circular dependency
-declare const UIManager: {
-  updateDailyBreakdown(totalTimeData: GeneralViewData, dataIndex: number): void;
-  updatePieChart(totalTimeData: GeneralViewData, dataIndex: number): void;
-  renderDetailView(domain: string | null): void;
-  updateDetailPanel(domain: string): void;
-  selectDetailDay(dayIndex: number | null): void;
-  showDetailView(): void;
-};
+// UIManager is reached through the global (popup-init assigns it) rather than
+// imported, because ui-manager imports this module — a value import would be a
+// runtime cycle.
+//
+// The TYPE, though, is imported type-only: that emits no require, so there is
+// no cycle, and the shape is checked against the real export instead of a
+// hand-written list. A hand-written list silently went stale once — methods
+// were added to the declaration and never to the exported object, so every
+// call here was undefined at runtime with nothing failing at compile time.
+import type { UIManager as UIManagerType } from './ui-manager.js';
+
+declare const UIManager: typeof UIManagerType;
 
 export interface DomainPieData {
   domain: string;
