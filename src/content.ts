@@ -1242,50 +1242,11 @@ function updateActivityState(): void {
   sendToBackground({ type: "USER_ACTIVE" });
 }
 
-/**
- * Last pointer position in SCREEN coordinates, to tell a real mouse move from
- * a page that moved underneath a stationary one.
- *
- * A mousemove fires whenever the element under the pointer changes, not only
- * when the pointer does: an autoplaying carousel, an infinite-scroll feed, an
- * animated ad or a video overlay all dispatch it while the mouse sits still.
- * Every such event refreshed tabLastActivity, so the inactivity countdown was
- * reset before it could ever reach the threshold and the clock never stopped —
- * on exactly the sites where the user is most likely to have walked away.
- *
- * SCREEN and not client coordinates: client coords are viewport-relative, so
- * scrolling changes them with the pointer perfectly still, which is the same
- * false positive one layer down.
- */
-let lastPointerX = -1;
-let lastPointerY = -1;
-
-function handleMouseMove(e: MouseEvent): void {
-  if (e.screenX === lastPointerX && e.screenY === lastPointerY) return;
-  lastPointerX = e.screenX;
-  lastPointerY = e.screenY;
-  updateActivityState();
-}
-
-/**
- * Scroll counts as activity only when the user caused it.
- *
- * Programmatic scrolling — carousels, `scrollIntoView`, infinite-scroll loading
- * more content, "back to top" animations — fires this event with no user
- * involved. isTrusted is false for scrolls a script dispatches directly, and
- * real reading-by-scroll always arrives with a trusted wheel/key/touch event,
- * so this keeps genuine engagement while dropping the self-driving pages.
- */
-function handleScroll(e: Event): void {
-  if (!e.isTrusted) return;
-  updateActivityState();
-}
-
 // passive: these never preventDefault, and saying so keeps scroll off the
 // main thread on the sites where it matters most.
-document.addEventListener("scroll", handleScroll, { passive: true });
+document.addEventListener("scroll", updateActivityState, { passive: true });
 document.addEventListener("keydown", updateActivityState, { passive: true });
-document.addEventListener("mousemove", handleMouseMove, { passive: true });
+document.addEventListener("mousemove", updateActivityState, { passive: true });
 
 function init(): void {
   log("initTimer()");
