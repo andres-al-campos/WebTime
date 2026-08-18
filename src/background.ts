@@ -930,18 +930,12 @@ function syncClock(): void {
   const verdict = currentClockVerdict();
 
   if (verdict !== lastLoggedVerdict) {
-    const lastActivity = activeTabId !== null ? tabLastActivity[activeTabId] : undefined;
     log(`Clock verdict: ${lastLoggedVerdict ?? '(none)'} -> ${verdict}`, {
       audible: activeTabAudible,
       osIdle: osIdleState,
       engaged: activeTabIsEngaged(),
       focused: browserIsFocused,
       domain: trackedTabDomain,
-      // Which tab the verdict is ABOUT, and how stale its last input is. A
-      // verdict of 'audible' on a tab with no sound, or an activity age that
-      // never grows, both point at the wrong tab rather than a wrong gate.
-      tabId: activeTabId,
-      activityAgeMs: lastActivity ? Date.now() - lastActivity : null,
     });
     lastLoggedVerdict = verdict;
   }
@@ -1201,35 +1195,13 @@ function handleTimerState(activeTab: chrome.tabs.Tab): void {
 // foreground flag; incrementTimer's gate stops/resumes counting on the next
 // tick. We also re-run the active tab's timer-state so startTimer/stopTimer
 // stays consistent for the non-audible path.
-//
-// The window's own active tab must be resolved here. tabs.onActivated fires
-// only for switches WITHIN a window, so moving between windows leaves
-// activeTabId pointing at the tab from the window we just left. Trusting it
-// meant re-reading the OLD tab and writing its audibility into the global
-// activeTabAudible — and since the audible gate deliberately outranks the idle
-// and engagement gates, a video left playing in another window held the clock
-// open on a silent tab until some later event happened to correct it.
-async function handleWindowFocusChanged(windowId: number): Promise<void> {
+function handleWindowFocusChanged(windowId: number): void {
   browserIsFocused = windowId !== browser.windows.WINDOW_ID_NONE;
   log(`Browser focus changed: ${browserIsFocused ? 'foreground' : 'background'}`);
-
-  if (browserIsFocused) {
-    try {
-      const [tab] = await browser.tabs.query({ active: true, windowId });
-      if (tab?.id !== undefined && tab.id !== activeTabId) {
-        log(`Active tab follows window focus: ${activeTabId} -> ${tab.id}`);
-        activeTabId = tab.id;
-      }
-    } catch {
-      // The window went away mid-flight, or it has no queryable tab (devtools,
-      // a popup). Fall through on the id we have rather than dropping tracking.
-    }
-  }
-
   // Act on the gate now rather than waiting for the next tick: under MV3 the
   // tick may never come, and losing focus is exactly when the worker goes idle.
   syncClock();
-  if (activeTabId !== null) void updateTimingState(activeTabId);
+  if (activeTabId !== null) updateTimingState(activeTabId);
 }
 
 function handleTabActivated(activeInfo: chrome.tabs.TabActiveInfo): void {

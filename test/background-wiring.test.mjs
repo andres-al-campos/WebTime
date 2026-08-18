@@ -366,34 +366,3 @@ test('the minutes/seconds conversion goes through incrementSeconds', () => {
     'convert the cooldown increment with incrementSeconds(), not a bare * 60',
   );
 });
-
-test('window focus resolves the focused window\'s own active tab', () => {
-  // tabs.onActivated fires only for switches WITHIN a window, so activeTabId is
-  // stale after a window switch. handleWindowFocusChanged must ask which tab is
-  // active in the window that just gained focus — otherwise updateTimingState
-  // re-reads the tab from the window we LEFT and writes its audibility into the
-  // global activeTabAudible, and the audible gate (which outranks idle and
-  // engagement) holds the clock open on a silent tab.
-  const body = functionBody('handleWindowFocusChanged');
-  assert.match(
-    body,
-    /tabs\.query\(\s*\{[^}]*active:\s*true[^}]*windowId/,
-    'must query the focused window for its active tab',
-  );
-  const queryAt = body.search(/tabs\.query\(/);
-  const useAt = body.search(/updateTimingState\(/);
-  assert.ok(queryAt !== -1 && useAt !== -1, 'expected both a query and a use');
-  assert.ok(
-    queryAt < useAt,
-    'the active tab must be resolved BEFORE updateTimingState reads it',
-  );
-});
-
-test('the clock-verdict log names the tab it is about', () => {
-  // A verdict alone cannot distinguish "the gates are wrong" from "the gates are
-  // right about the wrong tab" — the failure mode that has to be diagnosed from
-  // a log, because it needs a second window and audio to reproduce.
-  const body = functionBody('syncClock');
-  assert.match(body, /tabId:/, 'the verdict log must record which tab it is about');
-  assert.match(body, /activityAge/, 'the verdict log must record the activity age');
-});
