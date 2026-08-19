@@ -99,6 +99,7 @@ export interface TimeUpdateMessage {
   sessionLimitSeconds?: number; // the session limit in seconds (only when session limit is active)
   sessionNum?: number;         // which session number (1-based)
   cooldownIncrementSeconds?: number; // per-session cooldown step, for quoting the cooldown in the end-session confirm
+  baseLengthSeconds?: number;  // the session's BASE length, before carryover/grace — lets the confirm state the next session's full length
 }
 
 export interface ContentScriptReadyMessage {

@@ -1014,7 +1014,7 @@ function wireTime(updatedTime: number): number {
 
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
-  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number } = {
+  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; baseLengthSeconds?: number } = {
     type: "TIME_UPDATE",
     time: wireTime(updatedTime)
   };
@@ -1029,6 +1029,10 @@ function updateTimerDisplay(updatedTime: number): void {
       message.sessionLimitSeconds = display.sessionLimitSeconds;
       message.sessionNum = session.sessionNum;
       message.cooldownIncrementSeconds = data?.cooldownIncrementSeconds || 0;
+      // The base, NOT the effective limit: the end-session confirm adds this
+      // session's carryover+grace to it to state what the next session will be.
+      // Sending the effective limit would double-count the current carryover.
+      message.baseLengthSeconds = session.baseLength;
       log(
         `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
         `start=${session.startDaily}s base=${session.baseLength}s ` +

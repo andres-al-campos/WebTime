@@ -1,6 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { formatTimeCompact, log } from './shared/utils.js';
-import { cooldownLength } from './shared/session-model.js';
+import { cooldownLength, computeGraceSeconds } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -21,6 +21,7 @@ let lastSessionLimitSeconds: number | undefined;
 
 let lastSessionNum: number | undefined;
 let lastCooldownIncrementSeconds: number | undefined;
+let lastBaseLengthSeconds: number | undefined;
 let blurOverlay: HTMLDivElement | null = null;
 let averagePopupDialog: HTMLDivElement | null = null;
 let averagePopupPausedMedia: HTMLMediaElement[] = [];
@@ -698,11 +699,11 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
     /* Slightly taller than the confirm's 24px so this box matches its height
-       (~172px) in the usual two-body-line form. The confirm often precedes this
+       (~171px) in the usual two-body-line form. The confirm often precedes this
        dialog directly, and a height jump between them reads as a layout shift.
        Measured in a browser, not derived — re-measure if either box's type
        sizes or margins change. */
-    padding: 30px 24px !important;
+    padding: 28px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -722,11 +723,10 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
     : 100;
 
-  // Deliberately smaller than the end-session confirm's title (18px). Here the
-  // heading is a label for the countdown below it, not the thing being read —
-  // at 18px it outweighed the number the user is actually waiting on.
+  // Same size as the end-session confirm's title (18px/600/#fff) — the two
+  // dialogs sit in the same flow and their headings should not step.
   const heading = makeEl('div', {
-    style: 'font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 14px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
   // The countdown sits between the heading and the explanation so the number —
@@ -747,7 +747,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
   // is this long and growing, which is the part worth reading.
   const explanation = makeEl('div', {
-    style: 'font-size: 16px; color: #eee; margin-bottom: 8px;',
+    style: 'font-size: 13px; color: #eee; margin-bottom: 8px;',
     text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
@@ -1007,9 +1007,16 @@ function showEndSessionConfirm(): void {
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
   `;
-  // Unit-labelled ("11m"), not clock-style ("11:30") — this is a duration being
+  // State the next session's actual length rather than the bonus alone: "+11m"
+  // required knowing the base to mean anything. endEarly() builds the next
+  // session as base + carryover + grace, so mirror that exactly — and use
+  // computeGraceSeconds rather than a local *1.1, so the two can't drift.
+  //
+  // Unit-labelled ("41m"), not clock-style ("41:30") — this is a duration being
   // granted, not a countdown, and it matches the cooldown line above it.
-  const carryover = formatCooldownDuration(Math.floor(remaining * 1.1));
+  const nextLength = formatCooldownDuration(
+    (lastBaseLengthSeconds ?? 0) + remaining + computeGraceSeconds(remaining),
+  );
   // Title, then the two consequences as body copy. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
@@ -1030,7 +1037,7 @@ function showEndSessionConfirm(): void {
       document.createElement('br'),
     );
   }
-  body.append(`Next session gets +${carryover}`);
+  body.append(`Next session will be ${nextLength}`);
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
@@ -1169,6 +1176,7 @@ function handleIncomingMessage(
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
     lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
+    lastBaseLengthSeconds = message.baseLengthSeconds;
     // Marks that a real value has arrived, which is what lets the timer show at
     // all. Not used for arithmetic any more — the background sends the number.
     receivedAt = Date.now();
