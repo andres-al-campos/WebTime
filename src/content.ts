@@ -745,14 +745,13 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // script, so it's a fixed approximation rather than a computed value.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 28px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
+    style: 'font-size: 28px; font-weight: 500; color: #eee; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
     text: formatCountdown(remainingSeconds),
   });
-  // 14px matches the end-session confirm's body copy — the two dialogs' small
-  // text should be one size. Stays at #eee rather than a dimmer footnote: this
-  // line explains WHY the wait is this long and growing, which is worth reading.
+  // 14px/#ccc, matching the end-session confirm's body copy — the two dialogs'
+  // small text is one size and one colour, a step under the #eee headings.
   const explanation = makeEl('div', {
-    style: 'font-size: 14px; color: #eee; margin-bottom: 8px;',
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 8px;',
     text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
@@ -1033,10 +1032,10 @@ function showEndSessionConfirm(): void {
   // user otherwise only discovers after committing. Same source of truth as the
   // blocker (sessionNum × increment), so the two can't drift.
   const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
-  // #eee, same as the blocker's explanation line — these two dialogs' body copy
-  // states a consequence, which is the part worth reading, not a footnote.
+  // #ccc, same as the blocker's explanation line — these two dialogs sit in the
+  // same flow and their body copy should not step.
   const body = makeEl('div', {
-    style: 'font-size: 14px; color: #eee; margin-bottom: 16px; line-height: 1.5;',
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
   });
   if (cooldownSeconds > 0) {
     body.append(
