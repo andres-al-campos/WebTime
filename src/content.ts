@@ -512,16 +512,16 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
     ? `${minutesLeft} min until your 7-day average`
     : `You've reached your 7-day average`;
 
-  // 18px/600/#fff — the same heading treatment as the blocker and the confirm.
+  // 18px/600/#eee — the same heading treatment as the blocker and the confirm.
   // At this size the longest primaryLine ("You've reached your 7-day average")
   // measures 296px against the 302px of usable width inside the 350px box, so
   // nowrap still holds. Any longer wording here needs re-measuring, not eyeballing.
   const primary = makeEl('div', {
-    style: 'font-size: 18px; color: #fff; margin-bottom: 4px; text-align: center !important; font-weight: 600; white-space: nowrap !important;',
+    style: 'font-size: 18px; color: #eee; margin-bottom: 4px; text-align: center !important; font-weight: 600; white-space: nowrap !important;',
     text: primaryLine,
   });
   const avgLine = makeEl('div', {
-    style: 'font-size: 13px; color: #999; margin-bottom: 14px; text-align: center !important; white-space: nowrap !important;',
+    style: 'font-size: 13px; color: #bbb; margin-bottom: 14px; text-align: center !important; white-space: nowrap !important;',
     text: `(${avg})`,
   });
   const chart = makeEl('div', {
@@ -727,10 +727,10 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
     : 100;
 
-  // Same size as the end-session confirm's title (18px/600/#fff) — the two
+  // Same size as the end-session confirm's title (18px/600/#eee) — the two
   // dialogs sit in the same flow and their headings should not step.
   const heading = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 16px; line-height: 1.3;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
   // The countdown sits between the heading and the explanation so the number —
@@ -1025,7 +1025,7 @@ function showEndSessionConfirm(): void {
   // Title, then the two consequences as body copy. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 10px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 10px; line-height: 1.3;',
     text: `End Session ${lastSessionNum ?? ''}?`,
   });
 
