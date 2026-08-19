@@ -1029,8 +1029,10 @@ function showEndSessionConfirm(): void {
   // user otherwise only discovers after committing. Same source of truth as the
   // blocker (sessionNum × increment), so the two can't drift.
   const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
+  // #eee, same as the blocker's explanation line — these two dialogs' body copy
+  // states a consequence, which is the part worth reading, not a footnote.
   const body = makeEl('div', {
-    style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
+    style: 'font-size: 14px; color: #eee; margin-bottom: 16px; line-height: 1.5;',
   });
   if (cooldownSeconds > 0) {
     body.append(
