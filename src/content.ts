@@ -512,8 +512,12 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
     ? `${minutesLeft} min until your 7-day average`
     : `You've reached your 7-day average`;
 
+  // 18px/600/#fff — the same heading treatment as the blocker and the confirm.
+  // At this size the longest primaryLine ("You've reached your 7-day average")
+  // measures 296px against the 302px of usable width inside the 350px box, so
+  // nowrap still holds. Any longer wording here needs re-measuring, not eyeballing.
   const primary = makeEl('div', {
-    style: 'font-size: 16px; color: #ccc; margin-bottom: 4px; text-align: center !important; font-weight: 600; white-space: nowrap !important;',
+    style: 'font-size: 18px; color: #fff; margin-bottom: 4px; text-align: center !important; font-weight: 600; white-space: nowrap !important;',
     text: primaryLine,
   });
   const avgLine = makeEl('div', {
@@ -1054,7 +1058,7 @@ function showEndSessionConfirm(): void {
     text: 'OK',
   });
   const buttonRow = makeEl('div', {
-    style: 'display: flex; gap: 8px;',
+    style: 'display: flex; gap: 12px;',
     children: [cancelBtn, okBtn],
   });
 
