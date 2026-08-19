@@ -1,0 +1,136 @@
+<title>Past Day Sessions</title>
+<style>
+  :root {
+    --bg: #12151a;
+    --panel: #171b22;
+    --card: #1e232c;
+    --line: rgba(255,255,255,0.07);
+    --card-line: rgba(255,255,255,0.06);
+    --text: #e6e9ee;
+    --dim: #9aa1ac;
+    --faint: #5d646f;
+    --bar-top: #5e8efb;
+    --bar-bottom: #3f6fe0;
+    --track: rgba(255,255,255,0.07);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 26px 20px 50px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); font-size: 12px; margin: 0 0 22px; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; margin-bottom: 20px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    max-width: 430px;
+  }
+  .topbar .site { font-weight: 600; font-size: 13px; }
+  .topbar .sep { color: var(--faint); }
+  .topbar .date { color: var(--dim); font-size: 12px; }
+  .topbar .back {
+    margin-left: auto; font-size: 11.5px; color: var(--bar-top);
+    background: rgba(94,142,251,0.12); border: none; padding: 3px 9px;
+    border-radius: 5px; font-family: inherit; cursor: pointer;
+  }
+
+  .compare { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .col { flex: 1 1 400px; min-width: 355px; }
+  .col > h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--faint); font-weight: 600; margin: 0 0 3px;
+  }
+  .col > .note { font-size: 11.5px; color: var(--dim); margin: 0 0 12px; min-height: 32px; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; overflow: hidden;
+    display: flex; flex-direction: column; height: 452px;
+  }
+  .scroll { overflow-y: auto; padding: 12px; flex: 1; }
+  .scroll::-webkit-scrollbar { width: 9px; }
+  .scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.13); border-radius: 5px; border: 2px solid var(--panel);
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--card-line);
+    border-radius: 8px; margin-bottom: 10px; overflow: hidden;
+  }
+  .card:last-child { margin-bottom: 2px; }
+  .cbody { padding: 11px 12px 12px; }
+  .crow {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 9px; gap: 8px;
+  }
+  .cnum { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .cval { font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .cval b { color: var(--text); font-weight: 600; }
+  .tag { font-size: 10px; padding: 2px 7px; border-radius: 20px; letter-spacing: 0.01em; margin-left: 3px; }
+  .tag.done  { background: rgba(94,142,251,0.15); color: #9dbaff; }
+  .tag.early { background: rgba(86,214,154,0.15); color: #7fe0b4; }
+  .tag.dayend { background: rgba(255,255,255,0.07); color: var(--dim); }
+
+  .track { background: var(--track); border-radius: 4px; height: 16px; overflow: hidden; }
+  .fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(180deg, var(--bar-top), var(--bar-bottom));
+  }
+
+  .cfoot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; font-size: 10.5px;
+    background: rgba(0,0,0,0.22); border-top: 1px solid var(--card-line);
+    color: var(--faint); font-variant-numeric: tabular-nums;
+  }
+  .cfoot .run { color: var(--dim); }
+
+  .legend {
+    margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 12px;
+  }
+  .legend b { color: var(--text); font-weight: 600; }
+  .legend ul { margin: 8px 0 0; padding-left: 17px; }
+  .legend li { margin-bottom: 6px; }
+</style>
+
+<div class="wrap">
+  <h1>Past-day panel — v5</h1>
+  <p class="sub">One label per card, answering one question: how did this session end?</p>
+
+  <div class="topbar">
+    <span class="site">youtube.com</span>
+    <span class="sep">·</span>
+    <span class="date">Wed, Aug 5</span>
+    <button class="back">← Today</button>
+  </div>
+
+  <div class="compare">
+    <div class="col">
+      <h2>Save-up day</h2>
+      <p class="note">Repeated early ends. The last session was cut short by the day rolling over.</p>
+      <div class="panel"><div class="scroll" id="scrollA"><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 1</span><span class="cval"><b>15m</b> / 15m <span class="tag done">completed</span></span></div><div class="track"><div class="fill" style="width:100%"></div></div></div><div class="cfoot"><span>5m cooldown</span><span class="run">15m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 2</span><span class="cval"><b>8m</b> / 15m <span class="tag early">ended early</span></span></div><div class="track"><div class="fill" style="width:53.333333333333336%"></div></div></div><div class="cfoot"><span>10m cooldown</span><span class="run">23m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 3</span><span class="cval"><b>17m</b> / 23m <span class="tag early">ended early</span></span></div><div class="track"><div class="fill" style="width:74.15565345080763%"></div></div></div><div class="cfoot"><span>15m cooldown</span><span class="run">40m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 4</span><span class="cval"><b>20m</b> / 26m <span class="tag early">ended early</span></span></div><div class="track"><div class="fill" style="width:76.92307692307693%"></div></div></div><div class="cfoot"><span>20m cooldown</span><span class="run">1h 00m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 5</span><span class="cval"><b>15m</b> / 37m <span class="tag early">ended early</span></span></div><div class="track"><div class="fill" style="width:40.98360655737705%"></div></div></div><div class="cfoot"><span>25m cooldown</span><span class="run">1h 15m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 6</span><span class="cval"><b>11m</b> / 47m <span class="tag dayend">day ended</span></span></div><div class="track"><div class="fill" style="width:22.69503546099291%"></div></div></div><div class="cfoot"><span>30m cooldown</span><span class="run">1h 26m total</span></div></div></div></div>
+    </div>
+
+    <div class="col">
+      <h2>Ordinary day</h2>
+      <p class="note">Mostly ran to the limit. Last session also cut short by the day.</p>
+      <div class="panel"><div class="scroll" id="scrollB"><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 1</span><span class="cval"><b>15m</b> / 15m <span class="tag done">completed</span></span></div><div class="track"><div class="fill" style="width:100%"></div></div></div><div class="cfoot"><span>5m cooldown</span><span class="run">15m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 2</span><span class="cval"><b>15m</b> / 15m <span class="tag done">completed</span></span></div><div class="track"><div class="fill" style="width:100%"></div></div></div><div class="cfoot"><span>10m cooldown</span><span class="run">30m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 3</span><span class="cval"><b>15m</b> / 15m <span class="tag done">completed</span></span></div><div class="track"><div class="fill" style="width:100%"></div></div></div><div class="cfoot"><span>15m cooldown</span><span class="run">45m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 4</span><span class="cval"><b>14m</b> / 15m <span class="tag early">ended early</span></span></div><div class="track"><div class="fill" style="width:91.11111111111111%"></div></div></div><div class="cfoot"><span>20m cooldown</span><span class="run">59m total</span></div></div><div class="card"><div class="cbody"><div class="crow"><span class="cnum">Session 5</span><span class="cval"><b>7m</b> / 15m <span class="tag dayend">day ended</span></span></div><div class="track"><div class="fill" style="width:47.77777777777778%"></div></div></div><div class="cfoot"><span>25m cooldown</span><span class="run">1h 06m total</span></div></div></div></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>How a session ended.</b>
+    <ul>
+      <li><b>completed</b> — reached its limit.</li>
+      <li><b>ended early</b> — you stopped it yourself.</li>
+      <li><b>day ended</b> — the day rolled over while it was still going. Only ever the last card.</li>
+    </ul>
+  </div>
+</div>
+
+

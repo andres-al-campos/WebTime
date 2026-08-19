@@ -698,9 +698,11 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
     /* Slightly taller than the confirm's 24px so this box matches its height
-       (~177px) in the usual two-body-line form. The confirm often precedes this
-       dialog directly, and a height jump between them reads as a layout shift. */
-    padding: 31px 24px !important;
+       (~172px) in the usual two-body-line form. The confirm often precedes this
+       dialog directly, and a height jump between them reads as a layout shift.
+       Measured in a browser, not derived — re-measure if either box's type
+       sizes or margins change. */
+    padding: 30px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -720,10 +722,11 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
     : 100;
 
-  // Same title treatment as the end-session confirm (18px/600/#fff, 16px gap) —
-  // the two dialogs sit in the same flow and should read as siblings.
+  // Deliberately smaller than the end-session confirm's title (18px). Here the
+  // heading is a label for the countdown below it, not the thing being read —
+  // at 18px it outweighed the number the user is actually waiting on.
   const heading = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
+    style: 'font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 14px; line-height: 1.3;',
     text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
   });
   // The countdown sits between the heading and the explanation so the number —
@@ -744,7 +747,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
   // is this long and growing, which is the part worth reading.
   const explanation = makeEl('div', {
-    style: 'font-size: 14px; color: #eee; margin-bottom: 8px;',
+    style: 'font-size: 16px; color: #eee; margin-bottom: 8px;',
     text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
@@ -1010,7 +1013,7 @@ function showEndSessionConfirm(): void {
   // Title, then the two consequences as body copy. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 10px; line-height: 1.3;',
     text: `End session ${lastSessionNum ?? ''}?`,
   });
 
