@@ -703,7 +703,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
        dialog directly, and a height jump between them reads as a layout shift.
        Measured in a browser, not derived — re-measure if either box's type
        sizes or margins change. */
-    padding: 28px 24px !important;
+    padding: 30px 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -741,13 +741,14 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   // script, so it's a fixed approximation rather than a computed value.
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
-    style: 'font-size: 32px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
+    style: 'font-size: 28px; font-weight: 500; color: #fff; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
     text: formatCountdown(remainingSeconds),
   });
-  // Stays at #eee rather than a dimmer footnote: this line explains WHY the wait
-  // is this long and growing, which is the part worth reading.
+  // 14px matches the end-session confirm's body copy — the two dialogs' small
+  // text should be one size. Stays at #eee rather than a dimmer footnote: this
+  // line explains WHY the wait is this long and growing, which is worth reading.
   const explanation = makeEl('div', {
-    style: 'font-size: 13px; color: #eee; margin-bottom: 8px;',
+    style: 'font-size: 14px; color: #eee; margin-bottom: 8px;',
     text: cooldownExplanation,
   });
   const progressFill = makeEl('div', {
