@@ -1022,7 +1022,7 @@ function showEndSessionConfirm(): void {
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
     style: 'font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 10px; line-height: 1.3;',
-    text: `End session ${lastSessionNum ?? ''}?`,
+    text: `End Session ${lastSessionNum ?? ''}?`,
   });
 
   // Name the cooldown this would trigger — the cost side of the trade, which the
