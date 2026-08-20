@@ -618,15 +618,6 @@ function hideAveragePopup(): void {
   }
 }
 
-/** Format a cooldown duration as "Xm", "Ys", or "Xm Ys" — keeps sub-minute parts. */
-function formatCooldownDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  if (m > 0 && s > 0) return `${m}m ${s}s`;
-  if (m > 0) return `${m}m`;
-  return `${s}s`;
-}
-
 /**
  * Set the cooldown bar's width. Normal per-second ticks move it by a small
  * amount and should animate smoothly (transition: width 1s). But a *re-sync* —
@@ -678,10 +669,13 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     return;
   }
 
-  // Build the cooldown explanation line. Increments may be sub-minute
-  // (e.g. 3m30s), so format with seconds rather than rounding to whole minutes.
-  const total = formatCooldownDuration(totalCooldownSeconds);
-  const increment = formatCooldownDuration(cooldownIncrementSeconds);
+  // Clock format, like every other duration the user sees: the running timer is
+  // hh:mm:ss, so that is the format their eye is calibrated to. It also keeps
+  // both sides of the multiplication in the same units — "4 x 1:30 = 6:00" can
+  // be checked at a glance, "4 x 1:30 = 6m" cannot — and gives every cooldown
+  // the same width regardless of whether the increment divides evenly.
+  const total = formatClock(totalCooldownSeconds);
+  const increment = formatClock(cooldownIncrementSeconds);
   // Heading says which session ended; the sub-line shows the breakdown. When
   // the cooldown grows with each session (count × increment), show the math so
   // the rising duration reads as intentional — but compactly: "3 × 3m = 9m".
