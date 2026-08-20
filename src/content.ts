@@ -1,5 +1,5 @@
 import { Constants } from './shared/constants.js';
-import { formatTimeCompact, log } from './shared/utils.js';
+import { formatClock, formatTimeCompact, log } from './shared/utils.js';
 import { cooldownLength, computeGraceSeconds } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
@@ -1016,9 +1016,11 @@ function showEndSessionConfirm(): void {
   // session as base + carryover + grace, so mirror that exactly — and use
   // computeGraceSeconds rather than a local *1.1, so the two can't drift.
   //
-  // Unit-labelled ("41m"), not clock-style ("41:30") — this is a duration being
-  // granted, not a countdown, and it matches the cooldown line above it.
-  const nextLength = formatCooldownDuration(
+  // Clock-style ("41:30" / "1:04:05"), same formatClock as the session card and
+  // the timer: this number is read against the timer the user is looking at, so
+  // it has to be in the timer's units. Both lines in this dialog use it, or
+  // they step against each other.
+  const nextLength = formatClock(
     (lastBaseLengthSeconds ?? 0) + remaining + computeGraceSeconds(remaining),
   );
   // Title, then the two consequences as body copy. The gap under the title is
@@ -1039,7 +1041,7 @@ function showEndSessionConfirm(): void {
   });
   if (cooldownSeconds > 0) {
     body.append(
-      `Site will go on a ${formatCooldownDuration(cooldownSeconds)} cooldown`,
+      `Site will go on a ${formatClock(cooldownSeconds)} cooldown`,
       document.createElement('br'),
     );
   }
