@@ -143,12 +143,6 @@ function pauseAllMedia(): HTMLMediaElement[] {
   return paused;
 }
 
-function formatCountdown(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 function createTimerElement(): void {
   const timer = document.createElement("div");
   timer.className = "web-time-timer";
@@ -658,7 +652,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     // Update existing blocker countdown
     const countdownEl = blockerDialog.querySelector('.web-time-blocker-countdown');
     if (countdownEl) {
-      countdownEl.textContent = formatCountdown(remainingSeconds);
+      countdownEl.textContent = formatClock(remainingSeconds);
     }
     const progressEl = blockerDialog.querySelector('.web-time-blocker-progress-fill') as HTMLElement | null;
     if (progressEl && totalCooldownSeconds > 0) {
@@ -740,7 +734,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   const countdown = makeEl('div', {
     className: 'web-time-blocker-countdown',
     style: 'font-size: 28px; font-weight: 500; color: #eee; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
-    text: formatCountdown(remainingSeconds),
+    text: formatClock(remainingSeconds),
   });
   // 14px/#ccc, matching the end-session confirm's body copy — the two dialogs'
   // small text is one size and one colour, a step under the #eee headings.
