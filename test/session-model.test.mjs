@@ -216,8 +216,8 @@ test('nextNudgeToFire: picks the LATEST overdue unfired nudge', () => {
 // ---------------------------------------------------------------------------
 
 const NUDGE_JITTER = 30;
-const NUDGE_MIN_GAP = 120;
-const NUDGE_DECAY = 1.8;
+const NUDGE_MIN_INTERVAL = 120;
+const DEFAULT_INTERVAL_MIN = 20;
 
 test('computeNudgeTimes: deterministic for a given seed', () => {
   const eff = 55 * M;
@@ -227,15 +227,13 @@ test('computeNudgeTimes: deterministic for a given seed', () => {
 });
 
 test('computeNudgeTimes: different seeds give different times', () => {
-  const eff = 55 * M;
-  const a = computeNudgeTimes(eff, 1);
-  const b = computeNudgeTimes(eff, 999999);
-  // Overwhelmingly likely to differ; assert at least one element differs.
+  const eff = 120 * M;
+  const a = computeNudgeTimes(eff, 1, 10);
+  const b = computeNudgeTimes(eff, 999999, 10);
   assert.notDeepEqual(a, b);
 });
 
 test('startSession: regenerates a fresh seed each session', () => {
-  // Across many sessions the seeds should not all be identical.
   const seeds = new Set();
   for (let i = 0; i < 20; i++) {
     seeds.add(startSession({ dailyTotal: 0, baseLength: 30 * M }).nudgeSeed);
@@ -243,37 +241,58 @@ test('startSession: regenerates a fresh seed each session', () => {
   assert.ok(seeds.size > 1, 'expected fresh randomness across sessions');
 });
 
-test('computeNudgeTimes: jitter stays within ±30s of the un-jittered base', () => {
-  const eff = 55 * M;
-  // Un-jittered base times for the same decay/window/floor logic.
-  const baseTimes = [];
-  for (let i = 1; i <= 3; i++) {
-    const b = Math.round(eff - eff / Math.pow(NUDGE_DECAY, i));
-    baseTimes.push(b);
+test('computeNudgeTimes: lands on multiples of the interval, within jitter', () => {
+  const eff = 120 * M;
+  for (const minutes of [5, 10, 20, 30]) {
+    for (let seed = 0; seed < 50; seed++) {
+      for (const t of computeNudgeTimes(eff, seed, minutes)) {
+        const iv = minutes * 60;
+        const nearest = Math.round(t / iv) * iv;
+        assert.ok(
+          Math.abs(t - nearest) <= NUDGE_JITTER,
+          `${t} is more than ${NUDGE_JITTER}s from any multiple of ${iv}`
+        );
+      }
+    }
   }
-  // Try many seeds; every produced time must be within JITTER of *some* base time.
-  for (let seed = 0; seed < 200; seed++) {
-    const times = computeNudgeTimes(eff, seed);
-    for (const t of times) {
-      const nearest = baseTimes.reduce((best, b) =>
-        Math.abs(b - t) < Math.abs(best - t) ? b : best, baseTimes[0]);
+});
+
+test('computeNudgeTimes: gaps are the interval, not a decaying fraction', () => {
+  // The whole point of the change: spacing must not depend on session length.
+  // Same interval, three very different sessions → same gap between nudges.
+  for (const eff of [45 * M, 90 * M, 180 * M]) {
+    const times = computeNudgeTimes(eff, 7, 15);
+    assert.ok(times.length >= 2, `expected >=2 nudges in a ${eff / M}m session`);
+    for (let i = 1; i < times.length; i++) {
+      const gap = times[i] - times[i - 1];
+      // 15m ± jitter on both ends.
       assert.ok(
-        Math.abs(t - nearest) <= NUDGE_JITTER,
-        `time ${t} is more than ${NUDGE_JITTER}s from any base (${baseTimes})`
+        Math.abs(gap - 15 * 60) <= 2 * NUDGE_JITTER,
+        `gap ${gap}s is not ~15m (session ${eff / M}m)`
       );
     }
   }
 });
 
-test('computeNudgeTimes: never two nudges closer than the min-gap floor', () => {
-  // Force many attempts on a long session so bunching WOULD happen without the floor.
-  const eff = 120 * M;
-  for (let seed = 0; seed < 100; seed++) {
-    const times = computeNudgeTimes(eff, seed, 12); // request 12 → floor prunes
+test('computeNudgeTimes: the first nudge does not scale with session length', () => {
+  // Under the old φ schedule the first nudge sat at a fixed FRACTION, so it
+  // moved with the limit. It must not any more.
+  const short = computeNudgeTimes(30 * M, 3, 10)[0];
+  const long = computeNudgeTimes(180 * M, 3, 10)[0];
+  assert.ok(
+    Math.abs(short - long) <= 2 * NUDGE_JITTER,
+    `first nudge moved from ${short}s to ${long}s with the session length`
+  );
+});
+
+test('computeNudgeTimes: an interval under the floor cannot become a metronome', () => {
+  const eff = 60 * M;
+  for (let seed = 0; seed < 50; seed++) {
+    const times = computeNudgeTimes(eff, seed, 0.5); // 30s — below the floor
     for (let i = 1; i < times.length; i++) {
       assert.ok(
-        times[i] - times[i - 1] >= NUDGE_MIN_GAP,
-        `gap ${times[i] - times[i - 1]}s < floor ${NUDGE_MIN_GAP}s (seed ${seed})`
+        times[i] - times[i - 1] >= NUDGE_MIN_INTERVAL - 2 * NUDGE_JITTER,
+        `gap ${times[i] - times[i - 1]}s ignores the ${NUDGE_MIN_INTERVAL}s floor`
       );
     }
   }
@@ -282,29 +301,30 @@ test('computeNudgeTimes: never two nudges closer than the min-gap floor', () => 
 test('computeNudgeTimes: no nudge inside the final wind-down window', () => {
   const eff = 55 * M;
   for (let seed = 0; seed < 100; seed++) {
-    for (const t of computeNudgeTimes(eff, seed)) {
+    for (const t of computeNudgeTimes(eff, seed, 10)) {
       assert.ok(t <= eff - WIND_DOWN_DURATION, `nudge ${t} intrudes on wind-down`);
       assert.ok(t >= 60, `nudge ${t} too early`);
     }
   }
 });
 
-test('computeNudgeTimes: overrideCount=0 disables nudges', () => {
+test('computeNudgeTimes: interval 0 disables nudges', () => {
   assert.deepEqual(computeNudgeTimes(55 * M, 1, 0), []);
 });
 
-test('computeNudgeTimes: remaining time shrinks by ~DECAY each nudge (shape)', () => {
-  // With no jitter influence on the relationship, the *base* schedule should
-  // have each successive "remaining at nudge" be ~1/DECAY of the previous.
-  const eff = 90 * M;
-  // Average over seeds to wash out jitter, then check the ratio of remainings.
-  const times = computeNudgeTimes(eff, 7);
-  assert.ok(times.length >= 2);
-  const rem = times.map(t => eff - t);
-  for (let i = 1; i < rem.length; i++) {
-    const ratio = rem[i - 1] / rem[i]; // should be ~DECAY
-    assert.ok(ratio > 1.4 && ratio < 2.3, `ratio ${ratio.toFixed(2)} not ~${NUDGE_DECAY}`);
-  }
+test('computeNudgeTimes: a session shorter than the interval gets none', () => {
+  // Consequence of a fixed interval, asserted so it is a decision and not a
+  // surprise: at the 20m default a 15m session is silent until the wind-down.
+  assert.deepEqual(computeNudgeTimes(15 * M, 1, DEFAULT_INTERVAL_MIN), []);
+  // And the default is what an unset domain gets.
+  assert.deepEqual(computeNudgeTimes(15 * M, 1), []);
+});
+
+test('computeNudgeTimes: count grows linearly with length at a fixed interval', () => {
+  const at = eff => computeNudgeTimes(eff, 5, 10).length;
+  assert.equal(at(30 * M), 2);   // 10, 20
+  assert.equal(at(60 * M), 5);   // 10..50
+  assert.equal(at(120 * M), 11); // 10..110
 });
 
 // ---------------------------------------------------------------------------

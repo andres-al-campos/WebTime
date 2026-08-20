@@ -128,13 +128,13 @@ test('no nudge is due at the very start of a session', () => {
 });
 
 test('a nudge that comes due returns a session marking it fired', () => {
+  // 3-minute interval: at the 20m default a 10m session gets no nudge at all.
   const s = session(600);
-  // Walk forward until one fires, then check it does not fire twice.
   let fired = null;
   let current = s;
   for (let t = 0; t <= 600 && !fired; t += 5) {
     const outcome = checkNudge({
-      session: current, dailyTotal: t, sessionLimitSeconds: 600,
+      session: current, dailyTotal: t, sessionLimitSeconds: 600, nudgeInterval: 3,
     });
     if (outcome) fired = { outcome, t };
   }
@@ -145,8 +145,21 @@ test('a nudge that comes due returns a session marking it fired', () => {
 
   // Same instant, now using the returned session: must not re-fire.
   assert.equal(checkNudge({
-    session: outcome.session, dailyTotal: t, sessionLimitSeconds: 600,
+    session: outcome.session, dailyTotal: t, sessionLimitSeconds: 600, nudgeInterval: 3,
   }), null, 'a fired nudge must not fire again');
+});
+
+test('a session shorter than the nudge interval is silent', () => {
+  // The cost of a fixed interval, pinned: 10 minutes at the 20m default
+  // produces nothing but the wind-down.
+  const s = session(600);
+  for (let t = 0; t <= 600; t += 5) {
+    assert.equal(
+      checkNudge({ session: s, dailyTotal: t, sessionLimitSeconds: 600 }),
+      null,
+      `unexpected nudge at ${t}s`
+    );
+  }
 });
 
 test('no nudge without a session limit', () => {
