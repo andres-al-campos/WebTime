@@ -9,7 +9,7 @@
 //   Off      — limits disabled for this domain (or no session yet).
 
 import { formatClock, getLocalDateStr } from '../shared/utils.js';
-import { displayFor, type ActiveSession } from '../shared/session-model.js';
+import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 
 declare const browser: typeof chrome;
 
@@ -66,13 +66,12 @@ function el(tag: string, cls: string, text?: string): HTMLElement {
   return node;
 }
 
-const PHI = (1 + Math.sqrt(5)) / 2;
 
 interface DomainLimits {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number;          // minutes
   cooldownIncrement?: number;     // minutes (may be fractional)
-  nudgeCount?: number;
+  nudgeInterval?: number;
 }
 
 // Serialize writes: rapid stepper clicks each do read-modify-write on the same
@@ -99,7 +98,7 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
       sessionLimitEnabled: next.sessionLimitEnabled || false,
       sessionLimit: (next.sessionLimit || 0) > 0 ? next.sessionLimit : undefined,
       cooldownIncrement: (next.cooldownIncrement || 0) > 0 ? next.cooldownIncrement : undefined,
-      nudgeCount: next.nudgeCount,
+      nudgeInterval: next.nudgeInterval,
     };
   } else {
     delete settings.domains[domain];
@@ -277,7 +276,7 @@ export async function renderSessionSettingsCard(
     sessionLimitEnabled: d.sessionLimitEnabled || false,
     sessionLimit: d.sessionLimit || 40,
     cooldownIncrement: d.cooldownIncrement || 5,
-    nudgeCount: d.nudgeCount ?? Math.round(PHI * Math.sqrt((d.sessionLimit || 40) / 15)),
+    nudgeInterval: d.nudgeInterval ?? DEFAULT_NUDGE_INTERVAL_MIN,
   };
   // Just persist. The live session card re-renders REACTIVELY via the storage
   // listener (on both our settings write and the background's session-state
@@ -323,9 +322,11 @@ export async function renderSessionSettingsCard(
       onChange: v => { cur.sessionLimit = v; persist(); },
     }).el,
     stepper({
-      label: 'Nudges', value: cur.nudgeCount, unit: '',
-      min: 0, max: 20, step: 1,
-      onChange: v => { cur.nudgeCount = v; persist(); },
+      // Minutes between nudges, not a count: session length varies per session
+      // now, so "how many" has no fixed meaning. 0 disables them for this domain.
+      label: 'Nudge every', value: cur.nudgeInterval, unit: 'min',
+      min: 0, max: 120, step: 5,
+      onChange: v => { cur.nudgeInterval = v; persist(); },
     }).el
   );
 

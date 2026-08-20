@@ -171,9 +171,9 @@ const suspendedSessions: Record<Domain, ActiveSession> = {};
 //                               setting reads as 0 the bar collapses to 100%. So store it once.
 //   cooldownTickers[domain]   = the 1s setInterval that drives the blocker countdown UI.
 //   windDownActive[domain]    = whether the wind-down overlay is currently shown.
-// nudgeCount rides along because rescheduleWakes() is synchronous with respect
+// nudgeInterval rides along because rescheduleWakes() is synchronous with respect
 // to clock transitions and must not await a settings read to arm alarms.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number; nudgeCount?: number }> = {};
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number; nudgeInterval?: number }> = {};
 const cooldownEndTime: Record<Domain, number> = {};
 const cooldownTotalSec: Record<Domain, number> = {};
 const cooldownTickers: Record<Domain, ReturnType<typeof setInterval>> = {};
@@ -338,8 +338,8 @@ async function rescheduleWakes(): Promise<void> {
   });
   if (!ok || !session) return;
 
-  const nudgeCount = cachedDomainSessionLimit[domain]?.nudgeCount;
-  const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgeCount);
+  const nudgeInterval = cachedDomainSessionLimit[domain]?.nudgeInterval;
+  const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgeInterval);
 
   for (const w of wakes) {
     browser.alarms.create(`${WAKE_ALARM_PREFIX}${w.kind}-${w.sessionTime}`, { when: w.at });
@@ -1486,7 +1486,7 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   cachedDomainSessionLimit[trackedTabDomain] = {
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
     cooldownIncrementSeconds: hasSessionLimit ? incrementSeconds(domainSettings.cooldownIncrement) : 0,
-    nudgeCount: domainSettings.nudgeCount
+    nudgeInterval: domainSettings.nudgeInterval
   };
 
   const { averageSeconds, daysWithData } = compute7DayStats(timeHistory, trackedTabDomain, currentDateStr);
@@ -1513,7 +1513,7 @@ function checkPhiNudges(settings: InterventionSettings): void {
     session,
     dailyTotal: dailyTotal(),
     sessionLimitSeconds,
-    nudgeCount: settings.domainSettings.nudgeCount,
+    nudgeInterval: settings.domainSettings.nudgeInterval,
   });
   if (!outcome) return;
 

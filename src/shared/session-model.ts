@@ -9,7 +9,6 @@
 //
 // Pure functions only. No browser APIs. Unit-testable with `node --test`.
 
-const PHI = (1 + Math.sqrt(5)) / 2;
 export const WIND_DOWN_DURATION = 60;
 
 // ---------------------------------------------------------------------------
@@ -210,14 +209,24 @@ export function computeGraceSeconds(remainingSeconds: number): number {
 // Nudges — recomputed per tick from the live effectiveLength, with catch-up.
 // No precomputed schedule to invalidate.
 //
-// Spacing: each nudge sits at `eff - eff/DECAY^i`, so the *remaining* time
-// shrinks by a constant factor (DECAY) each nudge — sparse early, accelerating
-// toward the end. DECAY=1.8 is between φ (gentle) and 2.0 (halving).
+// Spacing: a fixed interval, per domain. Nudge at X, 2X, 3X... into the session.
 //
-// Two guards keep the tail from getting annoying:
-//   - NUDGE_MIN_GAP: no two nudges closer than this (self-caps the count; a
-//     larger requested count just gets pruned down to what fits).
+// This replaced a φ-decay schedule (`eff - eff/DECAY^i`) that placed nudges as
+// fractions of the session limit. That only made sense when session lengths
+// were fixed. Once carryover and early-ending made the effective length vary
+// per session, a fraction-based schedule meant the same wall-clock moment
+// nudged or didn't depending on the ceiling above it — and, since the app pays
+// you to leave early, it was quietest exactly when leaving was worth most.
+//
+// A fixed interval says the same thing at every session length, and the count
+// falls out of how long you actually stay rather than what was provisioned.
+// The interval is per-domain because that is where the real variance is: a
+// reading site and an entertainment site want different numbers, and no single
+// value serves both.
+//
+// Two guards are kept from the old scheme:
 //   - the wind-down window: no nudge inside the final WIND_DOWN_DURATION.
+//   - a floor on the interval, so a mis-set value can't produce a metronome.
 //
 // Jitter: each time is nudged by up to ±NUDGE_JITTER seconds so the schedule
 // isn't perfectly predictable. The jitter is DETERMINISTIC given the session's
@@ -225,8 +234,10 @@ export function computeGraceSeconds(remainingSeconds: number): number {
 // across sessions (because the seed is regenerated at each startSession).
 // ---------------------------------------------------------------------------
 
-const NUDGE_DECAY = 1.8;
-const NUDGE_MIN_GAP = 120; // seconds — anti-bunching floor
+/** Minutes between nudges when a domain hasn't set one. */
+export const DEFAULT_NUDGE_INTERVAL_MIN = 20;
+
+const NUDGE_MIN_INTERVAL = 120; // seconds — floor, so a tiny interval can't become a metronome
 const NUDGE_JITTER = 30;   // seconds — ± window, mirrors the 60s wind-down
 
 /** Tiny seeded PRNG (mulberry32). Deterministic stream from a 32-bit seed. */
@@ -241,27 +252,33 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * Nudge times (session-relative seconds) for the current effective length.
- * `seed` drives the per-session jitter; `overrideCount` (the user's nudgeCount
- * setting) caps how many we *attempt* before the min-gap floor prunes.
+ * Nudge times (session-relative seconds) at a fixed interval.
+ *
+ * `intervalMinutes` is the domain's setting; undefined means the default.
+ * 0 disables nudges for that domain. `seed` drives the per-session jitter.
  */
-export function computeNudgeTimes(effLimit: number, seed: number, overrideCount?: number): number[] {
+export function computeNudgeTimes(
+  effLimit: number,
+  seed: number,
+  intervalMinutes?: number,
+): number[] {
   if (effLimit <= 0) return [];
-  const attempt = overrideCount !== undefined
-    ? overrideCount
-    : Math.round(PHI * Math.sqrt(effLimit / 60 / 15));
-  if (attempt <= 0) return [];
+  const minutes = intervalMinutes ?? DEFAULT_NUDGE_INTERVAL_MIN;
+  if (minutes <= 0) return [];
+  const interval = Math.max(NUDGE_MIN_INTERVAL, Math.round(minutes * 60));
 
   const rnd = mulberry32(seed);
   const times: number[] = [];
-  for (let i = 1; i <= attempt; i++) {
-    const base = effLimit - effLimit / Math.pow(NUDGE_DECAY, i);
+  // The last slot is the one before the wind-down takes over; a nudge inside
+  // that window would be talking over it.
+  const latest = effLimit - WIND_DOWN_DURATION;
+  for (let t = interval; t <= latest; t += interval) {
     const jitter = Math.round((rnd() * 2 - 1) * NUDGE_JITTER);
-    const t = Math.round(base + jitter);
-    if (t < 60 || t > effLimit - WIND_DOWN_DURATION) continue;
-    // Greedy min-gap prune: drop a nudge that lands too close to the last kept.
-    if (times.length && t - times[times.length - 1] < NUDGE_MIN_GAP) continue;
-    times.push(t);
+    const at = Math.round(t + jitter);
+    // Jitter can push the first one under a minute or the last past the
+    // wind-down edge; drop those rather than clamping them onto each other.
+    if (at < 60 || at > latest) continue;
+    times.push(at);
   }
   return times;
 }
@@ -275,9 +292,9 @@ export function computeNudgeTimes(effLimit: number, seed: number, overrideCount?
  * nudge time that moved behind us after a shrink simply fires now (once);
  * a tick we missed doesn't drop the nudge.
  */
-export function nextNudgeToFire(s: ActiveSession, dailyTotal: number, overrideCount?: number): number | null {
+export function nextNudgeToFire(s: ActiveSession, dailyTotal: number, intervalMinutes?: number): number | null {
   const { sessionTime, sessionLimitSeconds } = displayFor(s, dailyTotal);
-  const times = computeNudgeTimes(sessionLimitSeconds, s.nudgeSeed, overrideCount);
+  const times = computeNudgeTimes(sessionLimitSeconds, s.nudgeSeed, intervalMinutes);
   const fired = new Set(s.firedNudges);
 
   let candidate: number | null = null;
@@ -389,7 +406,7 @@ export function scheduleFor(
   s: ActiveSession,
   dailyTotal: number,
   nowMs: number,
-  overrideCount?: number,
+  intervalMinutes?: number,
 ): ScheduledWake[] {
   const wakes: ScheduledWake[] = [];
   const fired = new Set(s.firedNudges);
@@ -399,7 +416,7 @@ export function scheduleFor(
     if (at !== null) wakes.push({ kind, sessionTime: t, at });
   };
 
-  for (const t of computeNudgeTimes(effectiveLength(s), s.nudgeSeed, overrideCount)) {
+  for (const t of computeNudgeTimes(effectiveLength(s), s.nudgeSeed, intervalMinutes)) {
     if (!fired.has(t)) push('nudge', t);
   }
   push('windDown', windDownAtSessionTime(s));
