@@ -7,10 +7,14 @@ const OVERLAY_DURATIONS: OverlayDurations = {
   // than outlasting it, and the timer stays readable on the way back down.
   //
   // No hold at the peak. One was tried and the pause read as too aggressive:
-  // at 8x the size does the work, so buying reading time by freezing the page
-  // longer costs more flow than it returns.
-  NUDGE_GROW_MS: 350,
-  NUDGE_SHRINK_MS: 350,
+  // the size does the work, so buying reading time by freezing the page longer
+  // costs more flow than it returns.
+  //
+  // Because the pause ends at the peak, the GROW is the whole interruption and
+  // the shrink is free — so the animation can be slow and calm (500/500) while
+  // the page is only held for 500ms.
+  NUDGE_GROW_MS: 500,
+  NUDGE_SHRINK_MS: 500,
 };
 
 const CHART_CONFIG: ChartConfig = {

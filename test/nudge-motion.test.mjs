@@ -64,12 +64,13 @@ test('the shrink begins the moment the timer peaks — no hold', () => {
   assert.ok(!/NUDGE_HOLD_MS/.test(body), 'the hold is gone; do not reintroduce it silently');
 });
 
-test('nothing keeps the page frozen longer than the grow', () => {
-  // The whole paused window is grow-only. If this sum grows, the interruption
-  // grew with it.
+test('the paused window stays short', () => {
+  // Grow IS the paused window — blur and playback end at the peak — so this is
+  // the only number that can make the nudge feel aggressive. The shrink is
+  // free and deliberately unbounded here.
   const m = /NUDGE_GROW_MS:\s*(\d+)/.exec(constants);
   assert.ok(m, 'NUDGE_GROW_MS not found');
-  assert.ok(Number(m[1]) <= 400, `blur+pause runs ${m[1]}ms; it was cut to 350 for being too aggressive`);
+  assert.ok(Number(m[1]) <= 600, `the page is held for ${m[1]}ms; 750 already read as too aggressive`);
 });
 
 test('the nudge reuses pauseAllMedia rather than re-inlining it', () => {
@@ -84,5 +85,7 @@ test('the nudge reuses pauseAllMedia rather than re-inlining it', () => {
 test('the timer grows enough to be seen from across the screen', () => {
   const m = /const NUDGE_SCALE = (\d+)/.exec(content);
   assert.ok(m, 'NUDGE_SCALE not found');
-  assert.ok(Number(m[1]) >= 8, `NUDGE_SCALE is ${m[1]}; 5x was already too small to notice`);
+  const scale = Number(m[1]);
+  assert.ok(scale >= 7, `NUDGE_SCALE is ${scale}; 5x was too small to notice`);
+  assert.ok(scale <= 8, `NUDGE_SCALE is ${scale}; past 8x it covers too much of the page`);
 });

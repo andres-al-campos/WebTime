@@ -545,8 +545,8 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
  * transformOrigin below), so it never travels toward the user's gaze — at 5x it
  * was still small enough to miss from the far side of the screen. Size is the
  * only lever available without moving it, which would break the flow more than
- * the nudge is worth. */
-const NUDGE_SCALE = 8;
+ * the nudge is worth. 8x overshot and covered too much of the page. */
+const NUDGE_SCALE = 7;
 
 function showNudge(): void {
   const { NUDGE_GROW_MS, NUDGE_SHRINK_MS } = Constants.OVERLAY_DURATIONS;
