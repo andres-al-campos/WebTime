@@ -448,8 +448,14 @@ export async function loadSettings(): Promise<void> {
     if (chartScalingEl) chartScalingEl.value = String(scalingVal);
     // Mount (or refresh) the styled steppers that mirror the hidden inputs, so
     // the global settings use the same control as the per-site Session rules.
+    // 5s steps to match the cooldown's seconds box. The floor is 5, not 0:
+    // isActive() tests `now - lastActivity < threshold`, so a 0 threshold is
+    // false the moment activity is recorded — the tab reads as permanently
+    // inactive and the clock never runs. There is no "instant" to express here
+    // anyway; the setting is a grace period after the last input event, and a
+    // zero-length grace period just means "inactive between keystrokes".
     mountSettingsStepper('inactivity-stepper', inactivityEl, 'Inactivity', 's',
-      { value: inactivityVal, min: 1, max: 600, step: 1 });
+      { value: inactivityVal, min: 5, max: 600, step: 5 });
     mountSettingsStepper('chart-scaling-stepper', chartScalingEl, 'Chart scale', '',
       { value: scalingVal, min: 0.3, max: 1.0, step: 0.05 });
 

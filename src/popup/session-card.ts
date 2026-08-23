@@ -122,7 +122,11 @@ interface Stepper {
  *  global settings panel can use the same control instead of native inputs. */
 export function stepper(opts: {
   label: string; value: number; unit?: string;
-  min: number; max: number; step: number;
+  /** Lower bound. A function is re-read on every step and every typed commit,
+   *  for a floor that depends on a sibling — the cooldown's seconds box may not
+   *  go below 5s while its minutes box is 0, but is free to reach 0 above that. */
+  min: number | (() => number);
+  max: number; step: number;
   onChange: (v: number) => void;
   /** Called when a step crosses min/max. Return false to veto the wrap (the
    *  value stays pinned at the edge it tried to cross). */
@@ -153,12 +157,16 @@ export function stepper(opts: {
   // Round to the step grid so fractional steps (e.g. 0.5) don't accumulate
   // binary floating-point dust like 3.4999999. Quantize relative to min so a
   // non-zero min with a fractional step still lands on grid.
+  const minOf = () => typeof opts.min === 'function' ? opts.min() : opts.min;
+
   // Snap to the step grid, then round off float dust (0.05 * 13 = 0.650000…1) so
   // neither the display nor the persisted value carries it. 2 decimals covers the
   // finest step (0.05); trailing zeros are dropped so integers read "40" not
   // "40.00".
-  const quantize = (v: number) =>
-    parseFloat((opts.min + Math.round((v - opts.min) / opts.step) * opts.step).toFixed(2));
+  const quantize = (v: number) => {
+    const m = minOf();
+    return parseFloat((m + Math.round((v - m) / opts.step) * opts.step).toFixed(2));
+  };
   const unitEl = opts.unit
     ? Object.assign(document.createElement('span'), {
         className: 'sc-stepper-unit', textContent: opts.unit,
@@ -181,16 +189,17 @@ export function stepper(opts: {
   // Commit a step in `dir`, honouring carry-over at the edges. Factored out so
   // both the initial click and the hold-to-repeat timer call the same path.
   const stepOnce = (dir: number) => {
-    const span = opts.max - opts.min + opts.step; // wrap modulus, in step units
+    const min = minOf();
+    const span = opts.max - min + opts.step; // wrap modulus, in step units
     const raw = cur + dir * opts.step;
-    if (opts.onCarry && (raw > opts.max || raw < opts.min)) {
+    if (opts.onCarry && (raw > opts.max || raw < min)) {
       // Past an edge: let the neighbour absorb the carry. If it accepts, wrap
       // within [min,max]; if it vetoes (e.g. minutes already 0), stay put.
       if (opts.onCarry(dir)) {
-        cur = ((((raw - opts.min) % span) + span) % span) + opts.min;
+        cur = ((((raw - min) % span) + span) % span) + min;
       }
     } else {
-      cur = Math.max(opts.min, Math.min(opts.max, raw));
+      cur = Math.max(min, Math.min(opts.max, raw));
     }
     cur = quantize(cur);
     setNum(cur);
@@ -211,7 +220,7 @@ export function stepper(opts: {
     }
     const parsed = parseFloat(raw);
     if (Number.isFinite(parsed)) {
-      cur = quantize(Math.max(opts.min, Math.min(opts.max, parsed)));
+      cur = quantize(Math.max(minOf(), Math.min(opts.max, parsed)));
       opts.onChange(cur);
     }
     setNum(cur); // normalize display (clamp/round, or revert on NaN)
@@ -359,13 +368,25 @@ export async function renderSessionSettingsCard(
   const minStepper = stepper({
     label: 'Cooldown', value: coolMin, unit: 'm', noHead: true,
     min: 0, max: 120, step: 1,
-    onChange: v => { coolMin = v; persistCooldown(); },
+    onChange: v => {
+      coolMin = v;
+      // Falling to 0m while the seconds sit at 0 would land on 0m0s by the back
+      // door — the seconds box enforces its own floor but cannot act on a change
+      // made over here, so push it up to the minimum as we pass.
+      if (coolMin === 0 && coolSec === 0) { coolSec = 5; secStepper.setValue(coolSec); }
+      persistCooldown();
+    },
   });
   const secStepper = stepper({
     // max is one step below a minute, so the seconds run 0..55 and then carry
     // into the minutes box rather than showing a 60 that means the same as 1m.
+    //
+    // The floor is on the PAIR, not this box: a zero cooldown makes the session
+    // limit do nothing (hit it, wait nothing, carry on), so if sessions are on
+    // both halves are part of the deal. 0s is fine above a minute, and only the
+    // combination 0m0s is refused — hence a floor that reads the minutes box.
     label: 'Cooldown', value: coolSec, unit: 's', noHead: true,
-    min: 0, max: 55, step: 5,
+    min: () => (coolMin === 0 ? 5 : 0), max: 55, step: 5,
     onChange: v => { coolSec = v; persistCooldown(); },
     onCarry: dir => {
       if (dir < 0 && coolMin <= 0) return false; // can't borrow below 0m
