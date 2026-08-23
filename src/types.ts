@@ -247,7 +247,9 @@ export interface PopupState {
 // ============================================
 
 export interface OverlayDurations {
-  NUDGE_MS: number;
+  NUDGE_GROW_MS: number;
+  NUDGE_HOLD_MS: number;
+  NUDGE_SHRINK_MS: number;
 }
 
 export interface ChartConfig {

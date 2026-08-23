@@ -1,7 +1,14 @@
 import type { ConstantsType, OverlayDurations, ChartConfig, Colors } from '../types.js';
 
 const OVERLAY_DURATIONS: OverlayDurations = {
-  NUDGE_MS: 700
+  // The nudge is three phases, not one duration. The blur and the media pause
+  // are the SAME interruption, so they share a length: both end the moment the
+  // timer reaches full size, which is when the number is most readable. The
+  // shrink then plays out on a clear, playing page — the blur hands off to the
+  // timer rather than outlasting it.
+  NUDGE_GROW_MS: 350,
+  NUDGE_HOLD_MS: 400,
+  NUDGE_SHRINK_MS: 350,
 };
 
 const CHART_CONFIG: ChartConfig = {

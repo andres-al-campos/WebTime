@@ -539,37 +539,44 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
   return el;
 }
 
+/** Scale the timer reaches at the peak of a nudge.
+ *
+ * The timer sits in the top-right corner and grows from that corner (see
+ * transformOrigin below), so it never travels toward the user's gaze — at 5x it
+ * was still small enough to miss from the far side of the screen. Size is the
+ * only lever available without moving it, which would break the flow more than
+ * the nudge is worth. */
+const NUDGE_SCALE = 8;
+
 function showNudge(): void {
+  const { NUDGE_GROW_MS, NUDGE_HOLD_MS, NUDGE_SHRINK_MS } = Constants.OVERLAY_DURATIONS;
   const overlay = showBlurOverlay();
   overlay.style.pointerEvents = 'all';
   overlay.style.opacity = '1';
 
-  const playingMedia: HTMLMediaElement[] = [];
-  document.querySelectorAll('video, audio').forEach(el => {
-    const media = el as HTMLMediaElement;
-    if (!media.paused) {
-      media.pause();
-      playingMedia.push(media);
-    }
-  });
+  const playingMedia = pauseAllMedia();
 
   const timer = document.querySelector('.web-time-timer') as HTMLElement | null;
   if (timer) {
     timer.style.transformOrigin = 'top right';
-    timer.style.transition = `transform ${Constants.OVERLAY_DURATIONS.NUDGE_MS / 2}ms ease-in-out`;
+    timer.style.transition = `transform ${NUDGE_GROW_MS}ms ease-in-out`;
     requestAnimationFrame(() => {
-      timer.style.transform = 'scale(5.0)';
+      timer.style.transform = `scale(${NUDGE_SCALE})`;
 
       setTimeout(() => {
+        timer.style.transition = `transform ${NUDGE_SHRINK_MS}ms ease-in-out`;
         timer.style.transform = 'scale(1)';
-      }, Constants.OVERLAY_DURATIONS.NUDGE_MS / 2);
+      }, NUDGE_GROW_MS + NUDGE_HOLD_MS);
     });
   }
 
+  // Blur and playback end together at the peak, not after the shrink: they are
+  // one interruption, and it is over once the number has been shown. Letting
+  // either run into the shrink leaves the blur outlasting what it pointed at.
   setTimeout(() => {
     hideBlurOverlay();
     playingMedia.forEach(m => m.play().catch(() => {}));
-  }, Constants.OVERLAY_DURATIONS.NUDGE_MS);
+  }, NUDGE_GROW_MS + NUDGE_HOLD_MS);
 }
 
 function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: SessionStartStats): void {
