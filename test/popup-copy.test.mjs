@@ -60,7 +60,7 @@ test('the average popup heading strings stay the ones that were measured', () =>
 const card = readFileSync('src/popup/session-card.ts', 'utf8');
 
 test('the nudge stepper shows a word at zero, not "0 min"', () => {
-  assert.match(card, /zeroLabel: 'Off'/, "the nudge stepper must pass a zeroLabel");
+  assert.match(card, /zeroLabel: 'Disabled'/, "the nudge stepper must pass a zeroLabel");
 });
 
 test('the zero label hides the unit suffix', () => {

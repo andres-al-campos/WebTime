@@ -346,7 +346,7 @@ export async function renderSessionSettingsCard(
       // Minutes between nudges, not a count: session length varies per session
       // now, so "how many" has no fixed meaning. 0 disables them for this domain.
       label: 'Nudge every', value: cur.nudgeInterval, unit: 'min',
-      min: 0, max: 120, step: 1, zeroLabel: 'Off',
+      min: 0, max: 120, step: 1, zeroLabel: 'Disabled',
       onChange: v => { cur.nudgeInterval = v; persist(); },
     }).el
   );
