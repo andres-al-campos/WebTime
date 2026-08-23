@@ -120,3 +120,15 @@ test('a dynamic min is honoured when typing, not just when stepping', () => {
   assert.match(card, /cur = quantize\(Math\.max\(minOf\(\)/, 'commitTyped must clamp to the live min');
   assert.match(card, /const min = minOf\(\);/, 'stepOnce must read the live min');
 });
+
+test('aborting a shortcut capture restores what was there, not the default', () => {
+  // The field showed '(disabled)' while dataset.disabled stayed set. Restoring a
+  // hardcoded 'Ctrl+E' on abort left the display saying Ctrl+E while save() —
+  // which reads the dataset flag, not the text — still stored null. Two deciders
+  // for one state, disagreeing. It also forgot custom shortcuts on a stray focus.
+  assert.match(uiMgr, /let priorValue = input\.value;/, 'capture must remember the prior value');
+  assert.match(uiMgr, /priorValue = input\.value;[\s\S]{0,120}input\.value = 'Press a key combo/,
+    'the prior value must be captured on focus, before the placeholder overwrites it');
+  assert.match(uiMgr, /input\.value = priorValue;/, 'abort must restore it');
+  assert.doesNotMatch(uiMgr, /input\.value = 'Ctrl\+E';/, "abort must not hardcode the default");
+});

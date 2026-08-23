@@ -40,6 +40,11 @@ function setupShortcutCapture(input: HTMLInputElement): void {
   input.dataset.captureSetup = 'true';
 
   let capturing = false;
+  // What the field showed before capture began, so an aborted capture can put
+  // it back. Restoring a hardcoded default instead would both forget a custom
+  // shortcut and silently re-enable a disabled one — the displayed value would
+  // then disagree with dataset.disabled, which is what save() actually reads.
+  let priorValue = input.value;
 
   const stopCapture = (): void => {
     capturing = false;
@@ -49,6 +54,7 @@ function setupShortcutCapture(input: HTMLInputElement): void {
 
   input.addEventListener('focus', () => {
     capturing = true;
+    priorValue = input.value;
     input.style.background = '#3a3a5a';
     input.value = 'Press a key combo…';
   });
@@ -58,9 +64,9 @@ function setupShortcutCapture(input: HTMLInputElement): void {
       // Aborted without pressing anything — restore previous
       capturing = false;
       input.style.background = '';
-      // Leave the placeholder; if user blurred without pressing, fall back
+      // Blurred without pressing anything: restore exactly what was there.
       if (input.value === 'Press a key combo…') {
-        input.value = 'Ctrl+E';
+        input.value = priorValue;
       }
     }
   });
