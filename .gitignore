@@ -8,8 +8,11 @@ dist-chrome/
 # Build artifacts
 artifacts/
 
-# Design working files (mockups, plans, derived style guide) — local only
+# Design working files (mockups, plans, derived style guide) — local only.
+# The directory is .mockups/; `designs/` was the name this rule was written for
+# and never matched, so eight mockups were tracked despite the stated intent.
 designs/
+.mockups/
 
 # OS files
 .DS_Store
