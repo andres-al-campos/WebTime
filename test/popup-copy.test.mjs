@@ -156,3 +156,19 @@ test('reopening the settings sheet keeps a disabled shortcut disabled', () => {
   assert.match(uiMgr, /if \(sc === null\) endSessionShortcutEl\.dataset\.disabled = 'true';\s*\n\s*else delete endSessionShortcutEl\.dataset\.disabled;/,
     'load must sync the flag to the stored value in both directions');
 });
+
+test('the settings sheet wires its controls once, not once per open', () => {
+  // loadSettings runs on every open. Everything it mounts is guarded — the
+  // steppers and dropdown keep registries, setupShortcutCapture uses a dataset
+  // flag — except the shortcut's clear button, which stacked a listener per
+  // open. Harmless only because the handler is idempotent.
+  const clear = /const endSessionShortcutClearEl[\s\S]*?\n    \}/.exec(uiMgr);
+  assert.ok(clear, 'the clear-button wiring must be findable');
+  assert.match(clear[0], /dataset\.clearSetup !== 'true'/, 'the clear button must be wired once');
+  assert.match(clear[0], /dataset\.clearSetup = 'true'/, 'and must record that it was');
+
+  // The handler outlives the loadSettings call that wired it, so it must look
+  // the field up when it fires rather than capturing a possibly-stale node.
+  assert.match(clear[0], /getElementById\('end-session-shortcut'\)/,
+    're-query the field inside the handler, do not close over it');
+});

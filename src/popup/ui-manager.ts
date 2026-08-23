@@ -480,11 +480,23 @@ export async function loadSettings(): Promise<void> {
       else delete endSessionShortcutEl.dataset.disabled;
       setupShortcutCapture(endSessionShortcutEl);
     }
+    // Wire once. loadSettings runs on every open of the settings sheet, and an
+    // unguarded addEventListener here stacked a fresh handler each time. It went
+    // unnoticed because the handler is idempotent — N copies write the same two
+    // values — but it is one edit away from mattering, and the rest of this
+    // function (the steppers, the dropdown, setupShortcutCapture) is mount-once
+    // for the same reason.
     const endSessionShortcutClearEl = document.getElementById('end-session-shortcut-clear');
-    if (endSessionShortcutClearEl && endSessionShortcutEl) {
+    if (endSessionShortcutClearEl && endSessionShortcutClearEl.dataset.clearSetup !== 'true') {
+      endSessionShortcutClearEl.dataset.clearSetup = 'true';
       endSessionShortcutClearEl.addEventListener('click', () => {
-        endSessionShortcutEl.value = SHORTCUT_DISABLED_LABEL;
-        endSessionShortcutEl.dataset.disabled = 'true';
+        // Re-query rather than closing over the element from the loadSettings
+        // call that happened to wire this: the handler outlives that call, and a
+        // captured node would go stale if the field were ever re-rendered.
+        const field = document.getElementById('end-session-shortcut') as HTMLInputElement | null;
+        if (!field) return;
+        field.value = SHORTCUT_DISABLED_LABEL;
+        field.dataset.disabled = 'true';
       });
     }
     // Per-site session limits moved to the in-panel "Session rules" card
