@@ -132,3 +132,27 @@ test('aborting a shortcut capture restores what was there, not the default', () 
   assert.match(uiMgr, /input\.value = priorValue;/, 'abort must restore it');
   assert.doesNotMatch(uiMgr, /input\.value = 'Ctrl\+E';/, "abort must not hardcode the default");
 });
+
+test('the shortcut label is display text, not program state', () => {
+  // "(disabled)" was BOTH the label and a sentinel that saveSettings compared
+  // against. That made rewording the label a behaviour change: rename it and the
+  // comparison stops matching, so a disabled shortcut saves as enabled. The
+  // dataset flag is the one decider now, and the label is free to be reworded.
+  const save = /export async function saveSettings[\s\S]*?\n\}/.exec(uiMgr);
+  assert.ok(save, 'saveSettings must be findable');
+  assert.doesNotMatch(save[0], /value !== SHORTCUT_DISABLED_LABEL|value !== '\(disabled\)'/,
+    'save must not decide disabled-ness by comparing the displayed text');
+  assert.match(save[0], /dataset\.disabled === 'true'/, 'the dataset flag is the decider');
+
+  // One definition of the word, so it cannot drift between the three sites.
+  assert.match(uiMgr, /const SHORTCUT_DISABLED_LABEL = /, 'the label must be defined once');
+  assert.doesNotMatch(uiMgr, /'\(disabled\)'/, 'no stray literal copies of the label');
+});
+
+test('reopening the settings sheet keeps a disabled shortcut disabled', () => {
+  // The flag used to be set only by the clear button, so after a reload the
+  // field read "disabled" while the flag was unset — the next save re-enabled
+  // the shortcut the user had turned off.
+  assert.match(uiMgr, /if \(sc === null\) endSessionShortcutEl\.dataset\.disabled = 'true';\s*\n\s*else delete endSessionShortcutEl\.dataset\.disabled;/,
+    'load must sync the flag to the stored value in both directions');
+});

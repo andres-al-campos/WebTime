@@ -35,6 +35,12 @@ interface ExtendedChart {
 }
 
 /** Wire a click-to-capture keyboard shortcut input. */
+/** What the shortcut field shows when the shortcut is off. Display only — the
+ *  disabled STATE lives in `dataset.disabled` and nothing compares against this
+ *  text, so it can be reworded freely. It used to be both at once, and a save
+ *  path that string-matched it turned a label into a serialization boundary. */
+const SHORTCUT_DISABLED_LABEL = 'Disabled';
+
 function setupShortcutCapture(input: HTMLInputElement): void {
   if (input.dataset.captureSetup === 'true') return;
   input.dataset.captureSetup = 'true';
@@ -469,13 +475,15 @@ export async function loadSettings(): Promise<void> {
     const endSessionShortcutEl = document.getElementById('end-session-shortcut') as HTMLInputElement | null;
     if (endSessionShortcutEl) {
       const sc = global.endSessionShortcut;
-      endSessionShortcutEl.value = sc === null ? '(disabled)' : (sc || 'Ctrl+E');
+      endSessionShortcutEl.value = sc === null ? SHORTCUT_DISABLED_LABEL : (sc || 'Ctrl+E');
+      if (sc === null) endSessionShortcutEl.dataset.disabled = 'true';
+      else delete endSessionShortcutEl.dataset.disabled;
       setupShortcutCapture(endSessionShortcutEl);
     }
     const endSessionShortcutClearEl = document.getElementById('end-session-shortcut-clear');
     if (endSessionShortcutClearEl && endSessionShortcutEl) {
       endSessionShortcutClearEl.addEventListener('click', () => {
-        endSessionShortcutEl.value = '(disabled)';
+        endSessionShortcutEl.value = SHORTCUT_DISABLED_LABEL;
         endSessionShortcutEl.dataset.disabled = 'true';
       });
     }
@@ -502,7 +510,7 @@ export async function saveSettings(): Promise<void> {
     let endSessionShortcut: string | null | undefined;
     if (endSessionShortcutEl?.dataset.disabled === 'true') {
       endSessionShortcut = null;
-    } else if (endSessionShortcutEl?.value && endSessionShortcutEl.value !== '(disabled)') {
+    } else if (endSessionShortcutEl?.value) {
       endSessionShortcut = endSessionShortcutEl.value;
     } else {
       endSessionShortcut = undefined; // use default
