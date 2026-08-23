@@ -130,6 +130,10 @@ export function stepper(opts: {
   /** Omit the label row — used when several boxes share one external heading
    *  (e.g. the cooldown's minutes+seconds pair sit under a single "Cooldown"). */
   noHead?: boolean;
+  /** Word to show instead of "0" — for settings where zero is a STATE, not a
+   *  quantity ("Off"), so the box doesn't read as a real interval of zero. The
+   *  unit suffix is hidden alongside it. */
+  zeroLabel?: string;
 }): Stepper {
   const group = el('div', 'sc-stepper-group');
   if (!opts.noHead) {
@@ -155,14 +159,22 @@ export function stepper(opts: {
   // "40.00".
   const quantize = (v: number) =>
     parseFloat((opts.min + Math.round((v - opts.min) / opts.step) * opts.step).toFixed(2));
-  const setNum = (v: number) => { valEl.textContent = String(v); };
-  if (opts.unit) {
-    valWrap.append(valEl, Object.assign(document.createElement('span'), {
-      className: 'sc-stepper-unit', textContent: opts.unit,
-    }));
-  } else {
-    valWrap.append(valEl);
-  }
+  const unitEl = opts.unit
+    ? Object.assign(document.createElement('span'), {
+        className: 'sc-stepper-unit', textContent: opts.unit,
+      })
+    : null;
+  // At zero the box shows the word, not the number, and drops the unit — "0 min"
+  // reads as an interval that happens to be zero, "Off" reads as a state. The
+  // field stays editable either way; typing a number restores the normal render.
+  const setNum = (v: number) => {
+    const off = opts.zeroLabel !== undefined && v === 0;
+    valEl.textContent = off ? opts.zeroLabel! : String(v);
+    valWrap.classList.toggle('is-zero', off);
+    if (unitEl) unitEl.style.display = off ? 'none' : '';
+  };
+  valWrap.append(valEl);
+  if (unitEl) valWrap.append(unitEl);
   let cur = quantize(opts.value);
   setNum(cur);
 
@@ -188,7 +200,16 @@ export function stepper(opts: {
   // Parse + clamp a typed value on commit (blur / Enter). Reverts to the last
   // good value on garbage so the field can never hold something un-persistable.
   const commitTyped = () => {
-    const parsed = parseFloat(valEl.textContent ?? '');
+    const raw = (valEl.textContent ?? '').trim();
+    // The field renders a word at zero, so accept that word back — otherwise
+    // clicking into "Off" and pressing Enter would revert rather than commit.
+    if (opts.zeroLabel !== undefined && raw.toLowerCase() === opts.zeroLabel.toLowerCase()) {
+      cur = 0;
+      opts.onChange(cur);
+      setNum(cur);
+      return;
+    }
+    const parsed = parseFloat(raw);
     if (Number.isFinite(parsed)) {
       cur = quantize(Math.max(opts.min, Math.min(opts.max, parsed)));
       opts.onChange(cur);
@@ -325,7 +346,7 @@ export async function renderSessionSettingsCard(
       // Minutes between nudges, not a count: session length varies per session
       // now, so "how many" has no fixed meaning. 0 disables them for this domain.
       label: 'Nudge every', value: cur.nudgeInterval, unit: 'min',
-      min: 0, max: 120, step: 1,
+      min: 0, max: 120, step: 1, zeroLabel: 'Off',
       onChange: v => { cur.nudgeInterval = v; persist(); },
     }).el
   );

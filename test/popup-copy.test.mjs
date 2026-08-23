@@ -52,3 +52,28 @@ test('the average popup heading strings stay the ones that were measured', () =>
     );
   }
 });
+
+// Zero means "no nudges", but a box reading "0 min" reads as an interval that
+// happens to be zero rather than a state. The stepper renders a word there
+// instead and hides the unit. Source-text, like the rest of this file: nothing
+// throws when a setting merely reads wrong.
+const card = readFileSync('src/popup/session-card.ts', 'utf8');
+
+test('the nudge stepper shows a word at zero, not "0 min"', () => {
+  assert.match(card, /zeroLabel: 'Off'/, "the nudge stepper must pass a zeroLabel");
+});
+
+test('the zero label hides the unit suffix', () => {
+  // "Off min" would be worse than "0 min".
+  assert.match(
+    card,
+    /if \(unitEl\) unitEl\.style\.display = off \? 'none' : '';/,
+    'the unit must be hidden while the zero label shows'
+  );
+});
+
+test('the zero label is accepted back when typed', () => {
+  // The field is contentEditable and renders "Off"; committing that text must
+  // mean zero, not revert to the previous value.
+  assert.match(card, /raw\.toLowerCase\(\) === opts\.zeroLabel\.toLowerCase\(\)/);
+});

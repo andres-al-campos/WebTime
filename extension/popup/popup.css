@@ -545,6 +545,10 @@ body {
 }
 .sc-stepper-num:focus { border-bottom-color: var(--accent); }
 .sc-stepper-unit { color: var(--text-faint); font-size: 10.5px; margin-left: 4px; flex: none; }
+/* Zero renders as a word ("Off"), not a number. Dim it so the box reads as a
+   state rather than a value — at full weight "Off" looks like a setting you
+   chose a number for. */
+.sc-stepper-val.is-zero { color: var(--text-faint); }
 .sc-stepper-btns { display: flex; flex-direction: column; gap: 2px; flex: none; }
 .sc-stepper-btn {
   width: 20px; height: 14px; border: none; border-radius: 4px;
