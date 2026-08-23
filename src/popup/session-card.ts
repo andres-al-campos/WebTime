@@ -325,7 +325,7 @@ export async function renderSessionSettingsCard(
       // Minutes between nudges, not a count: session length varies per session
       // now, so "how many" has no fixed meaning. 0 disables them for this domain.
       label: 'Nudge every', value: cur.nudgeInterval, unit: 'min',
-      min: 0, max: 120, step: 5,
+      min: 0, max: 120, step: 1,
       onChange: v => { cur.nudgeInterval = v; persist(); },
     }).el
   );
@@ -341,8 +341,10 @@ export async function renderSessionSettingsCard(
     onChange: v => { coolMin = v; persistCooldown(); },
   });
   const secStepper = stepper({
+    // max is one step below a minute, so the seconds run 0..55 and then carry
+    // into the minutes box rather than showing a 60 that means the same as 1m.
     label: 'Cooldown', value: coolSec, unit: 's', noHead: true,
-    min: 0, max: 45, step: 15,
+    min: 0, max: 55, step: 5,
     onChange: v => { coolSec = v; persistCooldown(); },
     onCarry: dir => {
       if (dir < 0 && coolMin <= 0) return false; // can't borrow below 0m
