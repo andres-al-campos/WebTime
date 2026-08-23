@@ -285,15 +285,37 @@ test('computeNudgeTimes: the first nudge does not scale with session length', ()
   );
 });
 
-test('computeNudgeTimes: an interval under the floor cannot become a metronome', () => {
-  const eff = 60 * M;
-  for (let seed = 0; seed < 50; seed++) {
-    const times = computeNudgeTimes(eff, seed, 0.5); // 30s — below the floor
-    for (let i = 1; i < times.length; i++) {
-      assert.ok(
-        times[i] - times[i - 1] >= NUDGE_MIN_INTERVAL - 2 * NUDGE_JITTER,
-        `gap ${times[i] - times[i - 1]}s ignores the ${NUDGE_MIN_INTERVAL}s floor`
-      );
+test('computeNudgeTimes: the interval you set is the interval you get', () => {
+  // There was a 120s floor here once. It silently turned a 1-minute setting
+  // into 2-minute nudges — a second decider disagreeing with the stepper's own
+  // minimum, which is the only rule now.
+  const eff = 30 * M;
+  for (const minutes of [1, 2, 3, 5]) {
+    const times = computeNudgeTimes(eff, 42, minutes);
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    assert.ok(
+      Math.abs(mean - minutes * 60) <= 10,
+      `set ${minutes}m but the mean gap was ${(mean / 60).toFixed(2)}m`
+    );
+  }
+});
+
+test('computeNudgeTimes: jitter scales with the interval', () => {
+  // At a fixed +/-30s a 1-minute interval swings 30-90s, which does not read as
+  // "every minute". The window is a quarter of the interval, capped at 30s.
+  const eff = 30 * M;
+  for (const minutes of [1, 2]) {
+    const iv = minutes * 60;
+    const window = Math.min(NUDGE_JITTER, iv / 4);
+    for (let seed = 0; seed < 40; seed++) {
+      for (const t of computeNudgeTimes(eff, seed, minutes)) {
+        const nearest = Math.round(t / iv) * iv;
+        assert.ok(
+          Math.abs(t - nearest) <= window + 1,
+          `${t}s is ${Math.abs(t - nearest)}s off grid; window is ${window}s at ${minutes}m`
+        );
+      }
     }
   }
 });

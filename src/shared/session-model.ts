@@ -237,8 +237,7 @@ export function computeGraceSeconds(remainingSeconds: number): number {
 /** Minutes between nudges when a domain hasn't set one. */
 export const DEFAULT_NUDGE_INTERVAL_MIN = 20;
 
-const NUDGE_MIN_INTERVAL = 120; // seconds — floor, so a tiny interval can't become a metronome
-const NUDGE_JITTER = 30;   // seconds — ± window, mirrors the 60s wind-down
+const NUDGE_JITTER_MAX = 30;  // seconds — ± ceiling, mirrors the 60s wind-down
 
 /** Tiny seeded PRNG (mulberry32). Deterministic stream from a 32-bit seed. */
 function mulberry32(seed: number): () => number {
@@ -265,7 +264,17 @@ export function computeNudgeTimes(
   if (effLimit <= 0) return [];
   const minutes = intervalMinutes ?? DEFAULT_NUDGE_INTERVAL_MIN;
   if (minutes <= 0) return [];
-  const interval = Math.max(NUDGE_MIN_INTERVAL, Math.round(minutes * 60));
+  // Guard the loop below, not just the caller: a zero or negative interval
+  // never advances `t` and hangs whatever thread computes the schedule. The
+  // `minutes <= 0` check above is the intended exit; this is so a future edit
+  // to it degrades into "no nudges" rather than a frozen popup.
+  const interval = Math.round(minutes * 60);
+  if (interval <= 0) return [];
+  // Jitter is a FRACTION of the interval, not a fixed window: at ±30s a
+  // one-minute interval would swing between 30s and 90s, which does not read as
+  // "every minute" at all. A quarter keeps the rhythm recognisable at any
+  // setting, and the ceiling keeps long intervals from wandering.
+  const jitterWindow = Math.min(NUDGE_JITTER_MAX, interval / 4);
 
   const rnd = mulberry32(seed);
   const times: number[] = [];
@@ -273,7 +282,7 @@ export function computeNudgeTimes(
   // that window would be talking over it.
   const latest = effLimit - WIND_DOWN_DURATION;
   for (let t = interval; t <= latest; t += interval) {
-    const jitter = Math.round((rnd() * 2 - 1) * NUDGE_JITTER);
+    const jitter = Math.round((rnd() * 2 - 1) * jitterWindow);
     const at = Math.round(t + jitter);
     // Jitter can push the first one under a minute or the last past the
     // wind-down edge; drop those rather than clamping them onto each other.
