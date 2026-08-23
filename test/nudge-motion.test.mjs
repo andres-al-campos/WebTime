@@ -53,15 +53,32 @@ test('blur and media resume end together, at the timer peak', () => {
 
 test('the shrink begins the moment the timer peaks — no hold', () => {
   // A hold was tried and cut: freezing the page longer read as too aggressive,
-  // and at 8x the size already does the work. Reading time comes from the
+  // and at 7x the size already does the work. Reading time comes from the
   // shrink, which plays out unblurred.
   const body = showNudgeBody();
-  assert.match(
-    body,
-    /transform = 'scale\(1\)';\s*\},\s*NUDGE_GROW_MS\)/,
-    'the shrink must start at NUDGE_GROW_MS'
-  );
   assert.ok(!/NUDGE_HOLD_MS/.test(body), 'the hold is gone; do not reintroduce it silently');
+
+  // Walk from the scale(1) write to the delay that arms ITS setTimeout: the
+  // first `}, X);` that closes at the same nesting depth the write sits at.
+  // (Position alone is not enough — inner cleanup timeouts close first, and the
+  // blur's own timeout further down also happens to use NUDGE_GROW_MS.)
+  const from = body.indexOf("transform = 'scale(1)'");
+  assert.ok(from !== -1, 'no shrink found');
+  let depth = 0;
+  let arm = null;
+  for (let k = from; k < body.length; k++) {
+    const ch = body[k];
+    if (ch === '{' || ch === '(') depth++;
+    else if (ch === '}' || ch === ')') {
+      if (depth === 0 && ch === '}') {
+        const m = /^\},\s*([^)]*?)\);/.exec(body.slice(k));
+        if (m) { arm = m[1].trim(); break; }
+      }
+      depth--;
+    }
+  }
+  assert.ok(arm !== null, 'could not find the delay arming the shrink');
+  assert.equal(arm, 'NUDGE_GROW_MS', 'the shrink must be armed at NUDGE_GROW_MS exactly — no hold');
 });
 
 test('the paused window stays short', () => {
@@ -88,4 +105,44 @@ test('the timer grows enough to be seen from across the screen', () => {
   const scale = Number(m[1]);
   assert.ok(scale >= 7, `NUDGE_SCALE is ${scale}; 5x was too small to notice`);
   assert.ok(scale <= 8, `NUDGE_SCALE is ${scale}; past 8x it covers too much of the page`);
+});
+
+test('the timer text is suspended while the nudge animates', () => {
+  // startLocalTick rewrites the text every second. At 7x that re-rasterizes the
+  // enlarged glyphs mid-transform and stutters the animation, and a 1000ms
+  // animation always crosses a second boundary.
+  assert.match(content, /let nudgeAnimating = false;/, 'the suspend flag is gone');
+  const update = content.slice(content.indexOf('function updateTimerText'));
+  assert.match(
+    update.slice(0, update.indexOf('\n}\n')),
+    /if \(nudgeAnimating\) return;/,
+    'updateTimerText must bail while a nudge animates'
+  );
+});
+
+test('the suspend flag is always cleared, and the text catches up', () => {
+  const body = showNudgeBody();
+  assert.match(body, /nudgeAnimating = true;/);
+  // Cleared at the END of the shrink, not at the peak — the element is still
+  // scaled on the way down.
+  assert.match(
+    body,
+    /nudgeAnimating = false;\s*updateTimerText\(\);\s*\},\s*NUDGE_SHRINK_MS\)/,
+    'the flag must clear after the shrink and re-render immediately'
+  );
+});
+
+test('a nudge cannot re-enter and strand the flag', () => {
+  // Stacked timeouts would leave nudgeAnimating stuck true, freezing the timer
+  // text permanently. nextNudgeToFire can hand over a backlog.
+  const body = showNudgeBody();
+  const guard = body.slice(0, body.indexOf('const { NUDGE_GROW_MS'));
+  assert.match(guard, /if \(nudgeAnimating\) return;/, 'showNudge needs a re-entry guard');
+});
+
+test('the scaled timer gets its own compositor layer', () => {
+  const body = showNudgeBody();
+  assert.match(body, /willChange = 'transform';/);
+  // And it must be released — a permanent willChange keeps a layer alive.
+  assert.match(body, /willChange = '';/, 'willChange must be cleared after the animation');
 });

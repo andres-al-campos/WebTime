@@ -22,6 +22,15 @@ let lastSessionLimitSeconds: number | undefined;
 let lastSessionNum: number | undefined;
 let lastCooldownIncrementSeconds: number | undefined;
 let lastBaseLengthSeconds: number | undefined;
+// Set while a nudge animates. The timer's text is rewritten every second by
+// startLocalTick, and at 7x scale each rewrite re-rasterizes the enlarged text
+// mid-transform — a visible stutter, landing on whichever second boundary falls
+// during the animation. A 1000ms animation is guaranteed to cross one.
+//
+// Suspending the write costs at most one second of staleness on a number that
+// is already being held still for the user to read.
+let nudgeAnimating = false;
+
 let blurOverlay: HTMLDivElement | null = null;
 let averagePopupDialog: HTMLDivElement | null = null;
 let averagePopupPausedMedia: HTMLMediaElement[] = [];
@@ -253,6 +262,10 @@ function updateTimerText(): void {
   }
 
   if (timerText.textContent === text) return;
+  // Mid-nudge: the element is scaled up and transforming. Writing text now
+  // forces a re-raster of the enlarged glyphs and stutters the animation. The
+  // next tick after the nudge picks the value back up.
+  if (nudgeAnimating) return;
 
   // Same view, just the seconds advancing — swap instantly so the clock doesn't
   // flicker every tick. Only a view flip (session ⇄ daily) gets the fade.
@@ -549,6 +562,11 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
 const NUDGE_SCALE = 7;
 
 function showNudge(): void {
+  // Re-entry would stack the shrink timeouts and leave nudgeAnimating stuck on,
+  // freezing the timer text for good. The catch-up path in nextNudgeToFire can
+  // hand us a backlog, so this is not merely a timing question.
+  if (nudgeAnimating) return;
+
   const { NUDGE_GROW_MS, NUDGE_SHRINK_MS } = Constants.OVERLAY_DURATIONS;
   const overlay = showBlurOverlay();
   overlay.style.pointerEvents = 'all';
@@ -558,7 +576,13 @@ function showNudge(): void {
 
   const timer = document.querySelector('.web-time-timer') as HTMLElement | null;
   if (timer) {
+    nudgeAnimating = true;
     timer.style.transformOrigin = 'top right';
+    // Promote to its own compositor layer for the duration. Without this the
+    // scaled text is re-rasterized against the backdrop-filtered page on every
+    // frame; with it, the transform is a GPU operation on a finished texture.
+    timer.style.willChange = 'transform';
+    timer.style.backfaceVisibility = 'hidden';
     timer.style.transition = `transform ${NUDGE_GROW_MS}ms ease-in-out`;
     requestAnimationFrame(() => {
       timer.style.transform = `scale(${NUDGE_SCALE})`;
@@ -566,6 +590,15 @@ function showNudge(): void {
       setTimeout(() => {
         timer.style.transition = `transform ${NUDGE_SHRINK_MS}ms ease-in-out`;
         timer.style.transform = 'scale(1)';
+
+        // Drop the layer hint and resume ticking only once the timer is back at
+        // 1x — willChange left on permanently keeps a layer alive for nothing.
+        setTimeout(() => {
+          timer.style.willChange = '';
+          timer.style.backfaceVisibility = '';
+          nudgeAnimating = false;
+          updateTimerText();
+        }, NUDGE_SHRINK_MS);
       }, NUDGE_GROW_MS);
     });
   }
