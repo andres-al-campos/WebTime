@@ -52,9 +52,6 @@ export interface DomainSettings {
   sessionLimit?: number; // Minutes — continuous usage before cooldown triggers
   cooldownIncrement?: number; // Minutes (may be fractional, e.g. 3.5 = 3m30s) — each successive cooldown grows by this amount
   nudgeInterval?: number; // Minutes between nudges (0 = disabled, undefined = default)
-  /** @deprecated Replaced by nudgeInterval. Read by nothing; left so old stored
-   *  settings still parse. Safe to delete once no profile carries it. */
-  nudgeCount?: number;
 }
 
 export interface WebTimeSettings {
