@@ -1,13 +1,15 @@
 import type { ConstantsType, OverlayDurations, ChartConfig, Colors } from '../types.js';
 
 const OVERLAY_DURATIONS: OverlayDurations = {
-  // The nudge is three phases, not one duration. The blur and the media pause
-  // are the SAME interruption, so they share a length: both end the moment the
-  // timer reaches full size, which is when the number is most readable. The
-  // shrink then plays out on a clear, playing page — the blur hands off to the
-  // timer rather than outlasting it.
+  // The blur and the media pause are the SAME interruption, so they share a
+  // deadline: both end the moment the timer reaches full size. The shrink then
+  // plays out on a clear, playing page — the blur hands off to the timer rather
+  // than outlasting it, and the timer stays readable on the way back down.
+  //
+  // No hold at the peak. One was tried and the pause read as too aggressive:
+  // at 8x the size does the work, so buying reading time by freezing the page
+  // longer costs more flow than it returns.
   NUDGE_GROW_MS: 350,
-  NUDGE_HOLD_MS: 400,
   NUDGE_SHRINK_MS: 350,
 };
 

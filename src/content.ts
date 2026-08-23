@@ -549,7 +549,7 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
 const NUDGE_SCALE = 8;
 
 function showNudge(): void {
-  const { NUDGE_GROW_MS, NUDGE_HOLD_MS, NUDGE_SHRINK_MS } = Constants.OVERLAY_DURATIONS;
+  const { NUDGE_GROW_MS, NUDGE_SHRINK_MS } = Constants.OVERLAY_DURATIONS;
   const overlay = showBlurOverlay();
   overlay.style.pointerEvents = 'all';
   overlay.style.opacity = '1';
@@ -566,7 +566,7 @@ function showNudge(): void {
       setTimeout(() => {
         timer.style.transition = `transform ${NUDGE_SHRINK_MS}ms ease-in-out`;
         timer.style.transform = 'scale(1)';
-      }, NUDGE_GROW_MS + NUDGE_HOLD_MS);
+      }, NUDGE_GROW_MS);
     });
   }
 
@@ -576,7 +576,7 @@ function showNudge(): void {
   setTimeout(() => {
     hideBlurOverlay();
     playingMedia.forEach(m => m.play().catch(() => {}));
-  }, NUDGE_GROW_MS + NUDGE_HOLD_MS);
+  }, NUDGE_GROW_MS);
 }
 
 function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: SessionStartStats): void {

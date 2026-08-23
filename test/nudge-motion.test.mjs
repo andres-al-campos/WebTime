@@ -6,6 +6,8 @@
 // resumed on the same timer that STARTED the 300ms blur fade, so video came
 // back while the page was still visibly blurred.
 //
+// The paused window is deliberately short — grow only, no hold at the peak.
+//
 // Source-text, for the reason background-wiring.test.mjs is: reproducing this
 // needs a browser and a stopwatch, and the failure looks like "the nudge feels
 // off" rather than a stack trace.
@@ -28,7 +30,7 @@ test('the nudge durations are named phases, not one ambiguous total', () => {
   // NUDGE_MS meant both "blur length" and "half the animation", which is how
   // the two got tied together in the first place.
   assert.ok(!/NUDGE_MS\b/.test(constants), 'NUDGE_MS is back — split it into phases');
-  for (const k of ['NUDGE_GROW_MS', 'NUDGE_HOLD_MS', 'NUDGE_SHRINK_MS']) {
+  for (const k of ['NUDGE_GROW_MS', 'NUDGE_SHRINK_MS']) {
     assert.match(constants, new RegExp(`${k}:\\s*\\d+`), `${k} missing from constants`);
   }
 });
@@ -36,11 +38,11 @@ test('the nudge durations are named phases, not one ambiguous total', () => {
 test('blur and media resume end together, at the timer peak', () => {
   const body = showNudgeBody();
   // One timeout, holding both effects, firing at grow+hold — the peak.
-  const combined = /setTimeout\(\(\) => \{\s*hideBlurOverlay\(\);\s*playingMedia\.forEach\([^;]+;\s*\},\s*NUDGE_GROW_MS \+ NUDGE_HOLD_MS\)/;
+  const combined = /setTimeout\(\(\) => \{\s*hideBlurOverlay\(\);\s*playingMedia\.forEach\([^;]+;\s*\},\s*NUDGE_GROW_MS\)/;
   assert.match(
     body,
     combined,
-    'hideBlurOverlay and the media resume must share one timeout at NUDGE_GROW_MS + NUDGE_HOLD_MS'
+    'hideBlurOverlay and the media resume must share one timeout at NUDGE_GROW_MS'
   );
   // And neither may be scheduled against the full animation.
   assert.ok(
@@ -49,13 +51,25 @@ test('blur and media resume end together, at the timer peak', () => {
   );
 });
 
-test('the shrink starts after the hold, not at the halfway point', () => {
+test('the shrink begins the moment the timer peaks — no hold', () => {
+  // A hold was tried and cut: freezing the page longer read as too aggressive,
+  // and at 8x the size already does the work. Reading time comes from the
+  // shrink, which plays out unblurred.
   const body = showNudgeBody();
   assert.match(
     body,
-    /transform = 'scale\(1\)';\s*\},\s*NUDGE_GROW_MS \+ NUDGE_HOLD_MS\)/,
-    'the timer must hold at full size before shrinking'
+    /transform = 'scale\(1\)';\s*\},\s*NUDGE_GROW_MS\)/,
+    'the shrink must start at NUDGE_GROW_MS'
   );
+  assert.ok(!/NUDGE_HOLD_MS/.test(body), 'the hold is gone; do not reintroduce it silently');
+});
+
+test('nothing keeps the page frozen longer than the grow', () => {
+  // The whole paused window is grow-only. If this sum grows, the interruption
+  // grew with it.
+  const m = /NUDGE_GROW_MS:\s*(\d+)/.exec(constants);
+  assert.ok(m, 'NUDGE_GROW_MS not found');
+  assert.ok(Number(m[1]) <= 400, `blur+pause runs ${m[1]}ms; it was cut to 350 for being too aggressive`);
 });
 
 test('the nudge reuses pauseAllMedia rather than re-inlining it', () => {
