@@ -169,3 +169,75 @@ test('no nudge without a session limit', () => {
     sessionLimitSeconds: 0,
   }), null);
 });
+
+// ── Concurrent intervention passes must not double-fire a nudge ─────────────
+// Reported as "3 nudges in a row on a tab I hadn't used in hours". Three
+// unserialized drivers (the per-second tick, the heartbeat, every wake alarm)
+// all call checkForInterventions, which awaits settings BEFORE deciding. They
+// resume against the same unmarked session and each fire the same nudge.
+// A pass that reads the session, awaits, then writes firedNudges — the exact
+// shape of checkForInterventions. `run` decides whether the three overlapping
+// callers are coalesced or not; `sent` counts real sendNudge() calls.
+function nudgeBurst(coalesce) {
+  const M = 60;
+  const session = {
+    sessionNum: 1, startDaily: 0, baseLength: 30 * M,
+    carryover: 0, graceSeconds: 0, nudgeSeed: 42, firedNudges: [],
+  };
+  let state = session;
+  let sent = 0;
+
+  const pass = async () => {
+    const snapshot = state;                    // read
+    await new Promise(r => setTimeout(r, 0));  // the settings load
+    const outcome = checkNudge({
+      session: snapshot, dailyTotal: 10 * M,
+      sessionLimitSeconds: 30 * M, nudgeInterval: 3,
+    });
+    if (!outcome) return;
+    sent++;                                    // sendNudge()
+    state = outcome.session;                   // write firedNudges
+  };
+
+  // Exactly what background.ts does: check the slot, fill it, clear on settle.
+  let inFlight = null;
+  const call = coalesce
+    ? () => {
+        if (inFlight) return inFlight;
+        inFlight = pass().finally(() => { inFlight = null; });
+        return inFlight;
+      }
+    : pass;
+
+  return Promise.all([call(), call(), call()]).then(() => sent);
+}
+
+test('unserialized passes each fire the same nudge — the reported burst', async () => {
+  assert.equal(await nudgeBurst(false), 3,
+    'the bug is real: three overlapping passes send three nudges for one nudge time');
+});
+
+test('coalescing collapses overlapping passes to a single nudge', async () => {
+  assert.equal(await nudgeBurst(true), 1,
+    'joining the in-flight pass must send exactly one nudge');
+});
+
+test('background coalesces its intervention passes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const bg = readFileSync('src/background.ts', 'utf8');
+
+  // The await sits between reading the session and marking the nudge fired, so
+  // overlapping passes are the whole problem. Nothing may call the async body
+  // directly except the coalescing wrapper.
+  assert.match(bg, /let interventionPass: Promise<void> \| null = null;/,
+    'an in-flight pass must be tracked');
+  assert.match(bg, /if \(interventionPass\) return interventionPass;/,
+    'an overlapping caller must join the in-flight pass');
+  assert.match(bg, /\.finally\(\(\) => \{ interventionPass = null; \}\)/,
+    'the slot must clear even when a pass throws, or interventions stop for good');
+
+  // The declaration matches too, so exclude it: only one CALL may exist.
+  const calls = (bg.match(/(?<!function )runInterventionPass\(\)/g) || []);
+  assert.equal(calls.length, 1,
+    'runInterventionPass must be called only by the coalescing wrapper');
+});

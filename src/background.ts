@@ -1456,7 +1456,27 @@ function handleMessageReceived(
   }
 }
 
-async function checkForInterventions(): Promise<void> {
+// A pass in flight, so overlapping callers join it instead of starting another.
+//
+// Three unserialized drivers reach this — the per-second tick, the heartbeat,
+// and every wake alarm — and the function awaits settings BEFORE deciding. All
+// three would suspend on that await, resume against the same unmarked session,
+// and each fire the same nudge: firedNudges is written after the await, so none
+// of them sees the others' write. That is a burst of identical nudges on one
+// nudge time, delivered to whatever tab is active now.
+//
+// Coalescing rather than queueing is the point: a second pass that overlaps the
+// first has nothing new to decide, since every decision here is re-derived from
+// current state. Queueing them would just run the same redundant pass later.
+let interventionPass: Promise<void> | null = null;
+
+function checkForInterventions(): Promise<void> {
+  if (interventionPass) return interventionPass;
+  interventionPass = runInterventionPass().finally(() => { interventionPass = null; });
+  return interventionPass;
+}
+
+async function runInterventionPass(): Promise<void> {
   if (!trackedTabDomain || !activeTabId) return;
 
   const settings = await loadInterventionSettings();
