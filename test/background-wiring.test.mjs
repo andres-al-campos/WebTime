@@ -17,10 +17,12 @@ import { readFileSync } from 'node:fs';
 
 const src = readFileSync('src/background.ts', 'utf8');
 
-/** The flag each popup message pair drives. */
+/** The gate each popup message pair drives. Holds the OWNING TAB's id rather
+ *  than a boolean, so the gate can be released when that tab goes away without
+ *  sending its CLOSE — see the dialog-gate tests at the bottom of this file. */
 const GATES = [
-  { open: 'END_SESSION_CONFIRM_OPEN', close: 'END_SESSION_CONFIRM_CLOSE', flag: 'endSessionConfirmOpen' },
-  { open: 'AVERAGE_POPUP_OPEN', close: 'AVERAGE_POPUP_CLOSE', flag: 'averagePopupOpen' },
+  { open: 'END_SESSION_CONFIRM_OPEN', close: 'END_SESSION_CONFIRM_CLOSE', flag: 'endSessionConfirmTabId' },
+  { open: 'AVERAGE_POPUP_OPEN', close: 'AVERAGE_POPUP_CLOSE', flag: 'averagePopupTabId' },
 ];
 
 /** The dispatch body following `message.type === "<type>"`, up to the next branch. */
@@ -33,27 +35,32 @@ function branchBody(type) {
 }
 
 for (const { open, close, flag } of GATES) {
-  test(`${open} raises ${flag} and re-runs the gate`, () => {
+  test(`${open} records the owning tab and re-runs the gate`, () => {
     const body = branchBody(open);
-    assert.match(body, new RegExp(`${flag}\\s*=\\s*true`), `${open} must set ${flag} = true`);
+    assert.match(body, new RegExp(`${flag}\\s*=\\s*sender\\.tab\\.id`),
+      `${open} must record WHICH tab opened it, or the gate has no owner to release`);
     assert.match(body, /syncClock\(\)/, `${open} must call syncClock() so the freeze takes effect now`);
   });
 
   test(`${close} clears ${flag} and re-runs the gate`, () => {
     const body = branchBody(close);
-    assert.match(body, new RegExp(`${flag}\\s*=\\s*false`), `${close} must set ${flag} = false`);
+    assert.match(body, new RegExp(`${flag}\\s*=\\s*null`), `${close} must set ${flag} = null`);
     assert.match(body, /syncClock\(\)/, `${close} must call syncClock() or the clock stays frozen`);
   });
 }
 
-test('each popup flag is only ever assigned by its own open/close pair', () => {
-  // A third writer would make the flag's lifetime impossible to reason about
-  // from the dispatch alone — the shape that produced two deciders for the
-  // clock, where one caller set state another was responsible for.
+test('each popup gate is written only by its own pair and the release path', () => {
+  // A writer beyond these would make the gate's lifetime impossible to reason
+  // about from the dispatch alone — the shape that produced two deciders for
+  // the clock, where one caller set state another was responsible for.
+  //
+  // Three writes now, not two: OPEN, CLOSE, and releaseDialogGates() — the one
+  // path that clears a gate whose tab can no longer send CLOSE.
   for (const { flag } of GATES) {
-    // Exclude the `let flag = false` declaration; only reassignments count.
-    const writes = src.match(new RegExp(`(?<!let\\s)${flag}\\s*=\\s*(true|false)`, 'g')) || [];
-    assert.equal(writes.length, 2, `${flag} should have exactly one true and one false assignment`);
+    // Exclude the declaration; only reassignments count.
+    const writes = src.match(new RegExp(`(?<!let\\s)${flag}\\s*=\\s*(sender\\.tab\\.id|null)`, 'g')) || [];
+    assert.equal(writes.length, 3,
+      `${flag} should be written by OPEN, by CLOSE, and by releaseDialogGates only`);
   }
 });
 
@@ -365,4 +372,50 @@ test('the minutes/seconds conversion goes through incrementSeconds', () => {
     /cooldownIncrement[^\n]*\|\| 0\)\s*\*\s*60/,
     'convert the cooldown increment with incrementSeconds(), not a bare * 60',
   );
+});
+
+// ── Dialog gates must not outlive the tab that opened them ──────────────────
+// Reported as: timer frozen on ALL sites after a tab sat in an unfocused window
+// for hours; only reinstalling fixed it. These two gates sit above every other
+// signal in shouldClockRun, so one left set stops the clock everywhere, and it
+// lives in memory so only an extension reload clears it.
+//
+// The old shape was a bare boolean set by OPEN and cleared only by a CLOSE from
+// the same tab. A discarded, crashed, or closed tab never sends CLOSE.
+test('the dialog gates are owned by a tab, not global booleans', () => {
+  assert.doesNotMatch(src, /let endSessionConfirmOpen = false;/,
+    'a bare boolean cannot be released when its tab goes away');
+  assert.doesNotMatch(src, /let averagePopupOpen = false;/,
+    'a bare boolean cannot be released when its tab goes away');
+  assert.match(src, /let endSessionConfirmTabId: number \| null = null;/);
+  assert.match(src, /let averagePopupTabId: number \| null = null;/);
+
+  // OPEN must record the sender, or there is no owner to release.
+  const open = /END_SESSION_CONFIRM_OPEN"\)\s*\{[\s\S]{0,400}?syncClock\(\);/.exec(src);
+  assert.ok(open, 'the OPEN handler must be findable');
+  assert.match(open[0], /sender\.tab\?\.id/, 'OPEN must record which tab opened the dialog');
+});
+
+test('every way a tab can vanish releases its dialog gate', () => {
+  assert.match(src, /function releaseDialogGates\(tabId: number\): void/,
+    'one release path, so the three call sites cannot drift');
+
+  // A released gate must re-evaluate the clock, or the freeze persists until
+  // some unrelated event happens to call syncClock.
+  const fn = /function releaseDialogGates[\s\S]*?\n\}/.exec(src);
+  assert.match(fn[0], /syncClock\(\)/, 'releasing must resync the clock');
+
+  // Tab closed.
+  const removed = /function handleTabRemoved[\s\S]*?\n\}/.exec(src);
+  assert.match(removed[0], /releaseDialogGates\(tabId\)/, 'tab close must release');
+
+  // Navigated away — including to an untrackable url, which never produces a
+  // CONTENT_SCRIPT_READY.
+  const updated = /function handleTabUpdated[\s\S]*?changeInfo\.url !== undefined\) \{[\s\S]{0,300}/.exec(src);
+  assert.match(updated[0], /releaseDialogGates\(tabId\)/, 'navigation must release');
+
+  // Fresh content script: the old page and its dialog are gone.
+  const ready = /CONTENT_SCRIPT_READY[\s\S]{0,400}?trackedTabIds\.add/.exec(src);
+  assert.match(ready[0], /releaseDialogGates\(sender\.tab\.id\)/,
+    'a reloaded page must release the gate its predecessor held');
 });

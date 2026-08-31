@@ -182,14 +182,37 @@ const windDownActive: Record<Domain, boolean> = {};
 // Cache previous intervention settings per domain to detect actual changes
 const previousInterventionSettings: Record<Domain, string> = {};
 
-// True while the end-session-early confirmation popup is open on any tab.
+// Which tab has the end-session-early confirmation popup open (null = none).
 // Freezes the timer (no daily increment) so the user has time to decide.
-let endSessionConfirmOpen = false;
+//
+// The OWNING TAB, not a bare boolean: these gates sit above every other signal
+// in shouldClockRun, so a flag left set stops the clock on every site until the
+// extension is reloaded. A boolean was only ever cleared by a CLOSE message
+// from the tab that opened it, and a tab can stop being able to send one —
+// closed, crashed, discarded after a long spell in an unfocused window, or
+// caught by an extension reload. Owning the tab id means the tab going away
+// releases the gate.
+let endSessionConfirmTabId: number | null = null;
 
-// True while the 7-day-average popup is open. Like the confirmation popup, it
+// Which tab has the 7-day-average popup open. Like the confirmation popup, it
 // blurs the page and pauses media, so the clock should freeze too — otherwise
 // time keeps accruing against a page the user can't actually use.
-let averagePopupOpen = false;
+let averagePopupTabId: number | null = null;
+
+/**
+ * Release any dialog gate held by `tabId`. Called wherever a tab can stop being
+ * able to send its own CLOSE: removal, navigation, and a fresh content script
+ * announcing itself (which means the old page — and its dialog — is gone).
+ */
+function releaseDialogGates(tabId: number): void {
+  let released = false;
+  if (endSessionConfirmTabId === tabId) { endSessionConfirmTabId = null; released = true; }
+  if (averagePopupTabId === tabId) { averagePopupTabId = null; released = true; }
+  if (released) {
+    log(`Released dialog gate held by tab ${tabId}`);
+    syncClock();
+  }
+}
 
 // Whether the active tab is playing audio. This is a property of the tab, not
 // of the passage of time, so caching it is safe — tabs.onUpdated fires on every
@@ -878,8 +901,8 @@ function currentClockVerdict(): ClockVerdict {
     inCooldown: trackedTabDomain
       ? (cooldownEndTime[trackedTabDomain] || 0) > Date.now()
       : false,
-    endSessionConfirmOpen,
-    averagePopupOpen,
+    endSessionConfirmOpen: endSessionConfirmTabId !== null,
+    averagePopupOpen: averagePopupTabId !== null,
     osIdleState,
     activeTabAudible,
     tabIsEngaged: activeTabIsEngaged(),
@@ -1220,6 +1243,10 @@ function handleTabUpdated(
   _tab: chrome.tabs.Tab
 ): void {
   if (changeInfo.url !== undefined) {
+    // Navigating away destroys any dialog the old page had open. Released here
+    // rather than only on CONTENT_SCRIPT_READY because a navigation to an
+    // UNTRACKABLE url never produces one, and the gate would outlive the page.
+    releaseDialogGates(tabId);
     const domain = extractDomain(changeInfo.url);
     if (!domain) {
       trackedTabIds.delete(tabId);
@@ -1251,6 +1278,7 @@ function handleTabRemoved(tabId: number, _removeInfo: chrome.tabs.TabRemoveInfo)
   }
   trackedTabIds.delete(tabId);
   delete tabLastActivity[tabId];
+  releaseDialogGates(tabId);
 }
 
 function handleMessageReceived(
@@ -1261,6 +1289,9 @@ function handleMessageReceived(
   log(`handleMessage()`, message, sender);
 
   if (message.type === "CONTENT_SCRIPT_READY" && sender.tab?.id) {
+    // A fresh content script means the previous page is gone, along with any
+    // dialog it had open — and its CLOSE message with it.
+    releaseDialogGates(sender.tab.id);
     trackedTabIds.add(sender.tab.id);
     updateTimerDisplay(dailyTotal());
 
@@ -1299,20 +1330,21 @@ function handleMessageReceived(
         .catch(() => { /* tab may have closed or have no content script */ });
     }
   } else if (message.type === "END_SESSION_CONFIRM_OPEN") {
-
-    endSessionConfirmOpen = true;
+    // Record WHICH tab, so the gate can be released if that tab goes away
+    // without ever sending its CLOSE.
+    if (sender.tab?.id !== undefined) endSessionConfirmTabId = sender.tab.id;
     syncClock();
   } else if (message.type === "END_SESSION_CONFIRM_CLOSE") {
 
-    endSessionConfirmOpen = false;
+    endSessionConfirmTabId = null;
     syncClock();
   } else if (message.type === "AVERAGE_POPUP_OPEN") {
 
-    averagePopupOpen = true;
+    if (sender.tab?.id !== undefined) averagePopupTabId = sender.tab.id;
     syncClock();
   } else if (message.type === "AVERAGE_POPUP_CLOSE") {
 
-    averagePopupOpen = false;
+    averagePopupTabId = null;
     syncClock();
 
   // A tab is asking for the current blocker state — typically on visibilitychange
