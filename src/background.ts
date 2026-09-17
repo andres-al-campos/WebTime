@@ -1277,14 +1277,156 @@ function handleTabRemoved(tabId: number, _removeInfo: chrome.tabs.TabRemoveInfo)
   releaseDialogGates(tabId);
 }
 
-function handleMessageReceived(
-  message: ExtensionMessage,
-  sender: chrome.runtime.MessageSender,
-  _sendResponse: (response?: unknown) => void
-): void {
-  log(`handleMessage()`, message, sender);
+/**
+ * Reconcile live state with settings the popup just wrote.
+ *
+ * Extracted from the message dispatch, where it was 120 of its 205 lines: this
+ * is a reconciliation routine, not a dispatch branch. Every decision here is
+ * re-derived from stored settings, so it is safe to run on any SETTINGS_UPDATED
+ * regardless of what actually changed.
+ */
+function applyUpdatedSettings(): void {
+  void browser.storage.local.get(STORAGE.SETTINGS).then(data => {
+    const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
-  if (message.type === MSG.CONTENT_SCRIPT_READY && sender.tab?.id) {
+    inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
+    applyIdleDetectionInterval();
+    log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
+
+    const newResetTime = settings.global?.dayResetTime || 0;
+    if (newResetTime !== dayResetTime) {
+      dayResetTime = newResetTime;
+      log(`Day reset time updated to: ${dayResetTime}:00`);
+      const newDateStr = getLocalDateStrWithReset();
+      if (newDateStr !== currentDateStr) {
+        saveTimeData();
+        currentDateStr = newDateStr;
+        const todayData = timeHistory[currentDateStr] || {};
+        setDailyTotal(trackedTabDomain ? (todayData[trackedTabDomain] || 0) : 0);
+        updateTimerDisplay(dailyTotal());
+        log(`Date changed to ${currentDateStr} due to reset time change`);
+      }
+    }
+
+    // For every domain that we have prior fingerprints for OR for the
+    // currently tracked domain, detect actual changes. Only reset session
+    // state for domains whose intervention settings *actually* changed.
+    const allDomainsToCheck = new Set<Domain>([
+      ...Object.keys(previousInterventionSettings),
+      ...(trackedTabDomain ? [trackedTabDomain] : []),
+    ]);
+
+    for (const domain of allDomainsToCheck) {
+      const domainCfg = settings.domains?.[domain];
+      const fingerprint = JSON.stringify({
+        sessionLimitEnabled: domainCfg?.sessionLimitEnabled,
+        sessionLimit: domainCfg?.sessionLimit,
+        cooldownIncrement: domainCfg?.cooldownIncrement
+      });
+      const prev = previousInterventionSettings[domain];
+      const slEnabled = domainCfg?.sessionLimitEnabled || false;
+      const settingsActuallyChanged = prev !== undefined && prev !== fingerprint;
+      // First time we've seen this domain's fingerprint: normally we just
+      // record it and wait. But if rules are ALREADY on for the tracked tab
+      // and no session is running, act now — otherwise the first toggle-on of
+      // a fresh domain does nothing until a refresh re-runs init.
+      const firstSeenNeedsStart = prev === undefined && slEnabled
+        && domain === trackedTabDomain && !sessions[domain];
+      previousInterventionSettings[domain] = fingerprint;
+
+      if (!settingsActuallyChanged && !firstSeenNeedsStart) continue;
+      const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
+      const cooldownIncrementSeconds = slEnabled ? incrementSeconds(domainCfg?.cooldownIncrement) : 0;
+      cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
+
+      if (newLimitSeconds <= 0) {
+        // Rules turned OFF. Don't delete the session — SUSPEND it (stash the
+        // object) so re-enabling resumes the same one instead of restarting at
+        // Session 1. Enforcement stops; the clock keeps running (no exploit).
+        if (sessions[domain]) {
+          suspendedSessions[domain] = sessions[domain];
+          delete sessions[domain];
+        }
+        clearWindDown(domain);
+        saveSessionState();
+        if (domain === trackedTabDomain) updateTimerDisplay(dailyTotal());
+        continue;
+      }
+
+      if (domain !== trackedTabDomain) {
+        // Inactive domain: don't mutate a live session it isn't running. Its
+        // session (if any) re-derives lazily next time it becomes tracked.
+        continue;
+      }
+
+      let existing = sessions[domain];
+      if (!existing && suspendedSessions[domain]) {
+        // Rules toggled back ON — resume the suspended session (same number,
+        // carryover, grace, anchor). It may have run past its end while off,
+        // which the changeLength/expired path below handles like any overrun.
+        existing = suspendedSessions[domain];
+        sessions[domain] = existing;
+        delete suspendedSessions[domain];
+      }
+      if (!existing) {
+        // No session ever existed — start one NOW (not "next tick"), so the
+        // timer appears immediately on the tracked tab instead of after a
+        // refresh. Anchored at the current daily total.
+        existing = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
+        updateTimerDisplay(dailyTotal());
+      }
+
+      // Live length change. Anchored to startDaily, so elapsed time is
+      // preserved: shrinking the limit by N shrinks remaining by N.
+      const { session: updated, expired } = changeLength(existing, {
+        dailyTotal: dailyTotal(),
+        newBaseLength: newLimitSeconds,
+      });
+      sessions[domain] = updated;
+
+      if (expired) {
+        // The new (shorter) limit puts the user at/past the end → end now.
+        // Treat it as a natural end of the (now-expired) session.
+        const result = naturalEnd(updated, {
+          dailyTotal: dailyTotal(),
+          cooldownIncrement: cooldownIncrementSeconds,
+        });
+        fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum, 'completed');
+        log(
+          `Session limit shrunk past elapsed for ${domain}: session ended immediately ` +
+          `(daily=${dailyTotal()}s, newLimit=${newLimitSeconds}s)`
+        );
+      } else {
+        saveSessionState(); // persist the live-resized session
+        const display = displayFor(updated, dailyTotal());
+        updateTimerDisplay(dailyTotal());
+        log(
+          `Session limit changed for ${domain}: ` +
+          `effLimit=${display.sessionLimitSeconds}s remaining=${display.remaining}s ` +
+          `(daily=${dailyTotal()}s, base=${newLimitSeconds}s, ` +
+          `carryover=${updated.carryover}s, grace=${updated.graceSeconds}s)`
+        );
+      }
+    }
+  });
+}
+
+/**
+ * Message type -> handler. A table rather than an if/else chain: a duplicate
+ * type is now a compile error (duplicate key) instead of two handlers silently
+ * running for one message, and each handler is independently readable.
+ *
+ * Handlers that need a tab check `sender.tab?.id` themselves — a message from
+ * the popup has no tab, and the guard is part of what each one means.
+ */
+const messageHandlers: {
+  [K in ExtensionMessage['type']]: (
+    message: Extract<ExtensionMessage, { type: K }>,
+    sender: chrome.runtime.MessageSender,
+  ) => void;
+} = {
+  [MSG.CONTENT_SCRIPT_READY]: (_message, sender) => {
+    if (!sender.tab?.id) return;
     // A fresh content script means the previous page is gone, along with any
     // dialog it had open — and its CLOSE message with it.
     releaseDialogGates(sender.tab.id);
@@ -1300,8 +1442,10 @@ function handleMessageReceived(
         void sendBlockerToLateJoiningTab(sender.tab.id, domain);
       }
     }
-  } else if (message.type === MSG.USER_ACTIVE && sender.tab?.id) {
+  },
 
+  [MSG.USER_ACTIVE]: (_message, sender) => {
+    if (!sender.tab?.id) return;
     // Re-adopt the tab. The worker restarts constantly under MV3 and comes back
     // with an empty trackedTabIds, but a tab loaded before that restart only
     // ever sent CONTENT_SCRIPT_READY once and will never send it again. This
@@ -1314,40 +1458,49 @@ function handleMessageReceived(
     // handling it here is what makes "the user came back" take effect at all
     // when nothing of ours has been running.
     if (sender.tab.id === activeTabId) syncClock();
-  } else if (message.type === MSG.END_SESSION_EARLY) {
+  },
 
+  [MSG.END_SESSION_EARLY]: () => {
     void endSessionEarly();
-  } else if (message.type === MSG.SHOW_END_SESSION_CONFIRM) {
+  },
 
+  [MSG.SHOW_END_SESSION_CONFIRM]: () => {
     // Popup asks us to open the confirmation overlay on the active tab (instead
     // of ending immediately). The popup closes itself; the user confirms there.
     if (activeTabId !== null) {
       browser.tabs.sendMessage(activeTabId, { type: MSG.SHOW_END_SESSION_CONFIRM })
         .catch(() => { /* tab may have closed or have no content script */ });
     }
-  } else if (message.type === MSG.END_SESSION_CONFIRM_OPEN) {
+  },
+
+  [MSG.END_SESSION_CONFIRM_OPEN]: (_message, sender) => {
     // Record WHICH tab, so the gate can be released if that tab goes away
     // without ever sending its CLOSE.
     if (sender.tab?.id !== undefined) endSessionConfirmTabId = sender.tab.id;
     syncClock();
-  } else if (message.type === MSG.END_SESSION_CONFIRM_CLOSE) {
+  },
 
+  [MSG.END_SESSION_CONFIRM_CLOSE]: () => {
     endSessionConfirmTabId = null;
     syncClock();
-  } else if (message.type === MSG.AVERAGE_POPUP_OPEN) {
+  },
 
+  [MSG.AVERAGE_POPUP_OPEN]: (_message, sender) => {
     if (sender.tab?.id !== undefined) averagePopupTabId = sender.tab.id;
     syncClock();
-  } else if (message.type === MSG.AVERAGE_POPUP_CLOSE) {
+  },
 
+  [MSG.AVERAGE_POPUP_CLOSE]: () => {
     averagePopupTabId = null;
     syncClock();
+  },
 
-  // A tab is asking for the current blocker state — typically on visibilitychange
-  // after waking from a discarded/hidden state. Respond with SHOW or HIDE so the
-  // tab's UI matches reality (it may have missed the original HIDE_BLOCKER while
-  // suspended).
-  } else if (message.type === MSG.REQUEST_BLOCKER_STATE && sender.tab?.id && sender.tab?.url) {
+  [MSG.REQUEST_BLOCKER_STATE]: (_message, sender) => {
+    // A tab is asking for the current blocker state — typically on
+    // visibilitychange after waking from a discarded/hidden state. Respond with
+    // SHOW or HIDE so the tab's UI matches reality (it may have missed the
+    // original HIDE_BLOCKER while suspended).
+    if (!sender.tab?.id || !sender.tab?.url) return;
     const tabId = sender.tab.id;
     const domain = extractDomain(sender.tab.url);
     if (domain) {
@@ -1355,132 +1508,34 @@ function handleMessageReceived(
       // reconstructed text if in cooldown, HIDE otherwise.
       void sendBlockerToLateJoiningTab(tabId, domain);
     }
-  } else if (message.type === MSG.SETTINGS_UPDATED) {
+  },
 
+  [MSG.SETTINGS_UPDATED]: () => {
+    applyUpdatedSettings();
+  },
 
-    browser.storage.local.get(STORAGE.SETTINGS).then(data => {
-      const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
+  // Sent by the background to content scripts, never received here. Listed so
+  // the table stays exhaustive over ExtensionMessage: a new message type is a
+  // compile error until it is either handled or explicitly ignored like these.
+  [MSG.TIME_UPDATE]: () => {},
+  [MSG.NUDGE]: () => {},
+  [MSG.SHOW_AVERAGE_POPUP]: () => {},
+  [MSG.SHOW_BLOCKER]: () => {},
+  [MSG.HIDE_BLOCKER]: () => {},
+  [MSG.SHOW_WIND_DOWN]: () => {},
+  [MSG.HIDE_WIND_DOWN]: () => {},
+};
 
-      inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
-      applyIdleDetectionInterval();
-      log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
+function handleMessageReceived(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender,
+  _sendResponse: (response?: unknown) => void
+): void {
+  log(`handleMessage()`, message, sender);
 
-      const newResetTime = settings.global?.dayResetTime || 0;
-      if (newResetTime !== dayResetTime) {
-        dayResetTime = newResetTime;
-        log(`Day reset time updated to: ${dayResetTime}:00`);
-        const newDateStr = getLocalDateStrWithReset();
-        if (newDateStr !== currentDateStr) {
-          saveTimeData();
-          currentDateStr = newDateStr;
-          const todayData = timeHistory[currentDateStr] || {};
-          setDailyTotal(trackedTabDomain ? (todayData[trackedTabDomain] || 0) : 0);
-          updateTimerDisplay(dailyTotal());
-          log(`Date changed to ${currentDateStr} due to reset time change`);
-        }
-      }
-
-      // For every domain that we have prior fingerprints for OR for the
-      // currently tracked domain, detect actual changes. Only reset session
-      // state for domains whose intervention settings *actually* changed.
-      const allDomainsToCheck = new Set<Domain>([
-        ...Object.keys(previousInterventionSettings),
-        ...(trackedTabDomain ? [trackedTabDomain] : []),
-      ]);
-
-      for (const domain of allDomainsToCheck) {
-        const domainCfg = settings.domains?.[domain];
-        const fingerprint = JSON.stringify({
-          sessionLimitEnabled: domainCfg?.sessionLimitEnabled,
-          sessionLimit: domainCfg?.sessionLimit,
-          cooldownIncrement: domainCfg?.cooldownIncrement
-        });
-        const prev = previousInterventionSettings[domain];
-        const slEnabled = domainCfg?.sessionLimitEnabled || false;
-        const settingsActuallyChanged = prev !== undefined && prev !== fingerprint;
-        // First time we've seen this domain's fingerprint: normally we just
-        // record it and wait. But if rules are ALREADY on for the tracked tab
-        // and no session is running, act now — otherwise the first toggle-on of
-        // a fresh domain does nothing until a refresh re-runs init.
-        const firstSeenNeedsStart = prev === undefined && slEnabled
-          && domain === trackedTabDomain && !sessions[domain];
-        previousInterventionSettings[domain] = fingerprint;
-
-        if (!settingsActuallyChanged && !firstSeenNeedsStart) continue;
-        const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
-        const cooldownIncrementSeconds = slEnabled ? incrementSeconds(domainCfg?.cooldownIncrement) : 0;
-        cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
-
-        if (newLimitSeconds <= 0) {
-          // Rules turned OFF. Don't delete the session — SUSPEND it (stash the
-          // object) so re-enabling resumes the same one instead of restarting at
-          // Session 1. Enforcement stops; the clock keeps running (no exploit).
-          if (sessions[domain]) {
-            suspendedSessions[domain] = sessions[domain];
-            delete sessions[domain];
-          }
-          clearWindDown(domain);
-          saveSessionState();
-          if (domain === trackedTabDomain) updateTimerDisplay(dailyTotal());
-          continue;
-        }
-
-        if (domain !== trackedTabDomain) {
-          // Inactive domain: don't mutate a live session it isn't running. Its
-          // session (if any) re-derives lazily next time it becomes tracked.
-          continue;
-        }
-
-        let existing = sessions[domain];
-        if (!existing && suspendedSessions[domain]) {
-          // Rules toggled back ON — resume the suspended session (same number,
-          // carryover, grace, anchor). It may have run past its end while off,
-          // which the changeLength/expired path below handles like any overrun.
-          existing = suspendedSessions[domain];
-          sessions[domain] = existing;
-          delete suspendedSessions[domain];
-        }
-        if (!existing) {
-          // No session ever existed — start one NOW (not "next tick"), so the
-          // timer appears immediately on the tracked tab instead of after a
-          // refresh. Anchored at the current daily total.
-          existing = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
-          updateTimerDisplay(dailyTotal());
-        }
-
-        // Live length change. Anchored to startDaily, so elapsed time is
-        // preserved: shrinking the limit by N shrinks remaining by N.
-        const { session: updated, expired } = changeLength(existing, {
-          dailyTotal: dailyTotal(),
-          newBaseLength: newLimitSeconds,
-        });
-        sessions[domain] = updated;
-
-        if (expired) {
-          // The new (shorter) limit puts the user at/past the end → end now.
-          // Treat it as a natural end of the (now-expired) session.
-          const result = naturalEnd(updated, {
-            dailyTotal: dailyTotal(),
-            cooldownIncrement: cooldownIncrementSeconds,
-          });
-          fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum, 'completed');
-          log(
-            `Session limit shrunk past elapsed for ${domain}: session ended immediately ` +
-            `(daily=${dailyTotal()}s, newLimit=${newLimitSeconds}s)`
-          );
-        } else {
-          saveSessionState(); // persist the live-resized session
-          const display = displayFor(updated, dailyTotal());
-          updateTimerDisplay(dailyTotal());
-          log(
-            `Session limit changed for ${domain}: ` +
-            `effLimit=${display.sessionLimitSeconds}s remaining=${display.remaining}s ` +
-            `(daily=${dailyTotal()}s, base=${newLimitSeconds}s, ` +
-            `carryover=${updated.carryover}s, grace=${updated.graceSeconds}s)`
-          );
-        }
-      }
-    });
+  const handler = messageHandlers[message.type];
+  if (handler) {
+    (handler as (m: ExtensionMessage, s: chrome.runtime.MessageSender) => void)(message, sender);
   }
 }
 

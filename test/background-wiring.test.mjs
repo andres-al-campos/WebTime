@@ -25,12 +25,12 @@ const GATES = [
   { open: 'AVERAGE_POPUP_OPEN', close: 'AVERAGE_POPUP_CLOSE', flag: 'averagePopupTabId' },
 ];
 
-/** The dispatch body following `message.type === "<type>"`, up to the next branch. */
+/** One handler's body from the messageHandlers table, up to the next entry. */
 function branchBody(type) {
-  const at = src.indexOf(`message.type === MSG.${type}`);
-  assert.notEqual(at, -1, `no dispatch branch for ${type}`);
+  const at = src.indexOf(`[MSG.${type}]:`);
+  assert.notEqual(at, -1, `no handler entry for ${type}`);
   const rest = src.slice(at);
-  const next = rest.indexOf('message.type ===', 1);
+  const next = rest.indexOf('\n  [MSG.', 1);
   return next === -1 ? rest : rest.slice(0, next);
 }
 
@@ -64,19 +64,21 @@ test('each popup gate is written only by its own pair and the release path', () 
   }
 });
 
-test('the dispatch is a single chain, so message types stay mutually exclusive', () => {
-  // Ten independent ifs meant every message tested every condition, and a
-  // duplicated type string would silently run two handlers.
-  const at = src.indexOf('function handleMessageReceived(');
-  assert.notEqual(at, -1);
-  const body = src.slice(at, src.indexOf('\n}\n', at));
-  const branches = body.match(/if \(message\.type === MSG\./g) || [];
-  const chained = body.match(/} else if \(message\.type === MSG\./g) || [];
-  assert.equal(
-    chained.length,
-    branches.length - 1,
-    'every dispatch branch after the first must be chained with else',
-  );
+test('dispatch is a table, so a duplicate type cannot run two handlers', () => {
+  // Was an if/else chain, where a type string repeated in two branches ran only
+  // the first and the second was dead — invisible at runtime. As a keyed table
+  // a duplicate is a duplicate object key, which TypeScript rejects outright,
+  // so this asserts the table is still a table rather than re-checking chaining.
+  assert.match(src, /const messageHandlers: \{/,
+    'the dispatch must stay a keyed table, not an if/else chain');
+  assert.doesNotMatch(src, /} else if \(message\.type === MSG\./,
+    'a chained branch has reappeared alongside the table; there must be one dispatch');
+
+  // Exhaustive over ExtensionMessage via a mapped type: a new message type
+  // fails to compile until it is handled or explicitly ignored, which is what
+  // stops a type from being added and silently never dispatched.
+  assert.match(src, /\[K in ExtensionMessage\['type'\]\]/,
+    'the table must be keyed by a mapped type over ExtensionMessage to stay exhaustive');
 });
 
 // --- debug logging ---------------------------------------------------------
@@ -392,7 +394,7 @@ test('the dialog gates are owned by a tab, not global booleans', () => {
   assert.match(src, /let averagePopupTabId: number \| null = null;/);
 
   // OPEN must record the sender, or there is no owner to release.
-  const open = /END_SESSION_CONFIRM_OPEN\)\s*\{[\s\S]{0,400}?syncClock\(\);/.exec(src);
+  const open = /END_SESSION_CONFIRM_OPEN\]:[\s\S]{0,400}?syncClock\(\);/.exec(src);
   assert.ok(open, 'the OPEN handler must be findable');
   assert.match(open[0], /sender\.tab\?\.id/, 'OPEN must record which tab opened the dialog');
 });
