@@ -30,12 +30,6 @@ export interface TrackedTimeData {
   runningDomain?: Domain | null;
 }
 
-/** Storage format for trackedTime key */
-export interface StorageData {
-  trackedTime?: TrackedTimeData;
-  webTimeSettings?: WebTimeSettings;
-}
-
 // ============================================
 // Settings
 // ============================================
@@ -213,30 +207,6 @@ export interface DomainDataset {
 export interface ChartDataset {
   labels: string[];
   datasets: DomainDataset[];
-}
-
-export interface ProcessedDayData {
-  date: DateString;
-  domains: Record<Domain, number>;
-  total: number;
-}
-
-export interface DomainRanking {
-  domain: Domain;
-  totalSeconds: number;
-  color: string;
-}
-
-// ============================================
-// UI State
-// ============================================
-
-export type ViewMode = 'general' | 'detail';
-
-export interface PopupState {
-  currentView: ViewMode;
-  selectedDomain: Domain | null;
-  chartInstance: unknown | null; // Chart.js instance
 }
 
 // ============================================

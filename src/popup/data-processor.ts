@@ -44,55 +44,6 @@ export interface DetailViewData {
   _yAxisMax?: number;
 }
 
-export interface DomainTotals {
-  [domain: string]: number;
-}
-
-export interface RankedDomains {
-  topDomains: Domain[];
-  otherDomains: Domain[];
-  totals: DomainTotals;
-}
-
-export function getAllDomains(timeHistory: TimeHistory): Domain[] {
-  const allDomains = new Set<Domain>();
-  Object.keys(timeHistory).forEach(date => {
-    const dayData = timeHistory[date];
-    if (typeof dayData === 'object' && dayData) {
-      Object.keys(dayData).forEach(domain => allDomains.add(domain));
-    }
-  });
-  return Array.from(allDomains);
-}
-
-export function calculateDomainTotals(domains: Domain[], timeHistory: TimeHistory): DomainTotals {
-  const sortedDates = Object.keys(timeHistory).sort();
-  const domainTotals: DomainTotals = {};
-
-  domains.forEach(domain => {
-    domainTotals[domain] = sortedDates.reduce((total, date) => {
-      const dayData = timeHistory[date];
-      if (typeof dayData === 'object' && dayData) {
-        return total + (dayData[domain] || 0);
-      }
-      return total;
-    }, 0);
-  });
-
-  return domainTotals;
-}
-
-export function rankDomainsByUsage(domains: Domain[], timeHistory: TimeHistory): RankedDomains {
-  const domainTotals = calculateDomainTotals(domains, timeHistory);
-  const sorted = [...domains].sort((a, b) => domainTotals[b] - domainTotals[a]);
-
-  return {
-    topDomains: sorted.slice(0, CONFIG.topDomainsLimit),
-    otherDomains: sorted.slice(CONFIG.topDomainsLimit),
-    totals: domainTotals
-  };
-}
-
 export function processGeneralViewData(timeHistory: TimeHistory): GeneralViewData {
   const sortedDates = Object.keys(timeHistory).sort();
 
