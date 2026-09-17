@@ -2,9 +2,9 @@
 
 > Track and take control of your time.
 
-A Firefox browser extension that tracks how long you spend on each site, with a
-small timer in the corner of your screen, and gives you the tools to spend that
-time mindfully. It uses **session-based browsing** that's both disciplined and
+A browser extension for Firefox and Chrome that tracks how long you spend on
+each site, with a small timer in the corner of your screen, and gives you the
+tools to spend that time mindfully. It uses **session-based browsing** that's both disciplined and
 flexible — focused sessions, gentle nudges, and cooldowns when a limit is reached.
 
 ## Screenshots
@@ -16,12 +16,19 @@ flexible — focused sessions, gentle nudges, and cooldowns when a limit is reac
 ## Install
 
 WebTime is published on
-[Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/)
+[Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/).
 
 You can also install the latest build directly from
-[GitHub Releases](https://github.com/andres-al-campos/WebTime/releases): download the
-`.zip`/`.xpi` and load it via `about:addons` → ⚙️ → **Install Add-on From
-File…**. (For development, see [Loading in Firefox](#loading-in-firefox) below.)
+[GitHub Releases](https://github.com/andres-al-campos/WebTime/releases). Each
+release carries two packages:
+
+- `web_time-<version>.zip` for Firefox: load it via `about:addons` → ⚙️ →
+  **Install Add-on From File…**.
+- `web_time-chrome-<version>.zip` for Chrome: unzip it, then
+  `chrome://extensions` → **Developer mode** → **Load unpacked** and pick the
+  unzipped folder.
+
+For development, see [Loading the extension](#loading-the-extension) below.
 
 ## Philosophy
 
@@ -59,20 +66,29 @@ early on your own terms.
 
 ## Architecture
 
-Three layers, deliberately separated:
+Functional core, imperative shell. Decisions and arithmetic are pure modules in
+`src/shared/` with no browser APIs, tested with `node --test`. Effects —
+messaging, storage, alarms — live in the background script.
 
 | Path | Role |
 |------|------|
-| [`src/background.ts`](src/background.ts) | The engine: tab tracking, the 1s timer loop, storage/persistence, and all intervention dispatch. |
-| [`src/content.ts`](src/content.ts) | In-page UI: the timer widget, blur overlay, nudge animation, and all popups. |
-| [`src/popup/`](src/popup/) | The toolbar popup — chart building, data processing, state, and UI across several modules, bundled to `popup-bundle.js`. |
-| [`src/shared/session-model.ts`](src/shared/session-model.ts) | **Pure, browser-free** session math — boundaries, carryover, nudge timing, grace, wind-down. Fully unit-tested. |
-| [`src/shared/utils.ts`](src/shared/utils.ts) | Pure helpers — domain extraction, time formatting, 7-day stats. |
-| [`src/shared/constants.ts`](src/shared/constants.ts) | Shared tuning constants and defaults. |
-| [`src/types.ts`](src/types.ts) | Shared type definitions. |
+| [`src/background.ts`](src/background.ts) | The shell: tab and focus listeners, message dispatch, storage, alarms, and the state the gates read. |
+| [`src/content.ts`](src/content.ts) | In-page UI: the timer widget, blur overlay, nudge animation, and all dialogs. |
+| [`src/popup/`](src/popup/) | The toolbar popup — chart building, data processing, state, and UI, bundled to `popup-bundle.js`. |
+| [`src/offscreen.ts`](src/offscreen.ts) | Chrome only: an offscreen document that keeps the MV3 service worker alive. |
+| [`src/shared/time-clock.ts`](src/shared/time-clock.ts) | Timestamp accounting (`banked` + `runningSince`), so a worker that dies mid-count loses nothing. |
+| [`src/shared/clock-gates.ts`](src/shared/clock-gates.ts) | Whether time should be accruing right now. The gate order is load-bearing and tested. |
+| [`src/shared/session-model.ts`](src/shared/session-model.ts) | Session lifecycle math — boundaries, carryover, nudge timing, grace, wind-down, wake schedules. |
+| [`src/shared/interventions.ts`](src/shared/interventions.ts) | Which intervention is due: limit reached, nudge. |
+| [`src/shared/session-history.ts`](src/shared/session-history.ts) | The per-day record of finished sessions. |
+| [`src/shared/protocol.ts`](src/shared/protocol.ts) | Every string that crosses a boundary: message types, storage keys, alarm and port names. |
+| [`src/shared/utils.ts`](src/shared/utils.ts), [`constants.ts`](src/shared/constants.ts), [`src/types.ts`](src/types.ts) | Formatting helpers, tuning defaults, shared types. |
 
-The pure modules in `src/shared/` contain no browser APIs so they can be tested
-in isolation with `node --test`.
+One source builds both browsers. [`extension/manifest.json`](extension/manifest.json)
+is the Firefox (MV2) manifest and the single source of truth;
+[`manifest-chrome.mjs`](manifest-chrome.mjs) derives the Chrome (MV3) manifest
+from it and assembles `dist-chrome/`. The design record for the port is in
+[`docs/chrome-mv3-port.md`](docs/chrome-mv3-port.md).
 
 ## Development
 
@@ -84,36 +100,42 @@ so a fresh `npm install` is the only setup; nothing needs a global install.
 npm install        # install all dev dependencies (esbuild, web-ext, tsc)
 npm run typecheck  # tsc --noEmit
 npm test           # run the node:test suites in test/
-npm run build      # typecheck + bundle to extension/dist/ via esbuild
+npm run build      # typecheck + bundle to extension/dist/ and dist-chrome/
 npm run watch      # tsc in watch mode
 ```
 
-`npm run build` bundles `background.ts`, `content.ts`, and the popup into
-`extension/dist/` (see [`build.mjs`](build.mjs)). Those bundled files are what
-[`manifest.json`](extension/manifest.json) loads.
+`npm run build` bundles `background.ts`, `content.ts`, `offscreen.ts` and the
+popup into `extension/dist/` (see [`build.mjs`](build.mjs)), then assembles the
+Chrome build in `dist-chrome/`. Those bundled files are what the manifests load.
 
 ### Full build + package
 
 [`build.sh`](build.sh) is the canonical "ship it" command. It runs the
-typecheck, then the tests, then packages a signed-ready `.zip`/`.xpi` into
-`artifacts/` with the project-local `web-ext` (`npx web-ext`), so the result is
-reproducible on any clean checkout:
+typecheck, then the tests, then packages both store zips into `artifacts/`: the
+Firefox one with the project-local `web-ext`, the Chrome one straight from
+`dist-chrome/`. Both loadable directories are refreshed in place.
 
 ```bash
 ./build.sh
 ```
 
-Because it gates on the tests, a failing suite aborts the package step.
+Because it gates on the tests, a failing suite aborts the package step. Debug
+logging is on for a plain `./build.sh` and compiled out by `release.sh`.
 
-## Loading in Firefox
+## Loading the extension
 
-1. Run `npm run build` so `extension/dist/` is populated.
-2. Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…**
-3. Select [`extension/manifest.json`](extension/manifest.json).
+Run `npm run build` first so both loadable directories are populated.
 
-The extension is Manifest V2 and targets Firefox (it uses the `browser.*`
-WebExtension APIs). Temporary add-ons are removed when Firefox restarts; rebuild
-and reload to pick up changes.
+**Firefox:** `about:debugging` → **This Firefox** → **Load Temporary Add-on…**
+and select [`extension/manifest.json`](extension/manifest.json). Temporary
+add-ons are removed when Firefox restarts.
+
+**Chrome:** `chrome://extensions` → **Developer mode** → **Load unpacked** and
+pick `dist-chrome/`. After a rebuild, hit reload ⟳ on the card; open tabs get
+the new content script automatically.
+
+Test on both. Chrome's keep-alive re-derives state constantly and hides a class
+of bug that Firefox's persistent background does not.
 
 ## Releasing
 
@@ -132,7 +154,7 @@ It is deliberately strict, and will refuse to run if:
 - local commits are **not pushed** to `origin`,
 - a release for the current version **already exists** (bump the version first).
 
-When the checks pass it builds a fresh artifact via `build.sh` and attaches it to
+When the checks pass it builds fresh via `build.sh` and attaches both zips to
 a `v<version>` release, with notes auto-generated from the commits since the last
 release. To cut a new release: bump `version` in `manifest.json` (and
 `package.json`), commit, push, then run `./release.sh`.
@@ -141,12 +163,15 @@ release. To cut a new release: bump `version` in `manifest.json` (and
 
 Tests live in [`test/`](test/) and run via `node --test`. Each suite bundles the
 relevant `src/shared/` module with esbuild and imports the **real** source (no
-copy-pasted logic), so tests can't silently drift from the implementation:
+copy-pasted logic), so tests can't silently drift from the implementation.
+Every pure module has a suite; the two that matter most are
+[`clock-gates`](test/clock-gates.test.mjs) (a playing video must keep counting)
+and [`session-model`](test/session-model.test.mjs).
 
-- [`test/session-model.test.mjs`](test/session-model.test.mjs) — boundaries,
-  carryover, end-early, cooldowns, nudges, grace, wind-down.
-- [`test/seven-day-stats.test.mjs`](test/seven-day-stats.test.mjs) — 7-day
-  average stats that drive the average popup.
+A few suites, notably [`background-wiring`](test/background-wiring.test.mjs),
+assert against `background.ts` as source text. That is blunt, and used only
+where the failure is silent and needs a browser to reproduce, such as a dialog
+gate that freezes the clock forever.
 
 ```bash
 npm test
