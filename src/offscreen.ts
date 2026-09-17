@@ -1,4 +1,3 @@
-import { MSG, PORT } from './shared/protocol.js';
 // Keep-alive companion for the MV3 service worker.
 //
 // WHY THIS EXISTS
@@ -22,6 +21,22 @@ import { MSG, PORT } from './shared/protocol.js';
 // Cost: the worker stays resident, which uses some battery. That's the trade
 // deliberately accepted — a timer that doesn't behave like a timer is not
 // worth saving power for.
+//
+// CHROME ONLY — BUT BUILT FOR BOTH
+//
+// Nothing here runs on Firefox. Its background page is persistent, so there is
+// no worker death to prevent, and it has no offscreen API at all: the document
+// is created at runtime by chrome.offscreen.createDocument(), which
+// background.ts guards behind a `chrome.offscreen !== undefined` check that is
+// false on Firefox. No manifest references offscreen.html on either browser.
+//
+// The bundle is still emitted into `extension/dist/` for the Firefox build,
+// where nothing ever loads it: a dead file costing a few kilobytes, against a
+// second conditional build path that could get the live browser wrong. If
+// AMO's linter ever flags the unreferenced file, that is the trade to
+// revisit — see build.mjs, which makes the same call from its end.
+
+import { MSG, PORT } from './shared/protocol.js';
 
 
 // Chrome's idle timer is ~30s. Reconnecting well inside that keeps the worker

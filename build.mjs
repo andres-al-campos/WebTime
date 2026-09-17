@@ -43,8 +43,10 @@ await Promise.all([
   }),
   // Chrome-only keep-alive. Bundled unconditionally because the Firefox build
   // simply never loads it — a persistent background page has nothing to keep
-  // alive — and a second build path would be more to get wrong than a few
-  // unused kilobytes.
+  // alive, and Firefox has no chrome.offscreen API to create the document with
+  // — so the file sits inert in extension/dist/. A second build path would be
+  // more to get wrong than a few unused kilobytes. src/offscreen.ts explains
+  // what the document does and why Chrome needs it.
   esbuild.build({
     ...commonOptions,
     entryPoints: ['src/offscreen.ts'],
