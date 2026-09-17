@@ -29,6 +29,9 @@ const {
   pruneHistory,
   sessionsFor,
   runningTotals,
+  readStored,
+  toStored,
+  SESSION_HISTORY_VERSION,
 } = await import(pathToFileURL(outFile).href);
 
 /** A session anchored at `startDaily` with a 15m base. */
@@ -138,4 +141,57 @@ test('a zero cooldown is recorded when the domain has cooldowns off', () => {
   // no cooldown ran and none was due — distinct from the day-ended case above.
   const r = toRecord(session({ sessionNum: 2 }), 900, 0, 'completed');
   assert.deepEqual(r, [900, 900, 0, 'completed']);
+});
+
+
+// --- Storage envelope -------------------------------------------------------
+//
+// The reason these exist: history written before versioning is a BARE map with
+// no envelope, and it is sitting on disk on every existing install. If
+// readStored only understood the envelope, upgrading would read empty, and the
+// next finished session would write an empty history back over months of
+// records. The pre-versioning case is the one that must not break.
+
+/** A history in the shape every pre-versioning build wrote. */
+function bareHistory() {
+  return { '2026-09-16': { 'youtube.com': [[900, 900, 300, 'completed'], [420, 900, 0, 'early']] } };
+}
+
+test('readStored: a pre-versioning bare map is returned intact', () => {
+  const bare = bareHistory();
+  assert.deepEqual(readStored(bare), bare);
+  // And it is still usable as history, not just deep-equal to itself.
+  assert.equal(sessionsFor(readStored(bare), '2026-09-16', 'youtube.com').length, 2);
+});
+
+test('readStored: nothing stored yet reads as empty history', () => {
+  assert.deepEqual(readStored(undefined), {});
+  assert.deepEqual(readStored(null), {});
+});
+
+test('readStored: unwraps a versioned envelope', () => {
+  const bare = bareHistory();
+  assert.deepEqual(readStored(toStored(bare)), bare);
+});
+
+test('toStored/readStored round-trips without losing records', () => {
+  const bare = bareHistory();
+  assert.deepEqual(readStored(toStored(readStored(toStored(bare)))), bare);
+});
+
+test('toStored stamps the current version', () => {
+  assert.equal(toStored({}).version, SESSION_HISTORY_VERSION);
+});
+
+test('readStored: a version from the future reads empty rather than guessing', () => {
+  const future = { version: SESSION_HISTORY_VERSION + 1, history: bareHistory() };
+  assert.deepEqual(readStored(future), {});
+});
+
+test('readStored: corrupt envelopes read empty instead of throwing', () => {
+  assert.deepEqual(readStored({ version: 'one', history: bareHistory() }), {});
+  assert.deepEqual(readStored({ version: 1 }), {});
+  assert.deepEqual(readStored({ version: 1, history: 'nope' }), {});
+  assert.deepEqual(readStored('garbage'), {});
+  assert.deepEqual(readStored(42), {});
 });

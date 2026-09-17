@@ -37,6 +37,8 @@ import {
   toRecord,
   appendRecord,
   pruneHistory,
+  readStored,
+  toStored,
 } from './shared/session-history.js';
 import type {
   TimeHistory,
@@ -699,7 +701,9 @@ let sessionHistory: SessionHistory = {};
 async function loadSessionHistory(): Promise<void> {
   try {
     const data = await browser.storage.local.get(STORAGE.SESSION_HISTORY);
-    sessionHistory = data[STORAGE.SESSION_HISTORY] || {};
+    // readStored accepts both the pre-versioning bare map and the envelope, so
+    // history written by an older build survives the upgrade untouched.
+    sessionHistory = readStored(data[STORAGE.SESSION_HISTORY]);
   } catch (err) {
     console.warn('Failed to load session history:', err);
     sessionHistory = {};
@@ -727,7 +731,7 @@ function recordFinishedSession(
     appendRecord(sessionHistory, dateStr, domain, record),
     SESSION_HISTORY_KEEP_DAYS
   );
-  browser.storage.local.set({ [STORAGE.SESSION_HISTORY]: sessionHistory })
+  browser.storage.local.set({ [STORAGE.SESSION_HISTORY]: toStored(sessionHistory) })
     .catch(err => console.warn('Failed to persist session history:', err));
   log(
     `Recorded ${domain} session ${session.sessionNum} on ${dateStr}: ` +

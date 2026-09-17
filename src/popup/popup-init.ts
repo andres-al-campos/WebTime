@@ -1,4 +1,5 @@
 import { extractDomain } from '../shared/utils.js';
+import { readStored } from '../shared/session-history.js';
 import { AppState } from './state.js';
 import { STORAGE } from '../shared/protocol.js';
 import { UIManager } from './ui-manager.js';
@@ -87,7 +88,7 @@ export const App = {
 
     AppState.setCurrentDomain(currentDomain);
     AppState.setTimeHistory(timeHistory);
-    AppState.sessionHistory = storedData.webTimeSessionHistory || {};
+    AppState.sessionHistory = readStored(storedData[STORAGE.SESSION_HISTORY]);
   },
 
   renderInitialView(): void {

@@ -42,6 +42,66 @@ export type SessionRecord = [
 /** date → domain → the day's finished sessions, in the order they happened. */
 export type SessionHistory = Record<string, Record<string, SessionRecord[]>>;
 
+/**
+ * Current shape of the stored history. Bump ONLY when a stored record or the
+ * map around it changes shape, and add the matching branch to `readStored`.
+ *
+ * Versioned because this is the one store that accumulates: two years of
+ * records that are never discarded, unlike session state (dropped daily) or
+ * settings (additive). `SessionRecord` is a fixed tuple, so appending a field
+ * makes every older record one element short with nothing in the data itself
+ * to say so. The version is what tells them apart.
+ */
+export const SESSION_HISTORY_VERSION = 1;
+
+/**
+ * How the history sits in storage.local.
+ *
+ * The envelope exists to carry the version; `history` is the same map it
+ * always was.
+ */
+export interface StoredSessionHistory {
+  version: number;
+  history: SessionHistory;
+}
+
+/**
+ * Read whatever is in storage into the current shape.
+ *
+ * Accepts three things, because all three exist on real installs:
+ *
+ *   - undefined/null — nothing stored yet (every fresh install, and any
+ *     profile that predates the history feature).
+ *   - a bare `SessionHistory` — every build before versioning. Treated as v1,
+ *     which it is: the envelope was added around an unchanged record shape.
+ *   - a `StoredSessionHistory` envelope — v1 and later.
+ *
+ * A version NEWER than this build understands returns empty rather than
+ * guessing at a shape from the future: an older build reading newer data would
+ * otherwise write malformed records back over it. Empty history degrades the
+ * session cards; misread history corrupts the store.
+ *
+ * Never throws. A corrupt store returns empty, because failing to load history
+ * must not stop the extension from tracking time.
+ */
+export function readStored(raw: unknown): SessionHistory {
+  if (!raw || typeof raw !== 'object') return {};
+
+  // Pre-versioning: a bare date → domain → records map, no envelope.
+  if (!('version' in raw)) return raw as SessionHistory;
+
+  const stored = raw as Partial<StoredSessionHistory>;
+  if (typeof stored.version !== 'number') return {};
+  if (stored.version > SESSION_HISTORY_VERSION) return {};
+  if (!stored.history || typeof stored.history !== 'object') return {};
+  return stored.history;
+}
+
+/** Wrap the history for storage. The only thing that should write this key. */
+export function toStored(history: SessionHistory): StoredSessionHistory {
+  return { version: SESSION_HISTORY_VERSION, history };
+}
+
 /** The session's full length — what `used` is measured against. */
 export function effectiveLengthOf(s: ActiveSession): number {
   return s.baseLength + s.carryover + s.graceSeconds;
