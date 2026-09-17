@@ -1,5 +1,6 @@
 import { CONFIG, COLORS, ViewState } from './config.js';
 import { AppState } from './state.js';
+import { MSG, STORAGE } from '../shared/protocol.js';
 import {
   processGeneralViewData,
   processDetailViewData,
@@ -442,8 +443,8 @@ function mountSettingsDropdown(mountId: string, select: HTMLSelectElement | null
 
 export async function loadSettings(): Promise<void> {
   try {
-    const data = await browser.storage.local.get('webTimeSettings');
-    const settings = data.webTimeSettings || { global: {}, domains: {} };
+    const data = await browser.storage.local.get(STORAGE.SETTINGS);
+    const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     const global = settings.global || {};
     const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLSelectElement | null;
@@ -509,8 +510,8 @@ export async function loadSettings(): Promise<void> {
 
 export async function saveSettings(): Promise<void> {
   try {
-    const data = await browser.storage.local.get('webTimeSettings');
-    const settings = data.webTimeSettings || { global: {}, domains: {} };
+    const data = await browser.storage.local.get(STORAGE.SETTINGS);
+    const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLInputElement | null;
     const inactivityTimeoutEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
@@ -546,7 +547,7 @@ export async function saveSettings(): Promise<void> {
     if (!settings.domains) settings.domains = {};
 
     await browser.storage.local.set({ webTimeSettings: settings });
-    browser.runtime.sendMessage({ type: 'SETTINGS_UPDATED' });
+    browser.runtime.sendMessage({ type: MSG.SETTINGS_UPDATED });
     // No success flash — the panel closing (see the save handler) is the
     // confirmation that the save went through.
   } catch (error) {

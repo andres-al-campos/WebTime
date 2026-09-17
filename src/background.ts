@@ -1,4 +1,5 @@
 import { Constants } from './shared/constants.js';
+import { MSG, STORAGE, ALARM, PORT } from './shared/protocol.js';
 import { extractDomain, getLocalDateStr, log, compute7DayStats } from './shared/utils.js';
 import {
   type ActiveSession,
@@ -323,14 +324,13 @@ function syncOsIdleState(): Promise<void> {
 //     clock means every future instant has moved. Pausing therefore CANCELS
 //     the alarms rather than leaving them to fire against a frozen clock.
 
-const WAKE_ALARM_PREFIX = 'webtime-wake-';
 
 /** Drop every scheduled wake. Called before rebuilding, and when paused. */
 async function clearWakes(): Promise<void> {
   const all = await browser.alarms.getAll();
   await Promise.all(
     all
-      .filter(a => a.name.startsWith(WAKE_ALARM_PREFIX))
+      .filter(a => a.name.startsWith(ALARM.WAKE_PREFIX))
       .map(a => browser.alarms.clear(a.name))
   );
 }
@@ -365,7 +365,7 @@ async function rescheduleWakes(): Promise<void> {
   const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgeInterval);
 
   for (const w of wakes) {
-    browser.alarms.create(`${WAKE_ALARM_PREFIX}${w.kind}-${w.sessionTime}`, { when: w.at });
+    browser.alarms.create(`${ALARM.WAKE_PREFIX}${w.kind}-${w.sessionTime}`, { when: w.at });
   }
   log(`Scheduled ${wakes.length} wake(s) for ${domain}.`);
 }
@@ -389,7 +389,6 @@ async function rescheduleWakes(): Promise<void> {
 // often than any of these need. It is deliberately NOT the thing that makes
 // session ends work — that is the scheduled wake — so its cost is bounded and
 // it can be slow without breaking the timer.
-const HEARTBEAT_ALARM = 'webtime-heartbeat';
 const HEARTBEAT_PERIOD_MINUTES = 1;
 
 // --- Keep-alive ------------------------------------------------------------
@@ -402,7 +401,6 @@ const HEARTBEAT_PERIOD_MINUTES = 1;
 // Firefox has a persistent background page and no offscreen API, so every one
 // of these calls is guarded — on Firefox they no-op and nothing changes.
 
-const KEEPALIVE_PORT = 'webtime-keepalive';
 
 function supportsOffscreen(): boolean {
   return typeof chrome !== 'undefined' && chrome.offscreen !== undefined;
@@ -434,7 +432,7 @@ async function ensureKeepAlive(): Promise<void> {
  * messages is what resets Chrome's idle timer; there is nothing to act on.
  */
 function handleKeepAliveConnect(port: chrome.runtime.Port): void {
-  if (port.name !== KEEPALIVE_PORT) return;
+  if (port.name !== PORT.KEEPALIVE) return;
   log('Keep-alive port connected.');
   port.onMessage.addListener(() => { /* traffic alone is the point */ });
   port.onDisconnect.addListener(() => log('Keep-alive port disconnected.'));
@@ -501,7 +499,7 @@ async function reviveOrphanedTabs(): Promise<void> {
 function ensureHeartbeat(): void {
   // create() with the same name replaces any existing alarm, so this is
   // idempotent and safe to call on every worker boot.
-  browser.alarms.create(HEARTBEAT_ALARM, {
+  browser.alarms.create(ALARM.HEARTBEAT, {
     periodInMinutes: HEARTBEAT_PERIOD_MINUTES,
   });
 }
@@ -529,11 +527,11 @@ function handleHeartbeat(): void {
  * decided entirely from current state.
  */
 function handleAlarm(alarm: chrome.alarms.Alarm): void {
-  if (alarm.name === HEARTBEAT_ALARM) {
+  if (alarm.name === ALARM.HEARTBEAT) {
     handleHeartbeat();
     return;
   }
-  if (!alarm.name.startsWith(WAKE_ALARM_PREFIX)) return;
+  if (!alarm.name.startsWith(ALARM.WAKE_PREFIX)) return;
   log(`Wake: ${alarm.name}`);
   void checkForInterventions();
 }
@@ -568,7 +566,7 @@ function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: n
 function clearWindDown(domain: Domain): void {
   if (!windDownActive[domain]) return;
   delete windDownActive[domain];
-  sendMessageToAllTabsOfDomain(domain, { type: 'HIDE_WIND_DOWN' });
+  sendMessageToAllTabsOfDomain(domain, { type: MSG.HIDE_WIND_DOWN });
 }
 
 function clearAllCooldowns(): void {
@@ -598,7 +596,6 @@ function clearAllCooldowns(): void {
 // day's session objects + active cooldowns to storage.local and rehydrate on
 // startup. Only the current day is stored (keyed by date); it's a few KB at
 // most and is discarded automatically when the date no longer matches.
-const SESSION_STATE_KEY = 'webTimeSessionState';
 
 function saveSessionState(): void {
   // Only persist domains that actually have a session or a live cooldown.
@@ -613,7 +610,7 @@ function saveSessionState(): void {
     }
   }
   browser.storage.local.set({
-    [SESSION_STATE_KEY]: {
+    [STORAGE.SESSION_STATE]: {
       date: currentDateStr,
       sessions,
       cooldownEndTime: activeCooldowns,
@@ -632,8 +629,8 @@ function saveSessionState(): void {
 
 async function loadSessionState(): Promise<void> {
   try {
-    const data = await browser.storage.local.get(SESSION_STATE_KEY);
-    const stored = data[SESSION_STATE_KEY];
+    const data = await browser.storage.local.get(STORAGE.SESSION_STATE);
+    const stored = data[STORAGE.SESSION_STATE];
     if (!stored || stored.date !== currentDateStr) return; // absent or stale (new day)
 
     if (stored.sessions) {
@@ -643,8 +640,8 @@ async function loadSessionState(): Promise<void> {
     }
 
     // Re-arm any cooldown still in the future; drop expired ones.
-    const settingsData = await browser.storage.local.get('webTimeSettings');
-    const settings: WebTimeSettings = settingsData.webTimeSettings || { global: {}, domains: {} };
+    const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
+    const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
     for (const [domain, endTime] of Object.entries(stored.cooldownEndTime || {})) {
       if ((endTime as number) <= Date.now()) continue; // expired during downtime
       cooldownEndTime[domain] = endTime as number;
@@ -673,20 +670,19 @@ async function loadSessionState(): Promise<void> {
 }
 
 function clearSessionState(): void {
-  browser.storage.local.remove(SESSION_STATE_KEY).catch(() => {});
+  browser.storage.local.remove(STORAGE.SESSION_STATE).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
 // FINISHED-SESSION HISTORY
 //
-// Deliberately NOT part of SESSION_STATE_KEY: that key is wiped every rollover
+// Deliberately NOT part of STORAGE.SESSION_STATE: that key is wiped every rollover
 // by design (clearSessionState), which is exactly what history must survive.
 // Its own key also keeps the blast radius off trackedTime, which is read
 // everywhere.
 //
 // ~20 bytes per session, ~120/day — a rounding error against a 10MB quota.
 // ---------------------------------------------------------------------------
-const SESSION_HISTORY_KEY = 'webTimeSessionHistory';
 
 /** Days of history to keep. Two years is far below any storage concern. */
 const SESSION_HISTORY_KEEP_DAYS = 730;
@@ -702,8 +698,8 @@ let sessionHistory: SessionHistory = {};
 
 async function loadSessionHistory(): Promise<void> {
   try {
-    const data = await browser.storage.local.get(SESSION_HISTORY_KEY);
-    sessionHistory = data[SESSION_HISTORY_KEY] || {};
+    const data = await browser.storage.local.get(STORAGE.SESSION_HISTORY);
+    sessionHistory = data[STORAGE.SESSION_HISTORY] || {};
   } catch (err) {
     console.warn('Failed to load session history:', err);
     sessionHistory = {};
@@ -731,7 +727,7 @@ function recordFinishedSession(
     appendRecord(sessionHistory, dateStr, domain, record),
     SESSION_HISTORY_KEEP_DAYS
   );
-  browser.storage.local.set({ [SESSION_HISTORY_KEY]: sessionHistory })
+  browser.storage.local.set({ [STORAGE.SESSION_HISTORY]: sessionHistory })
     .catch(err => console.warn('Failed to persist session history:', err));
   log(
     `Recorded ${domain} session ${session.sessionNum} on ${dateStr}: ` +
@@ -798,8 +794,8 @@ async function saveTimeData(): Promise<void> {
 
 async function loadTimeData(): Promise<void> {
   try {
-    const storedData = await browser.storage.local.get("trackedTime");
-    const trackedTime = storedData.trackedTime;
+    const storedData = await browser.storage.local.get(STORAGE.TRACKED_TIME);
+    const trackedTime = storedData[STORAGE.TRACKED_TIME];
 
     if (!trackedTime || !trackedTime.lastDate || !trackedTime.timeHistory) {
       initDefaultTimeData();
@@ -1038,7 +1034,7 @@ function wireTime(updatedTime: number): number {
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
   const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; baseLengthSeconds?: number } = {
-    type: "TIME_UPDATE",
+    type: MSG.TIME_UPDATE,
     time: wireTime(updatedTime)
   };
 
@@ -1288,7 +1284,7 @@ function handleMessageReceived(
 ): void {
   log(`handleMessage()`, message, sender);
 
-  if (message.type === "CONTENT_SCRIPT_READY" && sender.tab?.id) {
+  if (message.type === MSG.CONTENT_SCRIPT_READY && sender.tab?.id) {
     // A fresh content script means the previous page is gone, along with any
     // dialog it had open — and its CLOSE message with it.
     releaseDialogGates(sender.tab.id);
@@ -1304,7 +1300,7 @@ function handleMessageReceived(
         void sendBlockerToLateJoiningTab(sender.tab.id, domain);
       }
     }
-  } else if (message.type === "USER_ACTIVE" && sender.tab?.id) {
+  } else if (message.type === MSG.USER_ACTIVE && sender.tab?.id) {
 
     // Re-adopt the tab. The worker restarts constantly under MV3 and comes back
     // with an empty trackedTabIds, but a tab loaded before that restart only
@@ -1318,31 +1314,31 @@ function handleMessageReceived(
     // handling it here is what makes "the user came back" take effect at all
     // when nothing of ours has been running.
     if (sender.tab.id === activeTabId) syncClock();
-  } else if (message.type === "END_SESSION_EARLY") {
+  } else if (message.type === MSG.END_SESSION_EARLY) {
 
     void endSessionEarly();
-  } else if (message.type === "SHOW_END_SESSION_CONFIRM") {
+  } else if (message.type === MSG.SHOW_END_SESSION_CONFIRM) {
 
     // Popup asks us to open the confirmation overlay on the active tab (instead
     // of ending immediately). The popup closes itself; the user confirms there.
     if (activeTabId !== null) {
-      browser.tabs.sendMessage(activeTabId, { type: "SHOW_END_SESSION_CONFIRM" })
+      browser.tabs.sendMessage(activeTabId, { type: MSG.SHOW_END_SESSION_CONFIRM })
         .catch(() => { /* tab may have closed or have no content script */ });
     }
-  } else if (message.type === "END_SESSION_CONFIRM_OPEN") {
+  } else if (message.type === MSG.END_SESSION_CONFIRM_OPEN) {
     // Record WHICH tab, so the gate can be released if that tab goes away
     // without ever sending its CLOSE.
     if (sender.tab?.id !== undefined) endSessionConfirmTabId = sender.tab.id;
     syncClock();
-  } else if (message.type === "END_SESSION_CONFIRM_CLOSE") {
+  } else if (message.type === MSG.END_SESSION_CONFIRM_CLOSE) {
 
     endSessionConfirmTabId = null;
     syncClock();
-  } else if (message.type === "AVERAGE_POPUP_OPEN") {
+  } else if (message.type === MSG.AVERAGE_POPUP_OPEN) {
 
     if (sender.tab?.id !== undefined) averagePopupTabId = sender.tab.id;
     syncClock();
-  } else if (message.type === "AVERAGE_POPUP_CLOSE") {
+  } else if (message.type === MSG.AVERAGE_POPUP_CLOSE) {
 
     averagePopupTabId = null;
     syncClock();
@@ -1351,7 +1347,7 @@ function handleMessageReceived(
   // after waking from a discarded/hidden state. Respond with SHOW or HIDE so the
   // tab's UI matches reality (it may have missed the original HIDE_BLOCKER while
   // suspended).
-  } else if (message.type === "REQUEST_BLOCKER_STATE" && sender.tab?.id && sender.tab?.url) {
+  } else if (message.type === MSG.REQUEST_BLOCKER_STATE && sender.tab?.id && sender.tab?.url) {
     const tabId = sender.tab.id;
     const domain = extractDomain(sender.tab.url);
     if (domain) {
@@ -1359,11 +1355,11 @@ function handleMessageReceived(
       // reconstructed text if in cooldown, HIDE otherwise.
       void sendBlockerToLateJoiningTab(tabId, domain);
     }
-  } else if (message.type === "SETTINGS_UPDATED") {
+  } else if (message.type === MSG.SETTINGS_UPDATED) {
 
 
-    browser.storage.local.get('webTimeSettings').then(data => {
-      const settings: WebTimeSettings = data.webTimeSettings || { global: {}, domains: {} };
+    browser.storage.local.get(STORAGE.SETTINGS).then(data => {
+      const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
       inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
       applyIdleDetectionInterval();
@@ -1524,8 +1520,8 @@ async function runInterventionPass(): Promise<void> {
 async function loadInterventionSettings(): Promise<InterventionSettings | null> {
   if (!trackedTabDomain) return null;
 
-  const data = await browser.storage.local.get('webTimeSettings');
-  const settings: WebTimeSettings = data.webTimeSettings || { global: {}, domains: {} };
+  const data = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const global = settings.global || {};
   const domainSettings = settings.domains?.[trackedTabDomain] || {};
 
@@ -1583,7 +1579,7 @@ const AVERAGE_POPUP_MIN_DAYS = 7;
 
 function persistAveragePopupShown(): void {
   browser.storage.local.set({
-    webTimeAveragePopupShown: {
+    [STORAGE.AVERAGE_POPUP_SHOWN]: {
       date: currentDateStr,
       domains: interventionState.averagePopupShown
     }
@@ -1591,8 +1587,8 @@ function persistAveragePopupShown(): void {
 }
 
 async function loadAveragePopupShown(): Promise<void> {
-  const data = await browser.storage.local.get('webTimeAveragePopupShown');
-  const stored = data.webTimeAveragePopupShown;
+  const data = await browser.storage.local.get(STORAGE.AVERAGE_POPUP_SHOWN);
+  const stored = data[STORAGE.AVERAGE_POPUP_SHOWN];
   if (stored && stored.date === currentDateStr && stored.domains) {
     interventionState.averagePopupShown = stored.domains;
   }
@@ -1647,7 +1643,7 @@ function checkWindDown(settings: InterventionSettings): void {
 
   if (wd.active) {
     sendMessageToAllTabsOfDomain(domain, {
-      type: 'SHOW_WIND_DOWN',
+      type: MSG.SHOW_WIND_DOWN,
       progress: wd.progress,
       remainingSeconds: wd.remaining
     });
@@ -1671,14 +1667,14 @@ function checkWindDown(settings: InterventionSettings): void {
 async function sendBlockerToLateJoiningTab(tabId: number, domain: Domain): Promise<void> {
   const endTime = cooldownEndTime[domain] || 0;
   if (endTime <= Date.now()) {
-    browser.tabs.sendMessage(tabId, { type: 'HIDE_BLOCKER' as const }).catch(() => {});
+    browser.tabs.sendMessage(tabId, { type: MSG.HIDE_BLOCKER }).catch(() => {});
     return;
   }
   const remaining = Math.ceil((endTime - Date.now()) / 1000);
   const nextSession = sessions[domain];
   const endedSessionNum = nextSession ? Math.max(1, nextSession.sessionNum - 1) : 1;
-  const settingsData = await browser.storage.local.get('webTimeSettings');
-  const settings: WebTimeSettings = settingsData.webTimeSettings || { global: {}, domains: {} };
+  const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const incrementSec = incrementSeconds(settings.domains?.[domain]?.cooldownIncrement);
   // The bar's denominator is the cooldown's FULL length, captured when it fired.
   // Use the stored value — recomputing it from the increment setting is exactly
@@ -1686,7 +1682,7 @@ async function sendBlockerToLateJoiningTab(tabId: number, domain: Domain): Promi
   const totalSeconds = cooldownTotalSec[domain]
     || (incrementSec > 0 ? endedSessionNum * incrementSec : remaining);
   browser.tabs.sendMessage(tabId, {
-    type: 'SHOW_BLOCKER' as const,
+    type: MSG.SHOW_BLOCKER,
     cooldownRemainingSeconds: remaining,
     totalCooldownSeconds: totalSeconds,
     cooldownCount: endedSessionNum,
@@ -1696,7 +1692,7 @@ async function sendBlockerToLateJoiningTab(tabId: number, domain: Domain): Promi
 
 function sendBlockerToAllTabsOfDomain(domain: Domain, remainingSeconds: number, totalSeconds: number, cooldownCount: number, cooldownIncrementSeconds: number): void {
   const message = {
-    type: 'SHOW_BLOCKER' as const,
+    type: MSG.SHOW_BLOCKER,
     cooldownRemainingSeconds: remainingSeconds,
     totalCooldownSeconds: totalSeconds,
     cooldownCount,
@@ -1713,7 +1709,7 @@ function sendBlockerToAllTabsOfDomain(domain: Domain, remainingSeconds: number, 
 }
 
 function sendHideBlockerToAllTabsOfDomain(domain: Domain): void {
-  const message = { type: 'HIDE_BLOCKER' as const };
+  const message = { type: MSG.HIDE_BLOCKER };
 
   trackedTabIds.forEach(tabId => {
     browser.tabs.get(tabId).then(tab => {
@@ -1869,7 +1865,7 @@ function sendNudge(): void {
   if (!activeTabId) return;
 
   browser.tabs.sendMessage(activeTabId, {
-    type: 'NUDGE'
+    type: MSG.NUDGE
   }).catch(err => console.warn('Failed to send nudge:', err));
 }
 
@@ -1877,7 +1873,7 @@ function sendAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
   if (!activeTabId) return;
 
   browser.tabs.sendMessage(activeTabId, {
-    type: 'SHOW_AVERAGE_POPUP',
+    type: MSG.SHOW_AVERAGE_POPUP,
     minutesLeft,
     averageMinutes,
     stats
@@ -1896,8 +1892,8 @@ async function init(): Promise<void> {
 
 
 
-  const settingsData = await browser.storage.local.get('webTimeSettings');
-  const settings: WebTimeSettings = settingsData.webTimeSettings || { global: {}, domains: {} };
+  const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
   dayResetTime = settings.global?.dayResetTime || 0;
   inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
   log(`Day reset time loaded: ${dayResetTime}:00`);
@@ -1916,7 +1912,7 @@ async function init(): Promise<void> {
   void ensureKeepAlive();
 
   // Arm the backstop on every worker boot. clearWakes() only touches the
-  // WAKE_ALARM_PREFIX alarms, so rescheduling never removes this one.
+  // ALARM.WAKE_PREFIX alarms, so rescheduling never removes this one.
   ensureHeartbeat();
 
   // Sync foreground state on wake: a service worker can start while the browser

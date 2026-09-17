@@ -63,9 +63,10 @@ To prove a rename is behavior-preserving: rebuild, substitute the old name back
 into the emitted bundle, and diff against the previous build. Byte-identical
 means identifier-only.
 
-**Not yet built:** a `src/shared/protocol.ts` holding message types, storage
-keys and alarm names as named constants, so renames become compiler-checked and
-"is this serialized?" has one answer. Worth doing; touches every send/receive.
+`src/shared/protocol.ts` holds every such string as a named constant (`MSG`,
+`STORAGE`, `ALARM`, `PORT`), so "is this serialized?" has one answer and a
+rename is a compile error where it was missed. The values there are the wire
+format and the on-disk keys: change a key and existing users' data is orphaned.
 
 ## Tests
 

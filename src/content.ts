@@ -1,4 +1,5 @@
 import { Constants } from './shared/constants.js';
+import { MSG, STORAGE } from './shared/protocol.js';
 import { formatClock, formatTimeCompact, log } from './shared/utils.js';
 import { cooldownLength, computeGraceSeconds } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
@@ -629,7 +630,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 
   // Freeze the daily clock while the popup blocks the page, mirroring the
   // end-session confirmation popup.
-  sendToBackground({ type: 'AVERAGE_POPUP_OPEN' });
+  sendToBackground({ type: MSG.AVERAGE_POPUP_OPEN });
 
   setTimeout(() => { el.style.opacity = '1'; }, 100);
 }
@@ -637,7 +638,7 @@ function showAveragePopup(minutesLeft: number, averageMinutes: number, stats: Se
 function hideAveragePopup(): void {
   hideBlurOverlay();
 
-  sendToBackground({ type: 'AVERAGE_POPUP_CLOSE' });
+  sendToBackground({ type: MSG.AVERAGE_POPUP_CLOSE });
 
   blockKeyboard(false);
   averagePopupPausedMedia.forEach(m => m.play().catch(() => {}));
@@ -1096,10 +1097,10 @@ function showEndSessionConfirm(): void {
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
   // Tell background to freeze the timer while the user decides.
-  sendToBackground({ type: 'END_SESSION_CONFIRM_OPEN' });
+  sendToBackground({ type: MSG.END_SESSION_CONFIRM_OPEN });
 
   const confirmAndClose = (): void => {
-    sendToBackground({ type: 'END_SESSION_EARLY' });
+    sendToBackground({ type: MSG.END_SESSION_EARLY });
     close(false);
   };
 
@@ -1113,7 +1114,7 @@ function showEndSessionConfirm(): void {
     if (resumeMedia) {
       playingMedia.forEach(m => m.play().catch(() => {}));
     }
-    sendToBackground({ type: 'END_SESSION_CONFIRM_CLOSE' });
+    sendToBackground({ type: MSG.END_SESSION_CONFIRM_CLOSE });
     setTimeout(() => {
       endSessionDialog?.parentNode?.removeChild(endSessionDialog);
       endSessionDialog = null;
@@ -1139,7 +1140,7 @@ document.addEventListener('visibilitychange', () => {
   // Reaching for the background is also the orphan check. The synchronous
   // throw is the usual signal after an extension reload, so both paths
   // (throw and rejection) have to lead to the same recovery.
-  if (!sendToBackground({ type: 'REQUEST_BLOCKER_STATE' })) {
+  if (!sendToBackground({ type: MSG.REQUEST_BLOCKER_STATE })) {
     recoverFromOrphan();
   }
 });
@@ -1206,7 +1207,7 @@ function handleIncomingMessage(
   _sender: chrome.runtime.MessageSender,
   _sendResponse: (response?: unknown) => void
 ): void {
-  if (message.type === "TIME_UPDATE") {
+  if (message.type === MSG.TIME_UPDATE) {
     lastDailyTime = message.time;
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
@@ -1225,21 +1226,21 @@ function handleIncomingMessage(
     } else {
       console.error("Timer text element not found when trying to update time!");
     }
-  } else if (message.type === "SHOW_END_SESSION_CONFIRM") {
+  } else if (message.type === MSG.SHOW_END_SESSION_CONFIRM) {
     // Popup's "End session early" button routes here (via background) so an
     // accidental click shows the same recoverable confirmation as the shortcut.
     showEndSessionConfirm();
-  } else if (message.type === "NUDGE") {
+  } else if (message.type === MSG.NUDGE) {
     showNudge();
-  } else if (message.type === "SHOW_AVERAGE_POPUP") {
+  } else if (message.type === MSG.SHOW_AVERAGE_POPUP) {
     showAveragePopup(message.minutesLeft, message.averageMinutes, message.stats);
-  } else if (message.type === "SHOW_BLOCKER") {
+  } else if (message.type === MSG.SHOW_BLOCKER) {
     showBlocker(message.cooldownRemainingSeconds, message.totalCooldownSeconds, message.cooldownCount, message.cooldownIncrementSeconds);
-  } else if (message.type === "HIDE_BLOCKER") {
+  } else if (message.type === MSG.HIDE_BLOCKER) {
     hideBlocker();
-  } else if (message.type === "SHOW_WIND_DOWN") {
+  } else if (message.type === MSG.SHOW_WIND_DOWN) {
     showWindDown(message.progress, message.remainingSeconds);
-  } else if (message.type === "HIDE_WIND_DOWN") {
+  } else if (message.type === MSG.HIDE_WIND_DOWN) {
     hideWindDown();
   }
 }
@@ -1286,7 +1287,7 @@ function updateActivityState(): void {
   const now = Date.now();
   if (now - lastActivityPing < ACTIVITY_PING_INTERVAL_MS) return;
   lastActivityPing = now;
-  sendToBackground({ type: "USER_ACTIVE" });
+  sendToBackground({ type: MSG.USER_ACTIVE });
 }
 
 // passive: these never preventDefault, and saying so keeps scroll off the
@@ -1316,8 +1317,8 @@ function init(): void {
 
     // React to settings changes (currently just the end-session shortcut).
     browser.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.webTimeSettings) {
-        const newSettings = changes.webTimeSettings.newValue;
+      if (area === 'local' && changes[STORAGE.SETTINGS]) {
+        const newSettings = changes[STORAGE.SETTINGS].newValue;
         const sc = newSettings?.global?.endSessionShortcut;
         // null = explicitly disabled, undefined = use default
         endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
@@ -1336,15 +1337,15 @@ function init(): void {
   // part of the same bridge that dies with an orphaned context; the default
   // shortcut is a fine fallback.
   try {
-    browser.storage.local.get('webTimeSettings').then(data => {
-      const sc = data.webTimeSettings?.global?.endSessionShortcut;
+    browser.storage.local.get(STORAGE.SETTINGS).then(data => {
+      const sc = data[STORAGE.SETTINGS]?.global?.endSessionShortcut;
       endSessionShortcut = sc === null ? '' : (sc || 'Ctrl+E');
     }).catch(() => {});
   } catch {
     recoverFromOrphan();
   }
 
-  if (sendToBackground({ type: "CONTENT_SCRIPT_READY" })) {
+  if (sendToBackground({ type: MSG.CONTENT_SCRIPT_READY })) {
     log("Sent CONTENT_SCRIPT_READY message to background.");
   }
 }

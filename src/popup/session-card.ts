@@ -9,12 +9,11 @@
 //   Off      — limits disabled for this domain (or no session yet).
 
 import { formatClock, getLocalDateStr } from '../shared/utils.js';
+import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 
 declare const browser: typeof chrome;
 
-const SESSION_STATE_KEY = 'webTimeSessionState';
-const SETTINGS_KEY = 'webTimeSettings';
 
 // The currently-shown domain/reset, so the storage listener re-renders the right
 // card. Set by renderSessionCard; read by the onChanged handler below.
@@ -33,7 +32,7 @@ function ensureStorageListener(): void {
   storageListenerWired = true;
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!(SESSION_STATE_KEY in changes) && !(SETTINGS_KEY in changes)) return;
+    if (!(STORAGE.SESSION_STATE in changes) && !(STORAGE.SETTINGS in changes)) return;
     if (liveDomain === null) return;
     renderSessionCard(liveDomain, liveDayReset).catch(err =>
       console.error('Error re-rendering session card on storage change:', err));
@@ -88,8 +87,8 @@ function saveDomainLimits(domain: string, next: DomainLimits): Promise<void> {
 }
 
 async function writeDomainLimits(domain: string, next: DomainLimits): Promise<void> {
-  const data = await browser.storage.local.get('webTimeSettings');
-  const settings = data.webTimeSettings || { global: {}, domains: {} };
+  const data = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   if (!settings.domains) settings.domains = {};
 
   const hasAny = next.sessionLimitEnabled || (next.sessionLimit || 0) > 0 || (next.cooldownIncrement || 0) > 0;
@@ -104,7 +103,7 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
     delete settings.domains[domain];
   }
   await browser.storage.local.set({ webTimeSettings: settings });
-  browser.runtime.sendMessage({ type: 'SETTINGS_UPDATED' });
+  browser.runtime.sendMessage({ type: MSG.SETTINGS_UPDATED });
 }
 
 /** A stepper handle: its element plus a setter to drive it from outside (e.g. a
@@ -297,8 +296,8 @@ export async function renderSessionSettingsCard(
   if (!host) return;
   if (!domain) { host.replaceChildren(); return; }
 
-  const data = await browser.storage.local.get('webTimeSettings');
-  const settings = data.webTimeSettings || { global: {}, domains: {} };
+  const data = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const d: DomainLimits = settings.domains?.[domain] || {};
 
   // Working copy persisted on each control change.
@@ -492,7 +491,7 @@ function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, s
     // Don't end immediately — an accidental click would be unrecoverable. Ask the
     // active tab to show the confirmation overlay (same as the keyboard shortcut),
     // then close the popup so the user confirms in context.
-    browser.runtime.sendMessage({ type: 'SHOW_END_SESSION_CONFIRM' });
+    browser.runtime.sendMessage({ type: MSG.SHOW_END_SESSION_CONFIRM });
     window.close();
   });
 }
@@ -535,14 +534,14 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   // being tracked; here there's no site at all.
   if (!domain) { host.replaceChildren(); return; }
 
-  const data = await browser.storage.local.get([SESSION_STATE_KEY, 'webTimeSettings', 'trackedTime']);
-  const settings = data.webTimeSettings || { global: {}, domains: {} };
+  const data = await browser.storage.local.get([STORAGE.SESSION_STATE, STORAGE.SETTINGS, STORAGE.TRACKED_TIME]);
+  const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const domainSettings = settings.domains?.[domain] || {};
 
   // Limits off for this domain → Off card.
   if (!domainSettings.sessionLimitEnabled) { renderOff(host); return; }
 
-  const state = data[SESSION_STATE_KEY] as SessionState | undefined;
+  const state = data[STORAGE.SESSION_STATE] as SessionState | undefined;
   const today = getLocalDateStr(dayResetTime);
 
   // Stale (different day) state shouldn't drive the card.
@@ -559,7 +558,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   }
 
   if (session) {
-    const timeHistory = data.trackedTime?.timeHistory || {};
+    const timeHistory = data[STORAGE.TRACKED_TIME]?.timeHistory || {};
     const dailyTotal = domainDailySeconds(timeHistory, today, domain);
     const { remaining } = displayFor(session, dailyTotal);
     // Genuinely running only while time remains; otherwise the background has

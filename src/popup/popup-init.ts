@@ -1,5 +1,6 @@
 import { extractDomain } from '../shared/utils.js';
 import { AppState } from './state.js';
+import { STORAGE } from '../shared/protocol.js';
 import { UIManager } from './ui-manager.js';
 import { CONFIG, ViewState } from './config.js';
 
@@ -69,12 +70,12 @@ export const App = {
     const currentDomain = isWebUrl && activeUrl ? extractDomain(activeUrl) : null;
 
     const storedData = await browser.storage.local.get([
-      "trackedTime",
-      "webTimeSettings",
-      "webTimeSessionHistory",
+      STORAGE.TRACKED_TIME,
+      STORAGE.SETTINGS,
+      STORAGE.SESSION_HISTORY,
     ]);
-    const timeHistory = storedData.trackedTime?.timeHistory || {};
-    const settings = storedData.webTimeSettings || { global: {}, domains: {} };
+    const timeHistory = storedData[STORAGE.TRACKED_TIME]?.timeHistory || {};
+    const settings = storedData[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     if (settings.global?.scalingPower !== undefined) {
       CONFIG.scalingPower = Math.max(0.3, Math.min(1.0, settings.global.scalingPower));

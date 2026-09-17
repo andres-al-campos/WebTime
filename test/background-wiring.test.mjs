@@ -27,7 +27,7 @@ const GATES = [
 
 /** The dispatch body following `message.type === "<type>"`, up to the next branch. */
 function branchBody(type) {
-  const at = src.indexOf(`message.type === "${type}"`);
+  const at = src.indexOf(`message.type === MSG.${type}`);
   assert.notEqual(at, -1, `no dispatch branch for ${type}`);
   const rest = src.slice(at);
   const next = rest.indexOf('message.type ===', 1);
@@ -70,8 +70,8 @@ test('the dispatch is a single chain, so message types stay mutually exclusive',
   const at = src.indexOf('function handleMessageReceived(');
   assert.notEqual(at, -1);
   const body = src.slice(at, src.indexOf('\n}\n', at));
-  const branches = body.match(/if \(message\.type === "/g) || [];
-  const chained = body.match(/} else if \(message\.type === "/g) || [];
+  const branches = body.match(/if \(message\.type === MSG\./g) || [];
+  const chained = body.match(/} else if \(message\.type === MSG\./g) || [];
   assert.equal(
     chained.length,
     branches.length - 1,
@@ -194,7 +194,8 @@ test('rollover passes the ending date explicitly', () => {
 test('history is stored under its own key, not the wiped session state', () => {
   // SESSION_STATE_KEY is removed on every rollover by design; history living
   // there would be deleted at precisely the moment it becomes worth keeping.
-  assert.match(src, /SESSION_HISTORY_KEY\s*=\s*'webTimeSessionHistory'/,
+  const protocol = readFileSync('src/shared/protocol.ts', 'utf8');
+  assert.match(protocol, /SESSION_HISTORY:\s*'webTimeSessionHistory'/,
     'history needs its own storage key');
   // Match the body by braces rather than functionBody(): clearSessionState is
   // followed by a comment block, not another `function`, so the naive scan runs
@@ -203,7 +204,7 @@ test('history is stored under its own key, not the wiped session state', () => {
   assert.notEqual(at, -1, 'no clearSessionState');
   const clear = src.slice(at, src.indexOf('\n}', at));
   assert.ok(
-    !clear.includes('SESSION_HISTORY_KEY'),
+    !clear.includes('STORAGE.SESSION_HISTORY'),
     'clearSessionState must not remove the history key',
   );
 });
@@ -391,7 +392,7 @@ test('the dialog gates are owned by a tab, not global booleans', () => {
   assert.match(src, /let averagePopupTabId: number \| null = null;/);
 
   // OPEN must record the sender, or there is no owner to release.
-  const open = /END_SESSION_CONFIRM_OPEN"\)\s*\{[\s\S]{0,400}?syncClock\(\);/.exec(src);
+  const open = /END_SESSION_CONFIRM_OPEN\)\s*\{[\s\S]{0,400}?syncClock\(\);/.exec(src);
   assert.ok(open, 'the OPEN handler must be findable');
   assert.match(open[0], /sender\.tab\?\.id/, 'OPEN must record which tab opened the dialog');
 });

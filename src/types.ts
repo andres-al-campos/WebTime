@@ -1,3 +1,4 @@
+import { MSG } from './shared/protocol.js';
 // ============================================
 // WebTime Type Definitions
 // ============================================
@@ -87,7 +88,7 @@ export interface InterventionSettings {
 // ============================================
 
 export interface TimeUpdateMessage {
-  type: 'TIME_UPDATE';
+  type: typeof MSG.TIME_UPDATE;
   time: number;
   sessionTime?: number;       // seconds elapsed in current session (only when session limit is active)
   sessionLimitSeconds?: number; // the session limit in seconds (only when session limit is active)
@@ -97,30 +98,30 @@ export interface TimeUpdateMessage {
 }
 
 export interface ContentScriptReadyMessage {
-  type: 'CONTENT_SCRIPT_READY';
+  type: typeof MSG.CONTENT_SCRIPT_READY;
 }
 
 export interface UserActiveMessage {
-  type: 'USER_ACTIVE';
+  type: typeof MSG.USER_ACTIVE;
 }
 
 export interface SettingsUpdatedMessage {
-  type: 'SETTINGS_UPDATED';
+  type: typeof MSG.SETTINGS_UPDATED;
 }
 
 export interface NudgeMessage {
-  type: 'NUDGE';
+  type: typeof MSG.NUDGE;
 }
 
 export interface ShowAveragePopupMessage {
-  type: 'SHOW_AVERAGE_POPUP';
+  type: typeof MSG.SHOW_AVERAGE_POPUP;
   minutesLeft: number;
   averageMinutes: number;
   stats: SessionStartStats;
 }
 
 export interface ShowBlockerMessage {
-  type: 'SHOW_BLOCKER';
+  type: typeof MSG.SHOW_BLOCKER;
   cooldownRemainingSeconds: number;
   totalCooldownSeconds: number;
   cooldownCount: number; // how many cooldowns triggered today
@@ -128,48 +129,48 @@ export interface ShowBlockerMessage {
 }
 
 export interface HideBlockerMessage {
-  type: 'HIDE_BLOCKER';
+  type: typeof MSG.HIDE_BLOCKER;
 }
 
 export interface EndSessionEarlyMessage {
-  type: 'END_SESSION_EARLY';
+  type: typeof MSG.END_SESSION_EARLY;
 }
 
 /** Popup → background → active tab: open the end-session confirmation overlay
  *  (the same one the keyboard shortcut shows) instead of ending immediately, so
  *  an accidental click on the popup button is recoverable. */
 export interface ShowEndSessionConfirmMessage {
-  type: 'SHOW_END_SESSION_CONFIRM';
+  type: typeof MSG.SHOW_END_SESSION_CONFIRM;
 }
 
 export interface EndSessionConfirmOpenMessage {
-  type: 'END_SESSION_CONFIRM_OPEN';
+  type: typeof MSG.END_SESSION_CONFIRM_OPEN;
 }
 
 export interface EndSessionConfirmCloseMessage {
-  type: 'END_SESSION_CONFIRM_CLOSE';
+  type: typeof MSG.END_SESSION_CONFIRM_CLOSE;
 }
 
 export interface AveragePopupOpenMessage {
-  type: 'AVERAGE_POPUP_OPEN';
+  type: typeof MSG.AVERAGE_POPUP_OPEN;
 }
 
 export interface AveragePopupCloseMessage {
-  type: 'AVERAGE_POPUP_CLOSE';
+  type: typeof MSG.AVERAGE_POPUP_CLOSE;
 }
 
 export interface RequestBlockerStateMessage {
-  type: 'REQUEST_BLOCKER_STATE';
+  type: typeof MSG.REQUEST_BLOCKER_STATE;
 }
 
 export interface ShowWindDownMessage {
-  type: 'SHOW_WIND_DOWN';
+  type: typeof MSG.SHOW_WIND_DOWN;
   progress: number;
   remainingSeconds: number;
 }
 
 export interface HideWindDownMessage {
-  type: 'HIDE_WIND_DOWN';
+  type: typeof MSG.HIDE_WIND_DOWN;
 }
 
 export type ExtensionMessage =

@@ -1,3 +1,4 @@
+import { MSG, PORT } from './shared/protocol.js';
 // Keep-alive companion for the MV3 service worker.
 //
 // WHY THIS EXISTS
@@ -22,14 +23,13 @@
 // deliberately accepted — a timer that doesn't behave like a timer is not
 // worth saving power for.
 
-const PORT_NAME = 'webtime-keepalive';
 
 // Chrome's idle timer is ~30s. Reconnecting well inside that keeps the worker
 // up even if a port is dropped silently.
 const RECONNECT_MS = 20000;
 
 function connect(): void {
-  const port = chrome.runtime.connect({ name: PORT_NAME });
+  const port = chrome.runtime.connect({ name: PORT.KEEPALIVE });
 
   port.onDisconnect.addListener(() => {
     // The worker was replaced (extension reload/update) or Chrome dropped the
@@ -41,7 +41,7 @@ function connect(): void {
   // port is not reliably enough to reset the idle timer across Chrome versions.
   const beat = setInterval(() => {
     try {
-      port.postMessage({ type: 'KEEPALIVE' });
+      port.postMessage({ type: MSG.KEEPALIVE });
     } catch {
       clearInterval(beat);   // port is dead; onDisconnect handles reconnecting
     }
