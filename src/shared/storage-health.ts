@@ -50,6 +50,20 @@ export function levelFor(bytes: number, quota: number = QUOTA_BYTES): StorageLev
 }
 
 /**
+ * How full storage is, as a whole percent: `90` for 90%.
+ *
+ * Rounded DOWN, not to nearest. The banner appears at exactly WARN_AT, so
+ * rounding up would let it say "90% full" while sitting at 89.6% — a number
+ * that contradicts the threshold that produced it. Down is also the honest
+ * direction for a warning: it never overstates how little room is left.
+ *
+ * Clamped to 100, since a store can exceed the quota we chose for Firefox.
+ */
+export function percentFull(bytes: number, quota: number = QUOTA_BYTES): number {
+  return Math.min(100, Math.floor((bytes / quota) * 100));
+}
+
+/**
  * A size for humans: "1.2 MB", "640 KB".
  *
  * One decimal for MB and none below it — at KB scale the extra digit is noise,

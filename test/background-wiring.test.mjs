@@ -473,6 +473,21 @@ test('the storage banner is outside the view-switching container', () => {
   assert.ok(html.includes('id="export-data-btn"'), 'settings needs its export control');
 
   const panel = readFileSync('src/popup/storage-panel.ts', 'utf8');
+
+  // The message is written from TS because the percentage is live. If the id
+  // the panel looks up is not the id in the markup, the banner shows an empty
+  // amber bar — visible, wrong, and saying nothing.
+  assert.ok(html.includes('id="storage-banner-text"'),
+    'the banner text element needs the id the panel fills');
+  assert.match(panel, /getElementById\('storage-banner-text'\)/,
+    'the panel must fill the banner text');
+  assert.match(panel, /percentFull\(bytes\)/, 'the message must carry the live percentage');
+  // Inside the message, not just anywhere in the file — the word 'settings'
+  // appears in this module for other reasons.
+  const msg = /text\.textContent =([\s\S]*?);/.exec(panel);
+  assert.ok(msg, 'the banner message must be findable');
+  assert.match(msg[1], /settings/i, 'the message must point at the settings export');
+
   for (const id of ['storage-banner-export', 'export-data-btn']) {
     assert.match(panel, new RegExp(`getElementById\\('${id}'\\)[\\s\\S]{0,60}addEventListener`),
       `${id} must have a click handler`);

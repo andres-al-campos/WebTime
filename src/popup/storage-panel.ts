@@ -10,7 +10,7 @@
 
 import { AppState } from './state.js';
 import { buildExport, exportFilename } from '../shared/data-export.js';
-import { formatBytes, levelFor, storedSize } from '../shared/storage-health.js';
+import { formatBytes, levelFor, percentFull, storedSize } from '../shared/storage-health.js';
 import { dayCount } from '../shared/time-history.js';
 
 declare const browser: typeof chrome;
@@ -50,7 +50,18 @@ export const StoragePanel = {
     }
 
     const banner = document.getElementById('storage-banner');
-    if (banner) banner.hidden = levelFor(bytes) === 'ok';
+    const warn = levelFor(bytes) !== 'ok';
+    if (banner) banner.hidden = !warn;
+
+    // Says where the export lives, because someone can fill ten years of
+    // storage without ever opening settings — this banner may be the first
+    // time they learn there is an export at all.
+    const text = document.getElementById('storage-banner-text');
+    if (text && warn) {
+      text.textContent =
+        `Stored data is ${percentFull(bytes)}% full. Oldest days will start being ` +
+        `overwritten. You can export your data here or in settings.`;
+    }
   },
 
   attach(): void {

@@ -19,7 +19,7 @@ await build({
   format: 'esm',
   outfile: outFile,
 });
-const { storedSize, levelFor, formatBytes, QUOTA_BYTES, WARN_AT } =
+const { storedSize, levelFor, formatBytes, QUOTA_BYTES, WARN_AT, percentFull } =
   await import(pathToFileURL(outFile).href);
 
 test('storedSize measures the JSON, not the object', () => {
@@ -64,4 +64,35 @@ test('formatBytes reads as a magnitude', () => {
   assert.equal(formatBytes(512), '512 B');
   assert.equal(formatBytes(2048), '2 KB');
   assert.equal(formatBytes(1024 * 1024 * 1.25), '1.3 MB');
+});
+
+test('percentFull rounds down, never up', () => {
+  // The banner fires at exactly WARN_AT. Rounding to nearest would let it read
+  // "90% full" at 89.6%, contradicting the threshold that produced it.
+  assert.equal(percentFull(QUOTA_BYTES * 0.896), 89);
+  assert.equal(percentFull(QUOTA_BYTES * 0.899), 89);
+  assert.equal(percentFull(QUOTA_BYTES * 0.9), 90);
+});
+
+test('the number shown agrees with the banner being shown', () => {
+  // The two must not disagree: anything that warns must read >= 90.
+  for (const f of [0.9, 0.93, 0.97, 1.0, 1.4]) {
+    const bytes = Math.round(QUOTA_BYTES * f);
+    assert.equal(levelFor(bytes), 'warn', `${f} should warn`);
+    assert.ok(percentFull(bytes) >= 90, `${f} should read >= 90, got ${percentFull(bytes)}`);
+  }
+  for (const f of [0, 0.5, 0.899]) {
+    assert.equal(levelFor(Math.round(QUOTA_BYTES * f)), 'ok');
+  }
+});
+
+test('percentFull clamps at 100 when over quota', () => {
+  // Firefox has no real 10MB ceiling, so a store CAN exceed it. "140% full"
+  // reads as a bug.
+  assert.equal(percentFull(QUOTA_BYTES * 3), 100);
+  assert.equal(percentFull(QUOTA_BYTES), 100);
+});
+
+test('an empty store is 0%', () => {
+  assert.equal(percentFull(0), 0);
 });

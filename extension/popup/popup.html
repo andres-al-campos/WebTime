@@ -50,9 +50,8 @@
          switch is a class on .pages-container, so a banner in here cannot be
          hidden by changing views. Shown only near the quota. -->
     <div id="storage-banner" class="storage-banner" hidden>
-      <span class="storage-banner-text">
-        Stored data is nearly full. Oldest days will start dropping.
-      </span>
+      <!-- Filled by storage-panel.ts: the percentage is live. -->
+      <span id="storage-banner-text" class="storage-banner-text"></span>
       <button type="button" id="storage-banner-export" class="storage-banner-btn">Export JSON</button>
     </div>
 
