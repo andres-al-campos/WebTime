@@ -15,9 +15,16 @@ await rm('extension/dist', { recursive: true, force: true });
 // often, from wondering why nothing logs. WEBTIME_DEBUG=0 forces it off.
 const DEBUG_ENABLED = process.env.WEBTIME_DEBUG !== '0';
 
+// Source maps are a local debugging aid, and they are big — half a megabyte
+// across the four bundles, which is most of what a user downloads. They ride
+// along with debug logging: present for `./build.sh`, absent for release.sh.
+// Not merely excluded from the zip, because a map that exists but is not
+// packaged leaves a //# sourceMappingURL pointing at a 404.
+const SOURCEMAPS = DEBUG_ENABLED;
+
 const commonOptions = {
   bundle: true,
-  sourcemap: true,
+  sourcemap: SOURCEMAPS,
   target: 'es2020',
   format: 'iife',
   define: {
