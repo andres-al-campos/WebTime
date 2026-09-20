@@ -422,3 +422,34 @@ test('every way a tab can vanish releases its dialog gate', () => {
   assert.match(ready[0], /releaseDialogGates\(sender\.tab\.id\)/,
     'a reloaded page must release the gate its predecessor held');
 });
+
+test('a store from a newer build is never written over', () => {
+  // readTrackedTime reports the refusal; only background.ts can honor it. A
+  // reader that returns fromFuture while the writer saves anyway loses the
+  // newer data on the first tick — silently, and only on a downgrade.
+  const load = /async function loadTimeData[\s\S]*?\n\}/.exec(src);
+  assert.ok(load, 'loadTimeData must be findable');
+  assert.match(load[0], /read\.fromFuture/, 'the load path must check fromFuture');
+  assert.match(load[0], /trackedTimeFromFuture = true/,
+    'the refusal must latch, or only the first save is skipped');
+
+  const save = /async function saveTimeData[\s\S]*?\n\}/.exec(src);
+  assert.ok(save, 'saveTimeData must be findable');
+  const guard = /if \(trackedTimeFromFuture\)[\s\S]{0,200}?return;/.exec(save[0]);
+  assert.ok(guard, 'saveTimeData must bail out when the latch is set');
+  // The bail-out sits before the write, and must not strand the re-entry flag.
+  assert.match(guard[0], /isSaving = false/,
+    'the early return must clear isSaving, or saving deadlocks forever');
+  assert.ok(save[0].indexOf('trackedTimeFromFuture') < save[0].indexOf('storage.local.set'),
+    'the guard must come before the write, not after it');
+});
+
+test('the tracked-time store is read and written under the same key', () => {
+  // A literal here and STORAGE.TRACKED_TIME there would read one key and write
+  // another: the history would look permanently empty and silently duplicate.
+  const save = /async function saveTimeData[\s\S]*?\n\}/.exec(src);
+  assert.match(save[0], /\[STORAGE\.TRACKED_TIME\]: storageData/,
+    'the write must use the protocol constant, not a bare trackedTime literal');
+  assert.match(save[0], /version: TRACKED_TIME_VERSION/,
+    'the written version must be the constant the reader compares against');
+});

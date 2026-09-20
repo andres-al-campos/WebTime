@@ -40,6 +40,7 @@ import {
   readStored,
   toStored,
 } from './shared/session-history.js';
+import { readTrackedTime, dayCount, TRACKED_TIME_VERSION } from './shared/time-history.js';
 import type {
   TimeHistory,
   Domain,
@@ -762,6 +763,12 @@ async function saveTimeData(): Promise<void> {
   // additive — but banking here keeps a later stop() from re-deriving across an
   // interval that has already been written.
   dailyClock = bank(dailyClock, Date.now());
+  if (trackedTimeFromFuture) {
+    log('saveTimeData() skipped: stored data is from a newer version.');
+    isSaving = false;
+    return;
+  }
+
   log(`saveTimeData() ${currentDateStr}: ${dailyTotal()} seconds`);
 
   try {
@@ -776,7 +783,7 @@ async function saveTimeData(): Promise<void> {
     const storageData = {
       lastDate: currentDateStr,
       timeHistory: timeHistory,
-      version: 1,
+      version: TRACKED_TIME_VERSION,
       // The anchor the clock is running from, so a worker death doesn't discard
       // the seconds since this write. Chrome gives no teardown callback, so
       // without this every restart silently loses up to a full save interval.
@@ -786,7 +793,7 @@ async function saveTimeData(): Promise<void> {
     };
 
     await browser.storage.local.set({
-      trackedTime: storageData,
+      [STORAGE.TRACKED_TIME]: storageData,
     });
     log("Time data successfully saved with history.");
   } catch (error) {
@@ -796,29 +803,50 @@ async function saveTimeData(): Promise<void> {
   }
 }
 
+// Latched by loadTimeData() when storage holds a format this build cannot
+// read. Every save is skipped while it is set, so the newer store survives
+// intact for the build that can read it.
+let trackedTimeFromFuture = false;
+
 async function loadTimeData(): Promise<void> {
   try {
     const storedData = await browser.storage.local.get(STORAGE.TRACKED_TIME);
-    const trackedTime = storedData[STORAGE.TRACKED_TIME];
+    const read = readTrackedTime(storedData[STORAGE.TRACKED_TIME]);
 
-    if (!trackedTime || !trackedTime.lastDate || !trackedTime.timeHistory) {
+    // A store written by a NEWER build. Reading it would be guesswork and
+    // saving over it would destroy data this build cannot represent, so the
+    // flag latches and every later save is skipped. The user sees an empty
+    // history until they update, which is recoverable; a clobbered store is
+    // not. Loud, because it is the one state where the extension is running
+    // but deliberately not recording.
+    if (read.fromFuture) {
+      trackedTimeFromFuture = true;
+      console.warn(
+        'WebTime: stored data was written by a newer version of this extension. ' +
+        'Time will not be recorded until you update, so the existing history is not overwritten.'
+      );
       initDefaultTimeData();
       return;
     }
 
-    timeHistory = trackedTime.timeHistory;
+    if (!read.lastDate || dayCount(read.history) === 0) {
+      initDefaultTimeData();
+      return;
+    }
 
-    if (currentDateStr !== trackedTime.lastDate) {
+    timeHistory = read.history;
+
+    if (currentDateStr !== read.lastDate) {
       log(
-        `New day detected (Last: ${trackedTime.lastDate}, Now: ${currentDateStr})`
+        `New day detected (Last: ${read.lastDate}, Now: ${currentDateStr})`
       );
       setDailyTotal(0);
     } else {
       // Stash the unfinished-write record for recoverTime(). trackedTabDomain is
       // still null here — init() only resolves the active tab later — so the
       // recovery itself has to wait until the domain is known.
-      pendingRecovery = trackedTime.runningSince
-        ? { since: trackedTime.runningSince, domain: trackedTime.runningDomain ?? null }
+      pendingRecovery = read.runningSince
+        ? { since: read.runningSince, domain: read.runningDomain }
         : null;
       const todaysData = timeHistory[currentDateStr] || {};
       setDailyTotal(trackedTabDomain ? (todaysData[trackedTabDomain] || 0) : 0);
