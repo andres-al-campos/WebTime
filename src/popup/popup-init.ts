@@ -4,6 +4,7 @@ import { AppState } from './state.js';
 import { STORAGE } from '../shared/protocol.js';
 import { UIManager } from './ui-manager.js';
 import { CONFIG, ViewState } from './config.js';
+import { StoragePanel } from './storage-panel.js';
 
 declare const browser: typeof chrome;
 
@@ -24,6 +25,8 @@ export const App = {
   },
 
   setupEventListeners(): void {
+    StoragePanel.attach();
+
     // Merged topbar: one nav button toggles between the two carousel pages.
     const navToggleBtn = document.getElementById('nav-toggle-btn');
     const settingsToggleBtn = document.getElementById('settings-toggle-btn');
@@ -89,6 +92,9 @@ export const App = {
     AppState.setCurrentDomain(currentDomain);
     AppState.setTimeHistory(timeHistory);
     AppState.sessionHistory = readStored(storedData[STORAGE.SESSION_HISTORY]);
+
+    // After both stores are in AppState — the measurement reads them.
+    StoragePanel.render();
   },
 
   renderInitialView(): void {

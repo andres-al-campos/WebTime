@@ -46,6 +46,16 @@
       </div>
     </div>
 
+    <!-- Storage warning. Outside .carousel on purpose: the general/detail
+         switch is a class on .pages-container, so a banner in here cannot be
+         hidden by changing views. Shown only near the quota. -->
+    <div id="storage-banner" class="storage-banner" hidden>
+      <span class="storage-banner-text">
+        Stored data is nearly full. Oldest days will start dropping.
+      </span>
+      <button type="button" id="storage-banner-export" class="storage-banner-btn">Export JSON</button>
+    </div>
+
     <!-- ============ CAROUSEL ============ -->
     <div class="carousel">
       <div class="pages-container show-detail">
@@ -140,6 +150,14 @@
               <div class="shortcut-row">
                 <input type="text" id="end-session-shortcut" value="Ctrl+E" readonly placeholder="Click to set">
                 <button type="button" id="end-session-shortcut-clear" title="Disable shortcut">×</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Your data</label>
+              <div class="data-row">
+                <span id="storage-summary" class="data-summary">&mdash;</span>
+                <button type="button" id="export-data-btn" class="data-btn">Export</button>
               </div>
             </div>
 

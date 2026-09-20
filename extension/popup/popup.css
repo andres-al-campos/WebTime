@@ -626,3 +626,65 @@ body {
   padding: 14px 4px; text-align: center;
   font: 400 11.5px 'IBM Plex Sans'; color: var(--text-faint);
 }
+
+/* ===========================================================================
+   STORAGE BANNER + DATA ROW
+   The banner sits between the topbar and the carousel, so the general/detail
+   class swap on .pages-container cannot hide it. A tint rather than a solid
+   amber fill: it is a standing condition with months of headroom, not an
+   error, and it is on screen every time the popup opens.
+   =========================================================================== */
+.storage-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(240, 165, 42, 0.10);
+  border-bottom: 1px solid rgba(240, 165, 42, 0.28);
+}
+.storage-banner[hidden] { display: none; }
+
+.storage-banner-text {
+  flex: 1;
+  font: 400 12.5px 'IBM Plex Sans';
+  color: var(--text);
+}
+
+.storage-banner-btn {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid rgba(240, 165, 42, 0.45);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--warn);
+  font: 600 12px 'IBM Plex Sans';
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.storage-banner-btn:hover { background: rgba(240, 165, 42, 0.16); }
+
+.data-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.data-summary {
+  flex: 1;
+  font: 400 12.5px 'IBM Plex Sans';
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.data-btn {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: 600 12.5px 'IBM Plex Sans';
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.data-btn:hover { background: #262b34; }

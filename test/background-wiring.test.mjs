@@ -453,3 +453,28 @@ test('the tracked-time store is read and written under the same key', () => {
   assert.match(save[0], /version: TRACKED_TIME_VERSION/,
     'the written version must be the constant the reader compares against');
 });
+
+test('the storage banner is outside the view-switching container', () => {
+  // The general/detail switch is a class swap on .pages-container. A banner
+  // nested inside it would vanish on one of the two views, which is the exact
+  // thing this banner must not do — and it would look fine in whichever view
+  // happened to be open when it was tested.
+  const html = readFileSync('extension/popup/popup.html', 'utf8');
+  const banner = html.indexOf('id="storage-banner"');
+  // The real element, not the word in a comment that explains this rule.
+  const container = html.indexOf('<div class="pages-container');
+  assert.ok(banner !== -1, 'the banner must exist in the popup markup');
+  assert.ok(container !== -1, 'the carousel container must exist');
+  assert.ok(banner < container,
+    'the banner must come before .pages-container, not inside it');
+
+  // Both export affordances have to be wired, not just the settings one.
+  assert.ok(html.includes('id="storage-banner-export"'), 'banner needs its export control');
+  assert.ok(html.includes('id="export-data-btn"'), 'settings needs its export control');
+
+  const panel = readFileSync('src/popup/storage-panel.ts', 'utf8');
+  for (const id of ['storage-banner-export', 'export-data-btn']) {
+    assert.match(panel, new RegExp(`getElementById\\('${id}'\\)[\\s\\S]{0,60}addEventListener`),
+      `${id} must have a click handler`);
+  }
+});
