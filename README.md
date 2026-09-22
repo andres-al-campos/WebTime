@@ -11,12 +11,13 @@ flexible — focused sessions, gentle nudges, and cooldowns when a limit is reac
 
 | All sites | Single site |
 |:---:|:---:|
-| ![All-sites view — daily usage chart with 7-day average and a per-site breakdown](extension/images/GeneralView.png) | ![Single-site view — usage vs. all sites, session rules, and the live session card](extension/images/SingleDomainView.png) |
+| ![All-sites view — daily usage chart with 7-day average and a per-site breakdown](store-assets/GeneralView.png) | ![Single-site view — usage vs. all sites, session rules, and the live session card](store-assets/SingleDomainView.png) |
 
 ## Install
 
 WebTime is published on
-[Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/).
+[Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/)
+and the Chrome Web Store.
 
 You can also install the latest build directly from
 [GitHub Releases](https://github.com/andres-al-campos/WebTime/releases). Each
@@ -49,7 +50,10 @@ early on your own terms.
   expand any day for a detailed breakdown.
 - **7-day moving averages** to spot patterns, plus a popup when you cross ~80%
   of your trailing 7-day average for a domain.
-- **All your data stays local** — nothing leaves your browser.
+- **All your data stays local** — nothing leaves your browser. Settings shows
+  how much is stored, and exports the lot to JSON whenever you want a copy.
+  Storage holds years of history; a banner warns before the oldest days start
+  being overwritten.
 
 **Mindful accountability**
 
@@ -81,6 +85,9 @@ messaging, storage, alarms — live in the background script.
 | [`src/shared/session-model.ts`](src/shared/session-model.ts) | Session lifecycle math — boundaries, carryover, nudge timing, grace, wind-down, wake schedules. |
 | [`src/shared/interventions.ts`](src/shared/interventions.ts) | Which intervention is due: limit reached, nudge. |
 | [`src/shared/session-history.ts`](src/shared/session-history.ts) | The per-day record of finished sessions. |
+| [`src/shared/time-history.ts`](src/shared/time-history.ts) | Reading the tracked-time store across format versions. A store written by a newer build is refused, never half-read. |
+| [`src/shared/storage-health.ts`](src/shared/storage-health.ts) | How full storage is, in bytes rather than days. |
+| [`src/shared/data-export.ts`](src/shared/data-export.ts) | The exported-backup payload, which names itself so it stays readable without the extension. |
 | [`src/shared/protocol.ts`](src/shared/protocol.ts) | Every string that crosses a boundary: message types, storage keys, alarm and port names. |
 | [`src/shared/utils.ts`](src/shared/utils.ts), [`constants.ts`](src/shared/constants.ts), [`src/types.ts`](src/types.ts) | Formatting helpers, tuning defaults, shared types. |
 
@@ -120,7 +127,12 @@ Firefox one with the project-local `web-ext`, the Chrome one straight from
 ```
 
 Because it gates on the tests, a failing suite aborts the package step. Debug
-logging is on for a plain `./build.sh` and compiled out by `release.sh`.
+logging and source maps are on for a plain `./build.sh` and compiled out by
+`release.sh`, so a release ships neither.
+
+Only what the extension loads is packaged: store listing artwork lives in
+`store-assets/`, outside the two loadable directories, because both packagers
+copy `images/` wholesale.
 
 ## Loading the extension
 

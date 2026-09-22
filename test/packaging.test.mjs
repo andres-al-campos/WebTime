@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 test('extension/images holds only what the manifest loads', () => {
   // Store screenshots live in store-assets/, outside the packaged dirs. Both
@@ -44,4 +45,29 @@ test('source maps are tied to the debug flag, not always on', () => {
     'the bundler must read the flag, not a hardcoded true');
   assert.doesNotMatch(build, /sourcemap: true/,
     'no bundle may hardcode sourcemap: true');
+});
+
+test('every local link and image in the README resolves', () => {
+  // Moving the screenshots out of extension/images/ orphaned the two README
+  // images, and a broken image on GitHub looks identical to a correct one
+  // until someone loads the page. Relative targets are cheap to check here.
+  const readme = readFileSync('README.md', 'utf8');
+  const targets = [...readme.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]);
+  assert.ok(targets.length > 10, 'the README should have plenty of links');
+
+  const broken = targets
+    .filter((t) => !/^(https?:|mailto:|#)/.test(t))
+    .map((t) => t.split('#')[0])
+    .filter((t) => t && !existsSync(t));
+
+  assert.deepEqual(broken, [], `README points at files that do not exist: ${broken}`);
+});
+
+test('the README screenshots are committed, not just on disk', () => {
+  // GitHub renders from the repo, so an untracked image is a broken image
+  // there while looking fine locally.
+  const tracked = execFileSync('git', ['ls-files', 'store-assets'], { encoding: 'utf8' });
+  for (const f of ['GeneralView.png', 'SingleDomainView.png']) {
+    assert.ok(tracked.includes(f), `store-assets/${f} must be tracked by git`);
+  }
 });
