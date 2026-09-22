@@ -423,25 +423,95 @@ test('every way a tab can vanish releases its dialog gate', () => {
     'a reloaded page must release the gate its predecessor held');
 });
 
-test('a store from a newer build is never written over', () => {
-  // readTrackedTime reports the refusal; only background.ts can honor it. A
-  // reader that returns fromFuture while the writer saves anyway loses the
-  // newer data on the first tick — silently, and only on a downgrade.
-  const load = /async function loadTimeData[\s\S]*?\n\}/.exec(src);
-  assert.ok(load, 'loadTimeData must be findable');
-  assert.match(load[0], /read\.fromFuture/, 'the load path must check fromFuture');
-  assert.match(load[0], /trackedTimeFromFuture = true/,
-    'the refusal must latch, or only the first save is skipped');
+// Every history store is read through a guarded reader, and every write to
+// one is skipped while that read refused. The failure this pins: an unreadable
+// store reads as empty, and the next save writes that emptiness over the real
+// thing. It happened once per store. A list the test checks cannot forget a
+// write path the way a person fixing one store at a time can.
+const HISTORY_WRITES = {
+  // storage key constant       -> the latch its writer must check
+  'STORAGE.TRACKED_TIME':    'trackedTimeReadOnly',
+  'STORAGE.SESSION_HISTORY': 'sessionHistoryReadOnly',
+};
 
+/** The function body containing `index` in `text`. */
+function enclosingFunction(text, index) {
+  // Signature may span lines (recordFinishedSession's does), so match only the
+  // head and take the next top-level closing brace as the end.
+  const starts = [...text.matchAll(/\n(?:export )?(?:async )?function (\w+)\s*\(/g)]
+    .filter((m) => m.index < index);
+  const m = starts[starts.length - 1];
+  const bodyEnd = text.indexOf('\n}\n', m.index + 1);
+  return { name: m[1], body: text.slice(m.index, bodyEnd), offset: m.index };
+}
+
+test('every write to a history store sits behind its read-only latch', () => {
+  const allSrc = ['src/background.ts', 'src/popup/popup-init.ts', 'src/popup/ui-manager.ts',
+                  'src/popup/session-card.ts', 'src/popup/storage-panel.ts']
+    .map((f) => [f, readFileSync(f, 'utf8')]);
+
+  let found = 0;
+  for (const [file, text] of allSrc) {
+    for (const m of text.matchAll(/storage\.local\.set\(\{\s*\[(STORAGE\.\w+)\]/g)) {
+      const latch = HISTORY_WRITES[m[1]];
+      if (!latch) continue;          // settings, today's session state, flags
+      found++;
+      assert.equal(file, 'src/background.ts',
+        `${m[1]} is written from ${file}; only the background may write history`);
+      const fn = enclosingFunction(text, m.index);
+      const guard = fn.body.indexOf(`if (${latch})`);
+      assert.ok(guard !== -1, `${fn.name} writes ${m[1]} without checking ${latch}`);
+      assert.ok(fn.offset + guard < m.index,
+        `${fn.name} checks ${latch} after writing ${m[1]}, not before`);
+    }
+  }
+  assert.equal(found, Object.keys(HISTORY_WRITES).length,
+    'every history store should have exactly one writer — a new one needs a latch');
+
+  // A bare-literal key would slip past the pattern above entirely.
+  for (const [file, text] of allSrc) {
+    assert.doesNotMatch(text, /storage\.local\.set\(\{\s*(trackedTime|sessionHistory)\s*:/,
+      `${file} writes a history store by literal key, bypassing this check`);
+  }
+});
+
+test('each latch is set when its read refuses or fails', () => {
+  for (const [loader, latch] of [['loadTimeData', 'trackedTimeReadOnly'],
+                                 ['loadSessionHistory', 'sessionHistoryReadOnly']]) {
+    const body = new RegExp(`async function ${loader}[\\s\\S]*?\\n\\}`).exec(src);
+    assert.ok(body, `${loader} must be findable`);
+    const [tryPart, catchPart] = body[0].split(/\} catch/);
+    assert.match(tryPart, /read\.fromFuture/, `${loader} must check fromFuture`);
+    assert.match(tryPart, new RegExp(`${latch} = true`),
+      `${loader} must latch when the store is from a newer build`);
+    assert.ok(catchPart, `${loader} must have a catch`);
+    assert.match(catchPart, new RegExp(`${latch} = true`),
+      `${loader} must latch when the read fails — an empty stand-in is not the truth`);
+  }
+});
+
+test('the save early-return does not strand the re-entry flag', () => {
   const save = /async function saveTimeData[\s\S]*?\n\}/.exec(src);
-  assert.ok(save, 'saveTimeData must be findable');
-  const guard = /if \(trackedTimeFromFuture\)[\s\S]{0,200}?return;/.exec(save[0]);
-  assert.ok(guard, 'saveTimeData must bail out when the latch is set');
-  // The bail-out sits before the write, and must not strand the re-entry flag.
+  const guard = /if \(trackedTimeReadOnly\)[\s\S]{0,200}?return;/.exec(save[0]);
+  assert.ok(guard, 'saveTimeData must bail out when read-only');
   assert.match(guard[0], /isSaving = false/,
     'the early return must clear isSaving, or saving deadlocks forever');
-  assert.ok(save[0].indexOf('trackedTimeFromFuture') < save[0].indexOf('storage.local.set'),
-    'the guard must come before the write, not after it');
+});
+
+test('the popup reads both stores through the guarded readers', () => {
+  // A popup that reads ?.timeHistory directly would draw a newer build's data
+  // with this build's assumptions, and export empty stand-ins as a backup.
+  const init = readFileSync('src/popup/popup-init.ts', 'utf8');
+  assert.match(init, /readTrackedTime\(storedData\[STORAGE\.TRACKED_TIME\]\)/);
+  assert.match(init, /readStored\(storedData\[STORAGE\.SESSION_HISTORY\]\)/);
+  assert.doesNotMatch(init, /\[STORAGE\.TRACKED_TIME\]\?\.timeHistory/,
+    'no unguarded read of the tracked-time store');
+  assert.match(init, /storedByNewerVersion = tracked\.fromFuture \|\| sessions\.fromFuture/);
+
+  const panel = readFileSync('src/popup/storage-panel.ts', 'utf8');
+  const exp = /function downloadExport[\s\S]*?\n\}/.exec(panel);
+  assert.match(exp[0], /if \(AppState\.storedByNewerVersion\) return;/,
+    'export must refuse to write empty stand-ins as a backup');
 });
 
 test('the tracked-time store is read and written under the same key', () => {
