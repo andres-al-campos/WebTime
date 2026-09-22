@@ -157,41 +157,60 @@ function bareHistory() {
   return { '2026-09-16': { 'youtube.com': [[900, 900, 300, 'completed'], [420, 900, 0, 'early']] } };
 }
 
+/** The history alone, for tests that only care what was read. */
+const historyOf = (raw) => readStored(raw).history;
+
 test('readStored: a pre-versioning bare map is returned intact', () => {
   const bare = bareHistory();
-  assert.deepEqual(readStored(bare), bare);
+  assert.deepEqual(readStored(bare), { history: bare, fromFuture: false });
   // And it is still usable as history, not just deep-equal to itself.
-  assert.equal(sessionsFor(readStored(bare), '2026-09-16', 'youtube.com').length, 2);
+  assert.equal(sessionsFor(historyOf(bare), '2026-09-16', 'youtube.com').length, 2);
 });
 
-test('readStored: nothing stored yet reads as empty history', () => {
-  assert.deepEqual(readStored(undefined), {});
-  assert.deepEqual(readStored(null), {});
+test('readStored: nothing stored yet reads as empty history, safe to write', () => {
+  assert.deepEqual(readStored(undefined), { history: {}, fromFuture: false });
+  assert.deepEqual(readStored(null), { history: {}, fromFuture: false });
 });
 
 test('readStored: unwraps a versioned envelope', () => {
   const bare = bareHistory();
-  assert.deepEqual(readStored(toStored(bare)), bare);
+  assert.deepEqual(readStored(toStored(bare)), { history: bare, fromFuture: false });
 });
 
 test('toStored/readStored round-trips without losing records', () => {
   const bare = bareHistory();
-  assert.deepEqual(readStored(toStored(readStored(toStored(bare)))), bare);
+  assert.deepEqual(historyOf(toStored(historyOf(toStored(bare)))), bare);
 });
 
 test('toStored stamps the current version', () => {
   assert.equal(toStored({}).version, SESSION_HISTORY_VERSION);
 });
 
-test('readStored: a version from the future reads empty rather than guessing', () => {
+// This used to be pinned as "reads empty rather than guessing", and stopped
+// there. Reading empty is right; the missing half was that the caller then
+// saved that empty history over the real one on the next finished session.
+// The read has to say it refused, or the caller cannot know not to write.
+test('readStored: a version from the future is refused, and says so', () => {
   const future = { version: SESSION_HISTORY_VERSION + 1, history: bareHistory() };
-  assert.deepEqual(readStored(future), {});
+  const read = readStored(future);
+  assert.equal(read.fromFuture, true, 'the caller must be told not to write');
+  assert.deepEqual(read.history, {}, 'and must not get a half-read of it');
 });
 
-test('readStored: corrupt envelopes read empty instead of throwing', () => {
-  assert.deepEqual(readStored({ version: 'one', history: bareHistory() }), {});
-  assert.deepEqual(readStored({ version: 1 }), {});
-  assert.deepEqual(readStored({ version: 1, history: 'nope' }), {});
-  assert.deepEqual(readStored('garbage'), {});
-  assert.deepEqual(readStored(42), {});
+test('readStored: the current version is not mistaken for the future', () => {
+  assert.equal(readStored(toStored(bareHistory())).fromFuture, false);
+});
+
+test('readStored: corrupt envelopes read empty, and do not block writes', () => {
+  // Corruption is not the future: there is nothing readable to protect, and
+  // flagging it would stop session recording on that install forever.
+  for (const raw of [
+    { version: 'one', history: bareHistory() },
+    { version: 1 },
+    { version: 1, history: 'nope' },
+    'garbage',
+    42,
+  ]) {
+    assert.deepEqual(readStored(raw), { history: {}, fromFuture: false }, JSON.stringify(raw));
+  }
 });

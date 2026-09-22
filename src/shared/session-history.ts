@@ -84,17 +84,30 @@ export interface StoredSessionHistory {
  * Never throws. A corrupt store returns empty, because failing to load history
  * must not stop the extension from tracking time.
  */
-export function readStored(raw: unknown): SessionHistory {
-  if (!raw || typeof raw !== 'object') return {};
+/** What a read produced, and whether the caller may write back over it. */
+export interface SessionHistoryRead {
+  history: SessionHistory;
+  /**
+   * The store exists but this build cannot read it. The caller must NOT write:
+   * `history` is empty, and saving it would replace the real store with it.
+   */
+  fromFuture: boolean;
+}
+
+export function readStored(raw: unknown): SessionHistoryRead {
+  const empty = { history: {}, fromFuture: false };
+  if (!raw || typeof raw !== 'object') return empty;
 
   // Pre-versioning: a bare date → domain → records map, no envelope.
-  if (!('version' in raw)) return raw as SessionHistory;
+  if (!('version' in raw)) return { history: raw as SessionHistory, fromFuture: false };
 
   const stored = raw as Partial<StoredSessionHistory>;
-  if (typeof stored.version !== 'number') return {};
-  if (stored.version > SESSION_HISTORY_VERSION) return {};
-  if (!stored.history || typeof stored.history !== 'object') return {};
-  return stored.history;
+  // A version that is not a number is corruption, not the future: there is
+  // nothing readable to protect, and refusing would block writes forever.
+  if (typeof stored.version !== 'number') return empty;
+  if (stored.version > SESSION_HISTORY_VERSION) return { history: {}, fromFuture: true };
+  if (!stored.history || typeof stored.history !== 'object') return empty;
+  return { history: stored.history, fromFuture: false };
 }
 
 /** Wrap the history for storage. The only thing that should write this key. */

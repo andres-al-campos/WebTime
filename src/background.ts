@@ -699,14 +699,33 @@ const SESSION_HISTORY_KEEP_DAYS = 730;
  */
 let sessionHistory: SessionHistory = {};
 
+// Set when the stored history could not be read — written by a newer build, or
+// the read itself failed. In both cases `sessionHistory` is empty only because
+// we could not see the real one, and the next recorded session would save that
+// emptiness over it. So every write is skipped until the browser restarts.
+let sessionHistoryReadOnly = false;
+
 async function loadSessionHistory(): Promise<void> {
   try {
     const data = await browser.storage.local.get(STORAGE.SESSION_HISTORY);
     // readStored accepts both the pre-versioning bare map and the envelope, so
     // history written by an older build survives the upgrade untouched.
-    sessionHistory = readStored(data[STORAGE.SESSION_HISTORY]);
+    const read = readStored(data[STORAGE.SESSION_HISTORY]);
+    sessionHistory = read.history;
+    if (read.fromFuture) {
+      sessionHistoryReadOnly = true;
+      console.warn(
+        'WebTime: session history was saved by a newer version of this extension. ' +
+        'Sessions will not be recorded until you update, so the existing history is not overwritten.'
+      );
+    }
   } catch (err) {
-    console.warn('Failed to load session history:', err);
+    sessionHistoryReadOnly = true;
+    console.warn(
+      'WebTime: could not read session history, so sessions will not be recorded ' +
+      'this browser session (the stored history is left untouched). Restart the browser to retry.',
+      err
+    );
     sessionHistory = {};
   }
 }
@@ -727,6 +746,10 @@ function recordFinishedSession(
   dateStr: DateString = currentDateStr
 ): void {
   if (!session) return;
+  if (sessionHistoryReadOnly) {
+    log(`Session not recorded for ${domain}: stored history is read-only this run.`);
+    return;
+  }
   const record = toRecord(session, dailyTotal(), cooldownSeconds, endState);
   sessionHistory = pruneHistory(
     appendRecord(sessionHistory, dateStr, domain, record),
@@ -763,8 +786,8 @@ async function saveTimeData(): Promise<void> {
   // additive — but banking here keeps a later stop() from re-deriving across an
   // interval that has already been written.
   dailyClock = bank(dailyClock, Date.now());
-  if (trackedTimeFromFuture) {
-    log('saveTimeData() skipped: stored data is from a newer version.');
+  if (trackedTimeReadOnly) {
+    log('saveTimeData() skipped: stored history is read-only this run.');
     isSaving = false;
     return;
   }
@@ -803,10 +826,11 @@ async function saveTimeData(): Promise<void> {
   }
 }
 
-// Latched by loadTimeData() when storage holds a format this build cannot
-// read. Every save is skipped while it is set, so the newer store survives
-// intact for the build that can read it.
-let trackedTimeFromFuture = false;
+// Latched by loadTimeData() when the stored history could not be read — a
+// format from a newer build, or a failed read. Either way the in-memory
+// history is empty only because the real one was not visible, so every save
+// is skipped while this is set and the store survives untouched.
+let trackedTimeReadOnly = false;
 
 async function loadTimeData(): Promise<void> {
   try {
@@ -820,7 +844,7 @@ async function loadTimeData(): Promise<void> {
     // not. Loud, because it is the one state where the extension is running
     // but deliberately not recording.
     if (read.fromFuture) {
-      trackedTimeFromFuture = true;
+      trackedTimeReadOnly = true;
       console.warn(
         'WebTime: stored data was written by a newer version of this extension. ' +
         'Time will not be recorded until you update, so the existing history is not overwritten.'
@@ -856,7 +880,12 @@ async function loadTimeData(): Promise<void> {
       `Loaded data for ${currentDateStr}, time: ${dailyTotal()}`
     );
   } catch (error) {
-    console.error("Error loading time data:", error);
+    trackedTimeReadOnly = true;
+    console.error(
+      'WebTime: could not read tracked time, so time will not be saved this browser ' +
+      'session (the stored history is left untouched). Restart the browser to retry.',
+      error
+    );
     initDefaultTimeData();
   }
 }
