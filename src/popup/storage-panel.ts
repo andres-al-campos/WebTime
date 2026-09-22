@@ -27,6 +27,8 @@ function measure(): { bytes: number; days: number } {
 
 /** Serialize and hand the browser a download. */
 function downloadExport(): void {
+  // Belt to render()'s braces: never export stand-in empties as a backup.
+  if (AppState.storedByNewerVersion) return;
   const payload = buildExport(AppState.allTimeHistory || {}, AppState.sessionHistory);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -42,6 +44,19 @@ function downloadExport(): void {
 export const StoragePanel = {
   /** Fill the settings row and show the banner only when near the quota. */
   render(): void {
+    // In this state the histories in memory are empty stand-ins. Measuring them
+    // would report "0 B", and exporting them would hand over an empty backup
+    // that looks like a real one — the worst outcome for a backup.
+    if (AppState.storedByNewerVersion) {
+      const summary = document.getElementById('storage-summary');
+      if (summary) summary.textContent = 'Saved by a newer version. Update WebTime to export it.';
+      const btn = document.getElementById('export-data-btn') as HTMLButtonElement | null;
+      if (btn) btn.disabled = true;
+      const banner = document.getElementById('storage-banner');
+      if (banner) banner.hidden = true;
+      return;
+    }
+
     const { bytes, days } = measure();
 
     const summary = document.getElementById('storage-summary');

@@ -688,3 +688,5 @@ body {
   transition: background 0.15s;
 }
 .data-btn:hover { background: #262b34; }
+.data-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.data-btn:disabled:hover { background: var(--bg-input); }

@@ -1,5 +1,6 @@
 import { extractDomain } from '../shared/utils.js';
 import { readStored } from '../shared/session-history.js';
+import { readTrackedTime } from '../shared/time-history.js';
 import { AppState } from './state.js';
 import { STORAGE } from '../shared/protocol.js';
 import { UIManager } from './ui-manager.js';
@@ -78,7 +79,11 @@ export const App = {
       STORAGE.SETTINGS,
       STORAGE.SESSION_HISTORY,
     ]);
-    const timeHistory = storedData[STORAGE.TRACKED_TIME]?.timeHistory || {};
+    // Through the same readers the background uses, so the popup and the
+    // background can never disagree about whether the stored data is readable.
+    const tracked = readTrackedTime(storedData[STORAGE.TRACKED_TIME]);
+    const sessions = readStored(storedData[STORAGE.SESSION_HISTORY]);
+    AppState.storedByNewerVersion = tracked.fromFuture || sessions.fromFuture;
     const settings = storedData[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     if (settings.global?.scalingPower !== undefined) {
@@ -90,14 +95,23 @@ export const App = {
     AppState.dayResetTime = settings.global?.dayResetTime || 0;
 
     AppState.setCurrentDomain(currentDomain);
-    AppState.setTimeHistory(timeHistory);
-    AppState.sessionHistory = readStored(storedData[STORAGE.SESSION_HISTORY]);
+    AppState.setTimeHistory(tracked.history);
+    AppState.sessionHistory = sessions.history;
 
     // After both stores are in AppState — the measurement reads them.
     StoragePanel.render();
   },
 
   renderInitialView(): void {
+    // Before the empty check: an empty chart here would read as "your history
+    // is gone", when it is intact and just unreadable by this build.
+    if (AppState.storedByNewerVersion) {
+      UIManager.displayMessage('#detail-page .left-panel',
+        'Your data was saved by a newer version of WebTime, so this version cannot ' +
+        'show it. It is safe and untouched. Update WebTime to see it again.');
+      return;
+    }
+
     if (!AppState.allTimeHistory || Object.keys(AppState.allTimeHistory).length === 0) {
       UIManager.displayMessage('#detail-page .left-panel',
         `No tracking data available yet for ${AppState.activeTabDomain || "any site"}. Start browsing to collect data.`);

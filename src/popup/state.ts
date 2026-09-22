@@ -18,6 +18,9 @@ export interface AppStateInterface {
   dayResetTime: number;
   /** Finished sessions per day per domain, for the past-day panel. */
   sessionHistory: SessionHistory;
+  /** Either store was saved by a newer build. The histories above are empty
+   *  only because this build cannot read them — nothing here is the truth. */
+  storedByNewerVersion: boolean;
 
   setCurrentDomain(domain: Domain | null): void;
   setSelectedDomain(domain: Domain | null): void;
@@ -45,6 +48,7 @@ export const AppState: AppStateInterface = {
   lockedDayIndex: null,
   dayResetTime: 0,
   sessionHistory: {},
+  storedByNewerVersion: false,
 
   setCurrentDomain(domain: Domain | null): void {
     this.activeTabDomain = domain;
