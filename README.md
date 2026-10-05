@@ -17,7 +17,7 @@ flexible — focused sessions, gentle nudges, and cooldowns when a limit is reac
 
 WebTime is published on
 [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/web-time/)
-and the Chrome Web Store.
+and the [Chrome Web Store](https://chromewebstore.google.com/detail/web-time/jhjogglmncdgcneifchfiopinepbmbce).
 
 You can also install the latest build directly from
 [GitHub Releases](https://github.com/andres-al-campos/WebTime/releases). Each
