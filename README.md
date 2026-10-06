@@ -53,8 +53,7 @@ early on your own terms.
   full week of history there.
 - **All your data stays local** — nothing leaves your browser. Settings shows
   how much is stored, and exports the lot to JSON whenever you want a copy.
-  Storage holds years of history; a banner warns before the oldest days start
-  being overwritten.
+  Storage holds years of history; a banner warns as it nears its limit.
 
 **Mindful accountability**
 
@@ -66,7 +65,8 @@ early on your own terms.
 - **End a session early** — unused time rolls over to your next session, plus an
   extra 10% on top, so stopping early is rewarded, not punished.
 - **Wind-down mode** — a bar across the top of the page that drains down over
-  the final 60 seconds of a session, a visible heads-up that time's almost up.
+  the final 60 seconds of a session while the page slowly dims, a visible
+  heads-up that time's almost up.
 - **Per-site limits** — customize what works for each site. Your time, your
   decisions.
 
