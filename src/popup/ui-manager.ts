@@ -127,7 +127,7 @@ export function closeSettings(): void {
 }
 
 /** Toggle the settings overlay — the topbar menu button both opens and closes
- *  it (hamburger morphs to ✕), so there's no separate close control to reach. */
+ *  it (the gear rotates while open), so there's no separate close control to reach. */
 export function toggleSettings(): void {
   const overlay = document.getElementById('settings-overlay');
   if (overlay?.classList.contains('open')) closeSettings();

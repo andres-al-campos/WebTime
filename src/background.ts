@@ -1666,6 +1666,9 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   };
 }
 
+// The "Phi" in the name (and "φ-nudge" in the log) is from the golden-ratio
+// schedule that nudges used to follow. They now fire at a fixed per-domain
+// interval; see computeNudgeTimes in session-model.ts.
 function checkPhiNudges(settings: InterventionSettings): void {
   const { sessionLimitSeconds } = settings;
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;

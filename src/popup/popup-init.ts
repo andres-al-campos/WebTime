@@ -44,7 +44,7 @@ export const App = {
       });
     }
 
-    // One button toggles the right-half settings overlay; it morphs hamburger→✕.
+    // One button toggles the right-half settings overlay; the gear rotates while it is open.
     if (settingsToggleBtn) {
       settingsToggleBtn.addEventListener('click', () => UIManager.toggleSettings());
     }
