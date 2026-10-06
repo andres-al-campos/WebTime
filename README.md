@@ -49,7 +49,8 @@ early on your own terms.
 - **Usage chart** in the toolbar popup — track individual sites over time, and
   expand any day for a detailed breakdown.
 - **7-day moving averages** to spot patterns, plus a popup when you cross ~80%
-  of your trailing 7-day average for a domain.
+  of your trailing 7-day average on a site with session limits, once it has a
+  full week of history there.
 - **All your data stays local** — nothing leaves your browser. Settings shows
   how much is stored, and exports the lot to JSON whenever you want a copy.
   Storage holds years of history; a banner warns before the oldest days start
