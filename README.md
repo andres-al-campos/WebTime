@@ -57,8 +57,9 @@ early on your own terms.
 
 **Mindful accountability**
 
-- **Minimalist nudges** — brief overlays that get more frequent as a session
-  nears its end (sparse early, accelerating late), without interrupting your flow.
+- **Minimalist nudges** — at a steady per-site interval (every 20 minutes by
+  default), the timer briefly swells with the page blurred, without
+  interrupting your flow.
 - **Session limits with cooldowns** — after continuous use past a configurable
   limit, a cooldown blocks the page; each successive cooldown grows.
 - **End a session early** — unused time rolls over to your next session, plus an
