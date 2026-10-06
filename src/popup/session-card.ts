@@ -545,6 +545,8 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   const today = getLocalDateStr(dayResetTime);
 
   // Stale (different day) state shouldn't drive the card.
+  // TODO: limits are ON here, so "No limit on this site" is wrong; this is the
+  // "No active session" case that renderIdle exists for.
   if (!state || state.date !== today) { renderOff(host); return; }
 
   const session = state.sessions?.[domain];

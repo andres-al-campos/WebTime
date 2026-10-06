@@ -71,6 +71,9 @@ export const StoragePanel = {
     // Says where the export lives, because someone can fill ten years of
     // storage without ever opening settings — this banner may be the first
     // time they learn there is an export at all.
+    // TODO: "Oldest days will start being overwritten" isn't true: nothing
+    // prunes tracked time, so at the quota storage.local writes would fail
+    // instead. Either prune oldest days or reword the warning.
     const text = document.getElementById('storage-banner-text');
     if (text && warn) {
       text.textContent =

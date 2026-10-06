@@ -111,6 +111,8 @@ export function openSettings(): void {
   document.getElementById('settings-toggle-btn')?.classList.add('is-open');
   document.getElementById('settings-toggle-btn')?.setAttribute('aria-expanded', 'true');
   // Reflect the detail-view domain into the per-site limits header.
+  // TODO: dead since per-site limits left this sheet; popup.html has no
+  // #settings-domain-inline, so this never runs. Remove.
   const settingsDomainInline = document.getElementById('settings-domain-inline');
   if (settingsDomainInline) {
     settingsDomainInline.textContent = AppState.selectedDomain || '—';
