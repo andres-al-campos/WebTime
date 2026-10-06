@@ -8,11 +8,13 @@
     "build": "npm run typecheck && npm run bundle",
     "bundle": "node build.mjs",
     "watch": "tsc --watch --noEmit",
-    "clean": "rm -rf extension/dist dist-chrome"
+    "clean": "rm -rf extension/dist dist-chrome",
+    "drive": "node scripts/drive.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.260",
     "esbuild": "^0.20.0",
+    "playwright": "1.61.0",
     "typescript": "^5.3.3",
     "web-ext": "^10.4.0"
   }
