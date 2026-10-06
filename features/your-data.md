@@ -1,0 +1,33 @@
+# Your data
+
+All data stays in the browser. You can see how much is stored and export it.
+
+## Sub-features
+
+- Settings → "Your data": size and number of days, e.g. `48 KB · 120 days`.
+- Export: downloads `webtime-backup-YYYY-MM-DD.json` with tracked time and
+  session history, labelled with app name, export time and format versions.
+- Storage banner at the top of the popup at 90% of a 10 MB budget, with its
+  own Export button.
+- If the stored data was written by a newer WebTime, the popup says so,
+  disables export and shows no charts, rather than treating the data as empty.
+
+## How to get to it
+
+Popup → gear → "Your data". The banner appears on its own near the limit.
+
+## Driving it
+
+Preconditions: `./build.sh`; some history.
+
+1. Open settings, click Export.
+2. Expected: a download named `webtime-backup-<date>.json` whose
+   `app` is `WebTime`.
+
+Not yet proven: needs the harness to open the popup and catch the download.
+
+## Gotchas
+
+- The banner says the oldest days "will start being overwritten". Nothing
+  prunes tracked time, so at the limit saves would fail instead. Found reading
+  code, not observed.
