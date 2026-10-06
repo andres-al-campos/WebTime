@@ -563,3 +563,14 @@ test('the storage banner is outside the view-switching container', () => {
       `${id} must have a click handler`);
   }
 });
+
+test('clockStart refuses to start unless the gates allow it', () => {
+  // The clock has had two deciders before: a caller starting it on its own
+  // judgement while the gates said stop. The guard inside clockStart is what
+  // makes the gates the only decider, whoever calls it.
+  const at = src.indexOf('function clockStart(): void {');
+  assert.notEqual(at, -1, 'clockStart() not found; update this test if it was renamed');
+  const firstLine = src.slice(at).split('\n')[1].trim();
+  assert.equal(firstLine, 'if (!shouldClockRun()) return;',
+    'clockStart() must open with `if (!shouldClockRun()) return;` so nothing starts the clock past the gates');
+});
