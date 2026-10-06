@@ -42,7 +42,9 @@ Last driven: 2026-10-06, Chrome (Playwright Chromium 1228, headless). Output:
 - Whether the clock runs is decided in one place, the ordered gates
   (`src/shared/clock-gates.ts`), and every start/stop goes through it. Two
   past regressions were callers deciding on their own. Audio must be checked
-  before OS idle, or videos stop counting after 30s.
+  before OS idle, or videos stop counting after 30s. Both rules are tests
+  (`test/clock-gates.test.mjs`, `test/background-wiring.test.mjs`), so
+  `./build.sh` fails if either breaks.
 - Chrome's keep-alive (an offscreen document, Chrome only) re-derives state
   constantly and hides stale-state bugs that Firefox's persistent background
   shows. Test clock changes on both.

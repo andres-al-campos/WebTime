@@ -56,7 +56,8 @@ feature gets a file and a row here. After driving one, update its row to
   (new headless mode), serves a page on a free localhost port, moves the mouse
   on it for 15s (`--seconds N`), and prints the clock verdicts, the timer text
   and the stored seconds for `localhost`. `--headed` shows the window.
-- **Doctor:** `npm run drive -- --doctor`. Prints `✓ doctor: stack up, clock
+- **Doctor:** `./build.sh check` runs the tests, then `npm run drive --
+  --doctor`, which prints `✓ doctor: stack up, clock
   runs on a tracked page` when the build loads, the worker starts and the clock
   reaches `running`. Verdicts come from debug logging, so a `release.sh` build
   reports none.

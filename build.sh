@@ -3,6 +3,15 @@
 
 set -e  # Exit immediately if a command fails
 
+# ./build.sh check: the tests (which hold the laws, e.g. the clock-gate order)
+# and the doctor (the built extension loads and its clock runs). Builds nothing,
+# so run plain ./build.sh first after a change.
+if [ "${1:-}" = "check" ]; then
+    npm test
+    npm run drive -- --doctor
+    exit
+fi
+
 # extension/manifest.json is the single source of truth for the version;
 # manifest-chrome.mjs derives the MV3 manifest from it, so both zips below
 # carry the same number without it being written down twice.
