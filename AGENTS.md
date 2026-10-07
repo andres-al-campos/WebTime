@@ -97,3 +97,21 @@ A file being large is not itself a reason to split it. Extract when there is a
 decision worth testing or a bug worth pinning. `checkWindDown` was left alone:
 its arithmetic is already pure in `windDownState` and what remains is a
 three-line edge flag.
+
+## Feature map
+
+`features/` lists what a user can do, how to reach it, and how to drive it.
+Read it before adding a feature: if it's already there, extend it.
+
+- A feature is something a user sets out to do, or meets, with its own way in:
+  a page surface, a popup view, a card, a shortcut. Things reached only inside
+  one of those are sub-features in that feature's file. Plumbing (the Chrome
+  keep-alive, storage formats) is not a feature; it goes in Gotchas where it
+  bites.
+- Each file has Sub-features, How to get to it, Driving it (preconditions,
+  steps, what you can observe; if it can't be driven headless yet, the reason
+  is the to-do), and Gotchas. Describe behavior, not code locations, unless
+  the location is the point.
+- Change a feature's file in the same commit that changes the feature. A new
+  feature gets a file and a row in the index. After driving one, set its row
+  to "Yes, <browser> (YYYY-MM-DD)" and update its "Last driven" line.

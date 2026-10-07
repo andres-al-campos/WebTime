@@ -20,33 +20,9 @@ building it again.
 | Global settings | [global-settings.md](global-settings.md) | Firefox, Chrome | Not yet proven |
 | Your data | [your-data.md](your-data.md) | Firefox, Chrome | Not yet proven |
 
-## What counts as a feature
-
-Something a user sets out to do, or meets, with its own way in: a page
-surface, a popup view, a card, a shortcut. Things you only reach inside one of
-those are sub-features and live in that feature's file. The Chrome-only
-keep-alive and the storage formats are plumbing, not features; they appear in
-Gotchas where they bite.
-
-Every feature ships on both browsers from one source. "Firefox, Chrome" means
-the same code runs on both, not that both have been driven.
-
-## Each file has
-
-- **Sub-features**: what a user can do inside it, including limits.
-- **How to get to it**: the user's path.
-- **Driving it**: preconditions, then steps and what you can observe. If it
-  can't be driven headless yet, the reason is the to-do.
-- **Gotchas**: what has bitten us or will.
-
-Claims describe behavior, not code locations, except where the location is the
-point.
-
-## Keeping it current
-
-Change a feature's file in the same commit that changes the feature. A new
-feature gets a file and a row here. After driving one, update its row to
-"Yes, <browser> (YYYY-MM-DD)" and its "Last driven" line.
+Each row is something you do or run into in WebTime. Smaller things live
+inside their feature's file. "Firefox, Chrome" means the same code runs on
+both, not that both have been driven.
 
 ## Driving conventions
 
