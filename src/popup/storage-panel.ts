@@ -71,14 +71,13 @@ export const StoragePanel = {
     // Says where the export lives, because someone can fill ten years of
     // storage without ever opening settings — this banner may be the first
     // time they learn there is an export at all.
-    // TODO: "Oldest days will start being overwritten" isn't true: nothing
-    // prunes tracked time, so at the quota storage.local writes would fail
-    // instead. Either prune oldest days or reword the warning.
+    // Nothing prunes tracked time, so a full store means writes fail (Chrome's
+    // 10 MB); it never means old days get dropped.
     const text = document.getElementById('storage-banner-text');
     if (text && warn) {
       text.textContent =
-        `Stored data is ${percentFull(bytes)}% full. Oldest days will start being ` +
-        `overwritten. You can export your data here or in settings.`;
+        `Stored data is ${percentFull(bytes)}% full. When it's full, new time may ` +
+        `not be saved. You can export your data here or in settings.`;
     }
   },
 

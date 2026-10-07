@@ -28,6 +28,5 @@ Not yet proven: needs the harness to open the popup and catch the download.
 
 ## Gotchas
 
-- The banner says the oldest days "will start being overwritten". Nothing
-  prunes tracked time, so at the limit saves would fail instead. Found reading
-  code, not observed.
+- Nothing prunes tracked time. At Chrome's 10 MB limit saves fail; old days
+  are never dropped. The banner used to promise they would be overwritten.
