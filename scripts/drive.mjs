@@ -8,6 +8,7 @@
 //   --seconds N                       how long to stay on the page (default 15)
 //   --headed                          show the browser window
 //   --limit M                         turn session rules on for the page, M-minute sessions
+//   --cooldown M                      with --limit: cooldown step in minutes (session N waits N × M)
 //   --popup                           afterwards, open the popup for the page and print its cards
 //   --ext DIR                         extension dir to load (default dist-chrome/)
 //
@@ -33,6 +34,7 @@ const headed = flag('--headed');
 const seconds = Number(opt('--seconds', doctor ? '6' : '15'));
 const extDir = resolve(root, opt('--ext', 'dist-chrome'));
 const limitMinutes = opt('--limit', null) === null ? null : Number(opt('--limit'));
+const cooldownMinutes = Number(opt('--cooldown', '0'));
 const popup = flag('--popup');
 
 function fail(what, fix) {
@@ -58,14 +60,50 @@ const profile = mkdtempSync(join(tmpdir(), 'webtime-drive-'));
 const verdicts = [];
 let context;
 
-try {
-  context = await chromium.launchPersistentContext(profile, {
+async function launch() {
+  const ctx = await chromium.launchPersistentContext(profile, {
     // 'chromium' is the full browser in new headless mode; the default
     // headless shell cannot load extensions.
     channel: 'chromium',
     headless: !headed,
     args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
   });
+  let [w] = ctx.serviceWorkers();
+  if (!w) w = await ctx.waitForEvent('serviceworker', { timeout: 10_000 }).catch(() => null);
+  if (!w) {
+    await ctx.close();
+    fail('The extension service worker never started.',
+      'check dist-chrome/manifest.json loads in chrome://extensions (Load unpacked) and fix any error it shows.');
+    process.exit(1);
+  }
+  return [ctx, w];
+}
+
+try {
+  let worker;
+  [context, worker] = await launch();
+
+  // The os-idle gate asks the OS, and synthetic mouse moves don't count as
+  // input there, so with the default 30s timeout the clock stops whenever
+  // nobody has touched this machine for 30s. Raise it so runs don't depend on that.
+  const global = { inactivityTimeoutS: 3600 };
+  const domains = limitMinutes === null ? {} : {
+    localhost: { sessionLimitEnabled: true, sessionLimit: limitMinutes, cooldownIncrement: cooldownMinutes },
+  };
+  {
+    // Store the settings, then relaunch so the worker boots with them.
+    // SETTINGS_UPDATED would apply them but keep the OS idle state read under
+    // the old timeout: a person changing settings is active, the harness is
+    // not. (chrome.runtime.reload() disables a command-line-loaded extension.)
+    await worker.evaluate((v) => chrome.storage.local.set({ webTimeSettings: v }), { global, domains });
+    await context.close();
+    [context, worker] = await launch();
+    if (limitMinutes !== null) {
+      console.log(`  session rules on for localhost: ${limitMinutes}-minute sessions, ` +
+        `${cooldownMinutes ? `${cooldownMinutes}-minute cooldown step` : 'no cooldown'}`);
+    }
+  }
+  console.log(`✓ worker up: ${worker.url()}`);
 
   // Debug builds log every clock transition as "Clock verdict: a -> b".
   context.on('console', (msg) => {
@@ -73,36 +111,25 @@ try {
     if (m) verdicts.push(m[1]);
   });
 
-  let [worker] = context.serviceWorkers();
-  if (!worker) {
-    worker = await context.waitForEvent('serviceworker', { timeout: 10_000 }).catch(() => null);
-  }
-  if (!worker) {
-    fail('The extension service worker never started.',
-      'check dist-chrome/manifest.json loads in chrome://extensions (Load unpacked) and fix any error it shows.');
-    process.exit(1);
-  }
-  console.log(`✓ worker up: ${worker.url()}`);
-
-  if (limitMinutes !== null) {
-    // The worker reads settings when it needs them, so writing them before the
-    // page opens is enough; no SETTINGS_UPDATED needed.
-    await worker.evaluate((limit) => chrome.storage.local.set({
-      webTimeSettings: { global: {}, domains: { localhost: { sessionLimitEnabled: true, sessionLimit: limit } } },
-    }), limitMinutes);
-    console.log(`  session rules on for localhost: ${limitMinutes}-minute sessions`);
-  }
-
   const page = await context.newPage();
   await page.goto(pageUrl);
   await page.bringToFront();
 
   // Move the mouse through the stay so the tab counts as engaged. The content
   // script throttles USER_ACTIVE to one per 5s, so every second is plenty.
+  // Each second also notes which overlays are up, and logs only the changes.
+  const timeline = [];
+  let lastOverlays = '';
   for (let s = 0; s < seconds; s++) {
     await page.mouse.move(100 + (s % 2) * 50, 100 + s);
     await page.waitForTimeout(1000);
+    const overlays = await readOverlays(page);
+    if (overlays !== lastOverlays) {
+      timeline.push(`${s + 1}s ${overlays || '(none)'}`);
+      lastOverlays = overlays;
+    }
   }
+  const blockerSeen = timeline.some((t) => t.includes('blocker'));
 
   const timerText = await page.locator('.web-time-timer').textContent().catch(() => null);
   const timerVisible = await page
@@ -123,6 +150,7 @@ try {
 
   const lastVerdict = verdicts.at(-1) ?? '(none logged; is this a release build?)';
   console.log(`  clock verdicts seen: ${verdicts.join(' → ') || '(none)'}`);
+  if (timeline.length) console.log(`  overlays:\n    ${timeline.join('\n    ')}`);
   console.log(`  timer: ${timerVisible ? 'visible' : 'hidden'} "${timerText ?? '(no element)'}"`);
   console.log(`  stored localhost seconds on ${day ?? '(no day)'}: ${localhostSeconds}`);
 
@@ -131,6 +159,12 @@ try {
       ? '✓ doctor: stack up, clock runs on a tracked page'
       : `✗ doctor: clock never reached "running" (last verdict: ${lastVerdict})`);
     if (!verdicts.includes('running')) process.exitCode = 1;
+  } else if (limitMinutes !== null && cooldownMinutes > 0 && seconds > limitMinutes * 60 + 5 && !blockerSeen) {
+    fail(`The session was ${limitMinutes} min and the stay ${seconds}s, but no cooldown blocker appeared ` +
+      `(last clock verdict: ${lastVerdict}).`,
+      verdicts.includes('cooldown')
+        ? 'the background did start the cooldown, so the page never showed it: check SHOW_BLOCKER handling in content.ts.'
+        : 'check the stored seconds above reached the limit; if they did, the session-end path in background.ts did not fire.');
   } else if (!timerVisible || !timerText) {
     fail('The on-page timer never appeared.',
       'run with --headed and watch the page; check the worker console for errors.');
@@ -180,4 +214,32 @@ async function readPopup(context, worker, pageUrl) {
   const result = { usage: await text('#detail-usage-card'), session: await text('#session-card'), errors };
   await popupPage.close();
   return result;
+}
+
+// The page's own overlays, summarized in one line: blocker text, wind-down
+// darkness, average popup, nudge blur. Read from the page, not from messages,
+// so what's reported is what a user would see.
+function readOverlays(page) {
+  return page.evaluate(() => {
+    const out = [];
+    const blocker = document.querySelector('.web-time-blocker-overlay');
+    if (blocker) {
+      // Without the live countdown, so the timeline logs the blocker once.
+      const clone = blocker.cloneNode(true);
+      clone.querySelector('.web-time-blocker-countdown')?.remove();
+      const lines = [...clone.querySelectorAll('*')].filter((e) => !e.children.length).map((e) => e.textContent.trim());
+      out.push(`blocker "${lines.filter(Boolean).join(' / ')}"`);
+    }
+    const wind = document.querySelector('.web-time-wind-down-overlay');
+    if (wind && wind.style.visibility !== 'hidden') {
+      const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(wind.style.background)?.[1];
+      // In 10% steps, so the timeline logs a step, not every second.
+      out.push(`wind-down (dim ${alpha ? Math.floor(alpha * 10) * 10 : '?'}%)`);
+    }
+    if (document.querySelector('.web-time-average-popup-overlay')) out.push('average popup');
+    // Nudges and the blocker share this element.
+    const blur = document.querySelector('.web-time-blur-overlay');
+    if (blur && getComputedStyle(blur).opacity !== '0' && blur.style.display !== 'none') out.push('blur');
+    return out.join(', ');
+  }).catch(() => '');
 }
