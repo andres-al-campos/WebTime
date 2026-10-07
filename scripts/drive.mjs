@@ -7,6 +7,8 @@
 //   node scripts/drive.mjs --doctor   is the stack up? (build present, worker loads, clock verdict)
 //   --seconds N                       how long to stay on the page (default 15)
 //   --headed                          show the browser window
+//   --limit M                         turn session rules on for the page, M-minute sessions
+//   --popup                           afterwards, open the popup for the page and print its cards
 //   --ext DIR                         extension dir to load (default dist-chrome/)
 //
 // Chrome only. Firefox has no equivalent here; drive it by hand (web-ext run).
@@ -30,6 +32,8 @@ const doctor = flag('--doctor');
 const headed = flag('--headed');
 const seconds = Number(opt('--seconds', doctor ? '6' : '15'));
 const extDir = resolve(root, opt('--ext', 'dist-chrome'));
+const limitMinutes = opt('--limit', null) === null ? null : Number(opt('--limit'));
+const popup = flag('--popup');
 
 function fail(what, fix) {
   console.error(`✗ ${what}\n  Fix: ${fix}`);
@@ -80,6 +84,15 @@ try {
   }
   console.log(`✓ worker up: ${worker.url()}`);
 
+  if (limitMinutes !== null) {
+    // The worker reads settings when it needs them, so writing them before the
+    // page opens is enough; no SETTINGS_UPDATED needed.
+    await worker.evaluate((limit) => chrome.storage.local.set({
+      webTimeSettings: { global: {}, domains: { localhost: { sessionLimitEnabled: true, sessionLimit: limit } } },
+    }), limitMinutes);
+    console.log(`  session rules on for localhost: ${limitMinutes}-minute sessions`);
+  }
+
   const page = await context.newPage();
   await page.goto(pageUrl);
   await page.bringToFront();
@@ -106,6 +119,8 @@ try {
   const day = stored?.lastDate;
   const localhostSeconds = day ? stored.timeHistory?.[day]?.localhost ?? 0 : 0;
 
+  const popupResult = popup ? await readPopup(context, worker, pageUrl) : null;
+
   const lastVerdict = verdicts.at(-1) ?? '(none logged; is this a release build?)';
   console.log(`  clock verdicts seen: ${verdicts.join(' → ') || '(none)'}`);
   console.log(`  timer: ${timerVisible ? 'visible' : 'hidden'} "${timerText ?? '(no element)'}"`);
@@ -125,8 +140,44 @@ try {
   } else {
     console.log(`✓ tracked ${localhostSeconds}s on localhost, timer showed "${timerText}"`);
   }
+  if (popupResult) {
+    console.log(`  popup usage card: ${JSON.stringify(popupResult.usage)}`);
+    console.log(`  popup session card: ${JSON.stringify(popupResult.session)}`);
+    if (popupResult.errors.length) {
+      fail(`The popup threw: ${popupResult.errors.join(' | ')}`,
+        'open the popup with --headed and check its console; the first error is usually the cause.');
+    } else if (!popupResult.usage) {
+      fail('The popup never rendered the site view for localhost.',
+        'run with --headed --popup and look at the popup tab; check that popup-init still reads the active tab with tabs.query.');
+    } else {
+      console.log('✓ popup rendered the site view for localhost');
+    }
+  }
 } finally {
   await context?.close();
   server.close();
   rmSync(profile, { recursive: true, force: true });
+}
+
+// The popup opens as an ordinary tab. It picks its site from the active tab,
+// which would be itself, so tabs.query is answered with the drive page instead.
+async function readPopup(context, worker, pageUrl) {
+  const id = new URL(worker.url()).host;
+  const popupPage = await context.newPage();
+  const errors = [];
+  popupPage.on('pageerror', (e) => errors.push(e.message));
+  await popupPage.addInitScript((url) => {
+    const query = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = async (q) => (q && q.active) ? [{ id: -1, url, active: true }] : query(q);
+  }, pageUrl);
+  await popupPage.goto(`chrome-extension://${id}/popup/popup.html`);
+  // Both cards render asynchronously from storage.
+  await popupPage.waitForFunction(
+    () => document.querySelector('#detail-usage-card')?.textContent.trim(),
+    null, { timeout: 10_000 }).catch(() => {});
+  await popupPage.waitForTimeout(300);
+  const text = (sel) => popupPage.locator(sel).innerText().then((t) => t.trim()).catch(() => '');
+  const result = { usage: await text('#detail-usage-card'), session: await text('#session-card'), errors };
+  await popupPage.close();
+  return result;
 }
