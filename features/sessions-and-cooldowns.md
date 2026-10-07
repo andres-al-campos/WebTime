@@ -26,13 +26,15 @@ popup's site view.
 
 Preconditions: `./build.sh`.
 
-1. `npm run drive -- --limit 1 --seconds 75` stays on the page past 60s of
-   counted time.
-2. Expected: `.web-time-blocker-overlay` with "Session 1 Ended"; the clock
-   verdict changes to `cooldown`; after the cooldown the overlay goes and the
-   timer shows the next session's countdown.
+1. `npm run drive -- --limit 1 --cooldown 0.25 --seconds 100`: 1-minute
+   sessions, a 15s cooldown after session 1.
+2. Expected in the overlay timeline: the blocker with "Session 1 Ended / 0:15
+   cooldown" just after 60s, gone 15s later; clock verdicts `running →
+   cooldown → running`; the timer counting down session 2.
 
-Not yet proven: the harness doesn't read the blocker overlay yet.
+Last driven: 2026-10-07, Chrome headless. Blocker at 62s, cleared at 77s,
+verdicts `running → cooldown → running`, timer `⏱ 00:37` at 100s (23s into
+session 2). Later sessions' longer cooldowns (N × step) not driven.
 
 ## Gotchas
 

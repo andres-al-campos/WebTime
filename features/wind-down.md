@@ -15,13 +15,15 @@ Automatic in the final minute of a session.
 
 ## Driving it
 
-Preconditions: `./build.sh`; rules on for `localhost` with a 1-minute session.
+Preconditions: `./build.sh`.
 
-1. Start the session and keep the page engaged.
-2. Expected: `.web-time-wind-down-overlay` becomes visible and its bar width
-   falls toward 0%.
+1. `npm run drive -- --limit 1 --seconds 60`. A 1-minute session is all
+   wind-down.
+2. Expected in the overlay timeline: wind-down from the start, the page
+   dimming in 10% steps.
 
-Not yet proven.
+Last driven: 2026-10-07, Chrome headless. Wind-down from 1s, dim 10% at 21s and
+20% at 41s; the blocker replaced it at 62s. The draining bar was not read.
 
 ## Gotchas
 
