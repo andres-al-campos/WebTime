@@ -38,6 +38,5 @@ Not yet proven.
 
 - Time doesn't count during a cooldown, and the next session is anchored at
   the daily total when the cooldown fired, so cooldown time never eats into it.
-- The popup card says "No limit on this site" when rules are on but no session
-  has been stored yet today; the "No active session" card was meant for that
-  case. Found reading code, not observed.
+- With rules on but no session stored yet today, the card shows "No active
+  session". It used to fall through to the "No limit on this site" card.

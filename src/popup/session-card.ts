@@ -543,14 +543,13 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
 
   const state = data[STORAGE.SESSION_STATE] as SessionState | undefined;
   const today = getLocalDateStr(dayResetTime);
+  const limitMinutes = domainSettings.sessionLimit || 40;
 
-  // Stale (different day) state shouldn't drive the card.
-  // TODO: limits are ON here, so "No limit on this site" is wrong; this is the
-  // "No active session" case that renderIdle exists for.
-  if (!state || state.date !== today) { renderOff(host); return; }
+  // Stale (different day) state shouldn't drive the card. Limits are on, so
+  // this is Idle, not Off.
+  if (!state || state.date !== today) { renderIdle(host, limitMinutes); return; }
 
   const session = state.sessions?.[domain];
-  const limitMinutes = domainSettings.sessionLimit || 40;
 
   // Cooldown takes precedence — there's a future cooldown end for this domain.
   const cooldownEnd = state.cooldownEndTime?.[domain] || 0;
