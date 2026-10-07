@@ -24,15 +24,15 @@ popup's site view.
 
 ## Driving it
 
-Preconditions: `./build.sh`; rules on for `localhost` with a 1-minute session
-and a short cooldown (see session-rules.md for the headless shortcut).
+Preconditions: `./build.sh`.
 
-1. Stay on the page past 60s of counted time.
+1. `npm run drive -- --limit 1 --seconds 75` stays on the page past 60s of
+   counted time.
 2. Expected: `.web-time-blocker-overlay` with "Session 1 Ended"; the clock
    verdict changes to `cooldown`; after the cooldown the overlay goes and the
    timer shows the next session's countdown.
 
-Not yet proven.
+Not yet proven: the harness doesn't read the blocker overlay yet.
 
 ## Gotchas
 

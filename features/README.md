@@ -9,7 +9,7 @@ building it again.
 | Time tracking | [time-tracking.md](time-tracking.md) | Firefox, Chrome | Yes, Chrome (2026-10-06) |
 | On-page timer | [on-page-timer.md](on-page-timer.md) | Firefox, Chrome | Yes, Chrome (2026-10-06) |
 | All-sites overview | [all-sites-overview.md](all-sites-overview.md) | Firefox, Chrome | Not yet proven |
-| Site view | [site-view.md](site-view.md) | Firefox, Chrome | Not yet proven |
+| Site view | [site-view.md](site-view.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Not yet proven |
 | Sessions and cooldowns | [sessions-and-cooldowns.md](sessions-and-cooldowns.md) | Firefox, Chrome | Not yet proven |
 | End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Not yet proven |
@@ -32,6 +32,8 @@ both, not that both have been driven.
   (new headless mode), serves a page on a free localhost port, moves the mouse
   on it for 15s (`--seconds N`), and prints the clock verdicts, the timer text
   and the stored seconds for `localhost`. `--headed` shows the window.
+  `--limit M` turns session rules on for `localhost` with M-minute sessions
+  first. `--popup` then opens the popup and prints its usage and session cards.
 - **Doctor:** `./build.sh check` runs the tests, then `npm run drive --
   --doctor`, which prints `✓ doctor: stack up, clock
   runs on a tracked page` when the build loads, the worker starts and the clock
@@ -45,11 +47,13 @@ both, not that both have been driven.
   --source-dir extension`, or load `extension/manifest.json` from
   `about:debugging`. Firefox's persistent background hides fewer bugs than
   Chrome's keep-alive, so a change to the clock wants both.
-- **Extending the harness:** settings can be written from the worker
-  (`worker.evaluate(() => chrome.storage.local.set(...))`) followed by a
-  `SETTINGS_UPDATED` message, and the popup opens as a normal tab at
-  `chrome-extension://<id>/popup/popup.html` (the id is in the worker URL).
-  Most "Not yet proven" rows need only that.
+- **Extending the harness:** write settings from the worker
+  (`worker.evaluate(() => chrome.storage.local.set(...))`); the background
+  reads them when it needs them. The popup opens as a tab at
+  `chrome-extension://<id>/popup/popup.html`, but it takes its site from the
+  active tab, which would be itself, so `readPopup` answers `tabs.query` with
+  the drive page. Popup-only features need a step there that clicks or reads
+  their part of the popup.
 
 ## Adding to the map
 

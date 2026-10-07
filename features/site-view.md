@@ -22,17 +22,15 @@ between the two pages.
 
 ## Driving it
 
-Preconditions: `./build.sh`; history for some site.
+Preconditions: `./build.sh`.
 
-1. Open the popup with that site's tab active.
-2. Expected: the site name in the top bar, a chart, the usage card, the
-   Session rules card.
+1. `npm run drive -- --popup` (add `--limit 2` to see an active session).
+2. Expected: the usage card for `localhost` and the session card are printed;
+   with `--limit 2`, "SESSION 1 · 96% LEFT" and the time left.
 
-Not yet proven. The popup reads the active tab's URL, so a popup opened as its
-own tab should see itself and show "No site to show here" (expected from the
-code, not tried). The
-harness needs to open the popup in a way that keeps the site tab active, or
-reach the site view through the all-sites breakdown.
+Last driven: 2026-10-07, Chrome headless. Usage card rendered; session card
+showed "No limit on this site" without `--limit` and "SESSION 1 · 96% LEFT,
+Time left 1:55" with `--limit 2`. The chart and the top bar were not checked.
 
 ## Gotchas
 

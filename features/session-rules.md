@@ -27,10 +27,9 @@ Preconditions: `./build.sh`.
 2. Expected: the session card shows "Session 1 · NN% left"; the page timer
    switches to `⏱ 00:59`-style countdown.
 
-Not yet proven. Headless shortcut: write
-`webTimeSettings.domains.localhost = { sessionLimitEnabled: true,
-sessionLimit: 1, cooldownIncrement: 0.5 }` from the worker, send
-`SETTINGS_UPDATED`, then drive the page.
+Not yet proven: the harness doesn't click the toggle or the steppers yet.
+Headless shortcut that skips the card: `npm run drive -- --limit 1 --popup`
+writes the same settings from the worker.
 
 ## Gotchas
 
