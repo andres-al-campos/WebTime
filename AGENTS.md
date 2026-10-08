@@ -46,6 +46,10 @@ Firefox's persistent background does not. **Test both.**
 
 ## Naming
 
+**Clock** is the time accrual (`clockStart`/`clockStop`, the gates). **Timer**
+is the on-page display and its once-a-second refresh (`startTimer`). The owner
+says "timer" for both; ask which one when it matters.
+
 `ensure*` means idempotent-with-effects (`ensureKeepAlive`, `ensureHeartbeat`,
 `ensureSessionStarted`). A plain `get*` must not persist or schedule.
 
