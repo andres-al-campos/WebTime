@@ -5,6 +5,7 @@
 import {
   cardText, fail, localDate, openPage, openPopup, pass, readNudges, readTimer, stay, startRun,
 } from './lib.mjs';
+import { readFile } from 'node:fs/promises';
 
 const rules = (localhost) => ({ webTimeSettings: { global: {}, domains: { localhost } } });
 const clockSeconds = (text) => {
@@ -232,10 +233,165 @@ async function sessionRules(opts) {
   }
 }
 
+/** Wind-down: a 1-minute session is all wind-down, so the page should dim
+ *  further as it goes. */
+async function windDown(opts) {
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 1 }) });
+  try {
+    console.log('  1-minute session');
+    const page = await openPage(run);
+    await stay(page, 40);
+    const dims = page.timeline.map((t) => /wind-down \(dim (\d+)%\)/.exec(t.overlays)?.[1]).filter(Boolean).map(Number);
+    console.log(`  dim steps seen: ${dims.map((d) => `${d}%`).join(' → ') || '(none)'}`);
+    if (!dims.length) {
+      return fail(`No wind-down overlay in a 1-minute session by 40s (last clock verdict: ${run.lastVerdict()}).`,
+        'check checkWindDown in background.ts and windDownState in session-model.ts.');
+    }
+    if (dims.length < 2 || dims.at(-1) <= dims[0]) {
+      return fail(`The wind-down dim did not deepen: ${dims.join('% → ')}%.`,
+        'check the opacity windDownState returns and how content.ts applies SHOW_WIND_DOWN.');
+    }
+    return pass(`wind-down dimmed from ${dims[0]}% to ${dims.at(-1)}% over 40s`);
+  } finally {
+    await run.close();
+  }
+}
+
+/** Stored history for the popup scenarios: localhost today and yesterday, and
+ *  two finished sessions yesterday (one completed, one ended early). */
+const seededHistory = () => ({
+  trackedTime: {
+    lastDate: localDate(0),
+    timeHistory: { [localDate(1)]: { localhost: 420 }, [localDate(0)]: { localhost: 125 } },
+    version: 1,
+  },
+  webTimeSessionHistory: {
+    version: 1,
+    history: { [localDate(1)]: { localhost: [[300, 300, 60, 'completed'], [120, 330, 0, 'early']] } },
+  },
+});
+
+/** Open the popup on seeded history and hand it to `check`; popup errors fail. */
+async function withPopup(opts, check) {
+  const run = await startRun({ ...opts, storage: seededHistory() });
+  try {
+    const popup = await openPopup(run);
+    const ok = await check(popup, run);
+    if (ok && popup.errors.length) {
+      return fail(`The popup threw: ${popup.errors.join(' | ')}`,
+        'open the popup with --headed and check its console; the first error is usually the cause.');
+    }
+    return ok;
+  } finally {
+    await run.close();
+  }
+}
+
+/** All-sites overview: the breakdown lists the seeded site for today. */
+function overview(opts) {
+  return withPopup(opts, async (popup) => {
+    await popup.click('#nav-toggle-btn');
+    await popup.waitForTimeout(500);
+    const labels = await popup.locator('#general-page .breakdown-label').allInnerTexts().catch(() => []);
+    const head = await cardText(popup, '#usage-breakdown-head');
+    console.log(`  breakdown head: ${head}`);
+    console.log(`  breakdown sites: ${labels.join(', ') || '(none)'}`);
+    if (!labels.some((l) => l.includes('localhost'))) {
+      return fail('The all-sites breakdown does not list localhost, which has 2:05 stored today.',
+        'check updateDailyBreakdown in popup/ui-manager.ts and the totals from data-processor.ts.');
+    }
+    return pass('all-sites overview lists localhost in today\'s breakdown');
+  });
+}
+
+/** Past-day sessions: click yesterday's bar, see its two finished sessions. */
+function pastDay(opts) {
+  return withPopup(opts, async (popup) => {
+    // The chart picks the nearest bar to the click (mode 'index'), today
+    // rightmost. Step left from the right edge until the date leaves "Today".
+    // Wait after each click: a second click on the same bar deselects it.
+    const box = await popup.locator('#time-chart').boundingBox();
+    let label = 'Today';
+    for (let x = box.x + box.width - 10; x > box.x && /Today/.test(label); x -= 20) {
+      await popup.mouse.click(x, box.y + box.height / 2);
+      await popup.waitForTimeout(150);
+      label = await popup.locator('#topbar-date-label').innerText();
+    }
+    const cards = await cardText(popup, '#past-day-cards');
+    console.log(`  date label: ${label}`);
+    console.log(`  past-day cards: ${cards || '(empty)'}`);
+    if (/Today/.test(label)) {
+      return fail('Clicking along the site chart never selected a past day.',
+        'check the detail chart onClick in popup/chart-builder.ts and selectDetailDay in ui-manager.ts.');
+    }
+    if (!/Session 1/i.test(cards) || !/Session 2/i.test(cards) || !/early/i.test(cards)) {
+      return fail(`Yesterday has two stored sessions (completed, ended early); the cards show "${cards}".`,
+        'check renderPastDayCards in popup/past-day-cards.ts and sessionsFor in shared/session-history.ts.');
+    }
+    return pass(`past day ${label} shows its two sessions, the second ended early`);
+  });
+}
+
+/** Global settings: step Chart scale down, Save, and find it in storage. */
+function globalSettings(opts) {
+  return withPopup(opts, async (popup, run) => {
+    await popup.click('#settings-toggle-btn');
+    await popup.waitForTimeout(400);
+    await popup.click('#chart-scaling-stepper .sc-stepper-btn:has-text("▼")');
+    await popup.click('#save-settings-btn');
+    await popup.waitForTimeout(500);
+    const saved = (await run.storage('webTimeSettings'))?.global;
+    console.log(`  saved global settings: ${JSON.stringify(saved)}`);
+    if (!(saved?.scalingPower < 1)) {
+      return fail(`Stepped Chart scale down from 1.0 and saved; storage holds ${saved?.scalingPower}.`,
+        'check the stepper mirrors into #chart-scaling (mountSettingsStepper) and saveSettings in popup/ui-manager.ts.');
+    }
+    if (saved.inactivityTimeoutS !== 3600) {
+      return fail(`Saving changed Inactivity to ${saved.inactivityTimeoutS} though it was not touched.`,
+        'saveSettings writes every global from the form: check loadSettings fills #inactivity-timeout from storage.');
+    }
+    return pass(`Chart scale saved as ${saved.scalingPower}; untouched settings kept`);
+  });
+}
+
+/** Your data: the summary counts the stored days and Export downloads them. */
+function exportData(opts) {
+  return withPopup(opts, async (popup) => {
+    await popup.click('#settings-toggle-btn');
+    await popup.waitForTimeout(400);
+    const summary = await cardText(popup, '#storage-summary');
+    const [download] = await Promise.all([
+      popup.waitForEvent('download', { timeout: 5000 }).catch(() => null),
+      popup.click('#export-data-btn'),
+    ]);
+    console.log(`  storage summary: ${summary}`);
+    if (!download) {
+      return fail('Export did not start a download.', 'check downloadExport in popup/storage-panel.ts.');
+    }
+    const file = JSON.parse(await readFile(await download.path(), 'utf8'));
+    const yesterday = file.sessionHistory?.history?.[localDate(1)]?.localhost?.length;
+    console.log(`  downloaded ${download.suggestedFilename()}: app ${file.app}, ` +
+      `${Object.keys(file.trackedTime?.timeHistory ?? {}).length} days, ${yesterday ?? 0} sessions yesterday`);
+    if (!/2 days/.test(summary)) {
+      return fail(`Two days are stored; the summary says "${summary}".`, 'check the summary in popup/storage-panel.ts.');
+    }
+    if (file.app !== 'WebTime' || file.trackedTime?.timeHistory?.[localDate(0)]?.localhost !== 125 || yesterday !== 2) {
+      return fail('The export is missing seeded data (want app WebTime, 125s today, 2 sessions yesterday).',
+        'check buildExport in shared/data-export.ts and what downloadExport reads from storage.');
+    }
+    return pass(`exported ${download.suggestedFilename()} with both days and yesterday's sessions`);
+  });
+}
+
 export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
   nudges: { run: nudges, about: 'Nudges at a 30s interval (~2 min)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },
+  'wind-down': { run: windDown, about: 'Wind-down dims the page as a session ends (~45s)' },
+  overview: { run: overview, about: 'All-sites overview lists stored sites (~5s)' },
+  'past-day': { run: pastDay, about: 'Past-day sessions from a clicked bar (~5s)' },
+  'global-settings': { run: globalSettings, about: 'Global settings save from the gear sheet (~5s)' },
+  export: { run: exportData, about: 'Your data: summary and Export download (~5s)' },
 };

@@ -10,6 +10,11 @@
 //   end-early          End session early via Ctrl+E
 //   average-popup      7-day average popup pauses the clock
 //   session-rules      the popup's session-rules toggle reaches the page
+//   wind-down          the page dims as a 1-minute session runs out
+//   overview           all-sites breakdown lists a stored site
+//   past-day           a past day's bar shows its finished sessions
+//   global-settings    the gear sheet saves a setting
+//   export             Your data summary and the Export download
 //   all                every scenario above, each in a fresh browser
 //
 //   --doctor           is the stack up? (track for 6s, passes if the clock runs)
