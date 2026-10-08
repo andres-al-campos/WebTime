@@ -74,6 +74,8 @@ both, not that both have been driven.
   steps, what you can observe; the scenario that checks it; if there isn't one
   yet, the reason is the to-do), and Gotchas. Describe behavior, not code locations, unless
   the location is the point.
+- `test/feature-map.test.mjs` fails when a row has no file, a file has no
+  row, or a file names a scenario that doesn't exist.
 - Change a feature's file in the same commit that changes the feature. A new
   feature gets a file and a row in the index. After driving one, set its row
   to "Yes, <browser> (YYYY-MM-DD)" and update its "Last driven" line.
