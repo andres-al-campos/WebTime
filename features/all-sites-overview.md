@@ -28,8 +28,12 @@ Preconditions: `./build.sh`; some stored history (drive a page first, or write
 2. Click "◂ All sites".
 3. Expected: a bar for today; the breakdown lists `localhost` with its time.
 
-No scenario: it only shows stored data, so a break shows the next time you
-open the popup. Check by hand with the steps above when it changes.
+`npm run drive -- overview` (~5s): seeds two days for `localhost`, opens the
+popup, switches to All sites and checks the breakdown lists `localhost`. It
+doesn't check the chart's bars or the average line.
+
+Last driven: 2026-10-07, Chrome. Breakdown showed `0h 2m`, `↓ 54% from avg`,
+`localhost`.
 
 ## Gotchas
 

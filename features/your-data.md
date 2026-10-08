@@ -24,9 +24,12 @@ Preconditions: `./build.sh`; some history.
 2. Expected: a download named `webtime-backup-<date>.json` whose
    `app` is `WebTime`.
 
-No scenario: a break shows the next time you export. Check by hand with the
-steps above when it changes. The near-full banner was checked with seeded
-history on 2026-10-07.
+`npm run drive -- export` (~5s): seeds two days and two sessions, checks the
+"Your data" summary, clicks Export and reads the downloaded file. The near-full
+banner has no scenario; it was checked with seeded history on 2026-10-07.
+
+Last driven: 2026-10-07, Chrome. `175 B · 2 days`; the file had both days and
+yesterday's two sessions.
 
 ## Gotchas
 

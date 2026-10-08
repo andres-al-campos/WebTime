@@ -17,10 +17,9 @@ Automatic in the final minute of a session.
 
 Preconditions: `./build.sh`.
 
-1. `npm run drive -- --limit 1 --seconds 60`. A 1-minute session is all
-   wind-down.
-2. Expected in the overlay timeline: wind-down from the start, the page
-   dimming in 10% steps.
+`npm run drive -- wind-down` (~45s): a 1-minute session, which is all
+wind-down. It checks the overlay appears and the dim deepens. To watch it hand
+over to the blocker, `npm run drive -- --limit 1 --seconds 70`.
 
 Last driven: 2026-10-07, Chrome headless. Wind-down from 1s, dim 10% at 21s and
 20% at 41s; the blocker replaced it at 62s. The draining bar was not read.

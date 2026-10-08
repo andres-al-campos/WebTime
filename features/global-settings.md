@@ -27,8 +27,12 @@ Preconditions: `./build.sh`.
 2. Expected: `webTimeSettings.global.inactivityTimeoutS` in storage holds the
    new value.
 
-No scenario: a break shows as soon as you change a setting. Check by hand with
-the steps above when it changes.
+`npm run drive -- global-settings` (~5s): steps Chart scale down, saves, and
+checks storage holds the new scale and the untouched Inactivity value. It
+doesn't check the background picks the settings up.
+
+Last driven: 2026-10-07, Chrome. Saved `scalingPower: 0.95`,
+`inactivityTimeoutS` kept.
 
 ## Gotchas
 

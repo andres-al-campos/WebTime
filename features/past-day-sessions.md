@@ -25,8 +25,12 @@ sessions for a site.
 1. Open the site view, click that day's bar.
 2. Expected: session cards; "Today →" returns to today's live cards.
 
-No scenario: it only shows stored data, so a break shows the next time you
-open the popup. Check by hand with the steps above when it changes.
+`npm run drive -- past-day` (~5s): seeds yesterday with a completed session
+and one ended early, clicks yesterday's bar and checks both cards and the
+"ended early" tag.
+
+Last driven: 2026-10-07, Chrome. Cards: `5m / 5m completed / 1:00 cooldown`,
+then `2m / 5m ended early / no cooldown / 7m total`.
 
 ## Gotchas
 
