@@ -17,14 +17,13 @@ and only once all 7 days before today have time on that site.
 
 ## Driving it
 
-Preconditions: `./build.sh`; seed `trackedTime` with 7 previous days of
-`localhost` time (say 60s each), rules on for `localhost`, then drive the page
-for ~50s.
+`npm run drive -- average-popup` (~1 min): seeds 7 previous days at 60s each
+for `localhost` and turns rules on, so the popup is due at 48s. It checks the
+clock holds while the popup is up and runs again after Continue.
 
-1. Expected: `.web-time-average-popup-overlay` appears; clock verdict
-   `average-popup` until Continue.
-
-Not yet proven.
+Last driven: 2026-10-07, Chrome headless. Popup at 48s with the seven 1m days,
+verdict `average-popup` and the timer held at `⏱ 09:13`; after Continue,
+verdict `running` and the timer moving.
 
 ## Gotchas
 

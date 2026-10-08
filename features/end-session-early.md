@@ -21,13 +21,15 @@ session card → "End session".
 
 ## Driving it
 
-Preconditions: `./build.sh`; a session running on `localhost`.
+`npm run drive -- end-early` (~40s): a 2-minute session with a 15s cooldown
+step. After 10s it presses Ctrl+E, reads the confirm, clicks OK, waits out the
+cooldown and compares the timer with the length the confirm promised.
 
-1. Press Ctrl+E on the page, then Enter.
-2. Expected: `.web-time-end-session-overlay`, then the cooldown blocker; the
-   recorded session ends as "early".
-
-Not yet proven.
+Last driven: 2026-10-07, Chrome headless. Confirm "End Session 1? / Site will
+go on a 0:15 cooldown / Next session will be 4:02", verdict
+`end-session-confirm` while it was up; blocker "Session 1 Ended" for 15s; timer
+`⏱ 04:00` two seconds into session 2. The popup's End session button and the
+recorded "ended early" tag were not checked.
 
 ## Gotchas
 

@@ -24,7 +24,9 @@ Preconditions: `./build.sh`; some history.
 2. Expected: a download named `webtime-backup-<date>.json` whose
    `app` is `WebTime`.
 
-Not yet proven: needs the harness to open the popup and catch the download.
+No scenario: a break shows the next time you export. Check by hand with the
+steps above when it changes. The near-full banner was checked with seeded
+history on 2026-10-07.
 
 ## Gotchas
 

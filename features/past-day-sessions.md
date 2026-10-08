@@ -25,7 +25,8 @@ sessions for a site.
 1. Open the site view, click that day's bar.
 2. Expected: session cards; "Today →" returns to today's live cards.
 
-Not yet proven.
+No scenario: it only shows stored data, so a break shows the next time you
+open the popup. Check by hand with the steps above when it changes.
 
 ## Gotchas
 

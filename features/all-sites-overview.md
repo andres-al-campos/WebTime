@@ -28,7 +28,8 @@ Preconditions: `./build.sh`; some stored history (drive a page first, or write
 2. Click "◂ All sites".
 3. Expected: a bar for today; the breakdown lists `localhost` with its time.
 
-Not yet proven: `drive.mjs` doesn't open the popup yet.
+No scenario: it only shows stored data, so a break shows the next time you
+open the popup. Check by hand with the steps above when it changes.
 
 ## Gotchas
 

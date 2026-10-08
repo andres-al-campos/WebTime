@@ -27,7 +27,8 @@ Preconditions: `./build.sh`.
 2. Expected: `webTimeSettings.global.inactivityTimeoutS` in storage holds the
    new value.
 
-Not yet proven.
+No scenario: a break shows as soon as you change a setting. Check by hand with
+the steps above when it changes.
 
 ## Gotchas
 

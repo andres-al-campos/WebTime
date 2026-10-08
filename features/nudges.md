@@ -18,14 +18,16 @@ Automatic during a session on a site with [session rules](session-rules.md) on.
 
 ## Driving it
 
-Preconditions: `./build.sh`; rules on for `localhost` with a session long
-enough to pass the first nudge, and "Nudge every" at 1.
+`npm run drive -- nudges` (~2 min): a 3-minute session with "Nudge every" at
+0.5, so nudges fall due at about 60, 90 and 120s. None can come before 60s or
+in the last 60s, so this is the shortest run that shows them. The harness
+records each nudge on the page (the timer scaled up) and counts the worker's
+nudge log lines; it fails on fewer than 2, on one before 60s, or if the clock
+isn't running afterwards.
 
-1. Stay on the page a little over a minute.
-2. Expected: the timer element gets `transform: scale(7)` briefly; the worker
-   logs a nudge.
-
-Not yet proven.
+Last driven: 2026-10-07, Chrome headless. Nudges at 65s, 88s and 123s, three
+logged by the worker, clock verdict `running` throughout. Media pausing was
+not checked (the drive page has none).
 
 ## Gotchas
 

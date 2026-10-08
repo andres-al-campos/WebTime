@@ -8,17 +8,17 @@ building it again.
 |---|---|---|---|
 | Time tracking | [time-tracking.md](time-tracking.md) | Firefox, Chrome | Yes, Chrome (2026-10-06) |
 | On-page timer | [on-page-timer.md](on-page-timer.md) | Firefox, Chrome | Yes, Chrome (2026-10-06) |
-| All-sites overview | [all-sites-overview.md](all-sites-overview.md) | Firefox, Chrome | Not yet proven |
+| All-sites overview | [all-sites-overview.md](all-sites-overview.md) | Firefox, Chrome | By hand (no scenario) |
 | Site view | [site-view.md](site-view.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Not yet proven |
+| Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Sessions and cooldowns | [sessions-and-cooldowns.md](sessions-and-cooldowns.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Not yet proven |
-| Nudges | [nudges.md](nudges.md) | Firefox, Chrome | Not yet proven |
+| End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
+| Nudges | [nudges.md](nudges.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Wind-down | [wind-down.md](wind-down.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| 7-day average popup | [average-popup.md](average-popup.md) | Firefox, Chrome | Not yet proven |
-| Past-day sessions | [past-day-sessions.md](past-day-sessions.md) | Firefox, Chrome | Not yet proven |
-| Global settings | [global-settings.md](global-settings.md) | Firefox, Chrome | Not yet proven |
-| Your data | [your-data.md](your-data.md) | Firefox, Chrome | Not yet proven |
+| 7-day average popup | [average-popup.md](average-popup.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
+| Past-day sessions | [past-day-sessions.md](past-day-sessions.md) | Firefox, Chrome | By hand (no scenario) |
+| Global settings | [global-settings.md](global-settings.md) | Firefox, Chrome | By hand (no scenario) |
+| Your data | [your-data.md](your-data.md) | Firefox, Chrome | By hand (no scenario) |
 
 Each row is something you do or run into in WebTime. Smaller things live
 inside their feature's file. "Firefox, Chrome" means the same code runs on
@@ -28,19 +28,16 @@ both, not that both have been driven.
 
 - **Run the project:** `./build.sh`. It refreshes `dist-chrome/` and
   `extension/`; the harness loads `dist-chrome/` and builds nothing itself.
-- **Drive:** `npm run drive` loads `dist-chrome/` into Playwright's Chromium
-  (new headless mode), serves a page on a free localhost port, moves the mouse
-  on it for 15s (`--seconds N`), and prints the clock verdicts, the timer text
-  and the stored seconds for `localhost`. `--headed` shows the window.
-  `--limit M` turns session rules on for `localhost` with M-minute sessions,
-  and `--cooldown M` sets the cooldown step. Each run prints a timeline of the
-  page's overlays (wind-down, blocker, blur, average popup) as they change.
-  `--popup` then opens the popup and prints its usage and session cards.
-- **Settings and idle:** the harness writes its settings, then relaunches the
-  browser so the worker boots with them. It always raises the inactivity
-  timeout to an hour: the `os-idle` gate asks the OS, synthetic mouse moves
-  don't count as input there, and otherwise every run fails once nobody has
-  touched the machine for 30s.
+- **Drive:** `npm run drive -- <scenario>` loads `dist-chrome/` into
+  Playwright's Chromium (new headless mode), serves a page on a free localhost
+  port, and drives one feature: `track` (the default), `nudges`, `end-early`,
+  `average-popup`, `session-rules`, or `all`. Each prints the page's overlays
+  as they change, the clock verdicts, and a ✓ or a ✗ with a fix. `--headed`
+  shows the window. `track` also takes `--seconds N`, `--limit M`,
+  `--cooldown M` and `--popup` for poking around by hand.
+- **Which features get a scenario:** the ones that can stop the clock or carry
+  settings to the background, where past regressions were. Features that only
+  show stored data are checked by hand when they change.
 - **Doctor:** `./build.sh check` runs the tests, then `npm run drive --
   --doctor`, which prints `✓ doctor: stack up, clock
   runs on a tracked page` when the build loads, the worker starts and the clock
@@ -54,12 +51,12 @@ both, not that both have been driven.
   --source-dir extension`, or load `extension/manifest.json` from
   `about:debugging`. Firefox's persistent background hides fewer bugs than
   Chrome's keep-alive, so a change to the clock wants both.
-- **Extending the harness:** settings go in the object the harness writes
-  before relaunching. The popup opens as a tab at
-  `chrome-extension://<id>/popup/popup.html`, but it takes its site from the
-  active tab, which would be itself, so `readPopup` answers `tabs.query` with
-  the drive page. Popup-only features need a step there that clicks or reads
-  their part of the popup.
+- **Extending the harness:** scenarios live in `scripts/drive/scenarios.mjs`,
+  shared pieces (seeding, the overlay reader, opening the popup) in
+  `scripts/drive/lib.mjs`. The popup opens as a tab, but it takes its site from
+  the active tab, which would be itself, so `openPopup` answers `tabs.query`
+  with the drive page. A new scenario should be shown to fail once against a
+  build with the feature broken.
 
 ## Adding to the map
 

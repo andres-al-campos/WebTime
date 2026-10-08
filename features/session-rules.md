@@ -21,15 +21,12 @@ Popup → site view → "Session rules" card (today only; hidden on past days).
 
 ## Driving it
 
-Preconditions: `./build.sh`.
+`npm run drive -- session-rules` (~10s): opens the popup for `localhost`,
+clicks the toggle, and checks the saved settings and the page timer.
 
-1. Open the site view for a site, click the toggle, set Session length to 1.
-2. Expected: the session card shows "Session 1 · NN% left"; the page timer
-   switches to `⏱ 00:59`-style countdown.
-
-Not yet proven: the harness doesn't click the toggle or the steppers yet.
-Headless shortcut that skips the card: `npm run drive -- --limit 1 --popup`
-writes the same settings from the worker.
+Last driven: 2026-10-07, Chrome headless. Saved 40-minute sessions, 5-minute
+cooldown step, 20-minute nudges; the page timer went from `00:03` to
+`⏱ 39:58`. The steppers were not driven.
 
 ## Gotchas
 
