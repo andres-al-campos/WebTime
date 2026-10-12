@@ -552,10 +552,13 @@ body {
 .sc-cooldown-boxes > .sc-stepper-group { flex: 1; margin-bottom: 0; }
 .sc-stepper-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: var(--label-gap); }
 .sc-stepper-label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); }
+/* isolation gives the arrows' ::before (z-index -1) a floor to sit on, so the
+   shape paints above this box's ground and below the glyph. */
 .sc-stepper-box {
+  isolation: isolate;
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-input); border: 1px solid var(--line-strong); border-radius: var(--radius-control);
-  height: 32px; padding: 0 5px 0 12px;
+  height: 32px; padding: 0 2px 0 12px;
 }
 .sc-stepper-val { display: flex; align-items: baseline; font: 500 13.5px 'IBM Plex Mono'; color: var(--text); min-width: 0; }
 /* The editable number itself: no field chrome (it lives inside the styled box),
@@ -570,17 +573,34 @@ body {
    state rather than a value — at full weight "Off" looks like a setting you
    chose a number for. */
 .sc-stepper-val.is-zero { color: var(--text-faint); }
-.sc-stepper-btns { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.sc-stepper-btns { display: flex; flex-direction: column; flex: none; }
+/* The button is the hit area: 20 x 15, two of them filling the box's 30px so
+   there is no dead strip between the arrows. The drawn shape is smaller
+   (::before, 18 x 11) and sits 3px clear of the box's border on the top, right
+   and bottom, 2px from its twin. Shrinking the button itself to get that
+   clearance would shrink what you can click. */
 .sc-stepper-btn {
-  width: 20px; height: 14px; border: none; border-radius: 4px;
-  background: rgba(255,255,255,0.06); color: var(--text-dim);
-  font-size: 8px; line-height: 1; cursor: pointer; padding: 0;
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 15px; border: none; background: transparent;
+  color: var(--text-dim); font-size: 8px; line-height: 1; cursor: pointer;
   /* Hold-to-repeat: suppress text selection and browser touch gestures so a
      long press just repeats the step. */
   user-select: none; touch-action: none;
-  transition: background 0.12s, color 0.12s;
+  transition: color 0.12s;
 }
-.sc-stepper-btn:hover { background: var(--accent); color: #fff; }
+.sc-stepper-btn::before {
+  content: ''; position: absolute; left: 1px; right: 1px; z-index: -1;
+  border-radius: 4px; background: rgba(255,255,255,0.06);
+  transition: background 0.12s;
+}
+/* The shapes hug the middle, so each glyph is nudged to stay centred in its
+   shape rather than in its hit area. */
+.sc-stepper-btn:first-child { padding: 2px 0 0; }
+.sc-stepper-btn:first-child::before { top: 3px; bottom: 1px; }
+.sc-stepper-btn:last-child { padding: 0 0 2px; }
+.sc-stepper-btn:last-child::before { top: 1px; bottom: 3px; }
+.sc-stepper-btn:hover { color: #fff; }
+.sc-stepper-btn:hover::before { background: var(--accent); }
 
 /* shared message / empty-state */
 .message { color: var(--text-dim); font-style: italic; padding: 16px; }
