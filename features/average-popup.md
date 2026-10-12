@@ -21,11 +21,13 @@ and only once all 7 days before today have time on that site.
 for `localhost` and turns rules on, so the popup is due at 48s. It checks the
 clock holds while the popup is up and runs again after Continue.
 
-Last driven: 2026-10-07, Chrome headless. Popup at 48s with the seven 1m days,
-verdict `average-popup` and the timer held at `⏱ 09:13`; after Continue,
-verdict `running` and the timer moving.
+Last driven: 2026-10-12, Chrome headless. Popup at 48s with the seven 1m days,
+heading "You Reached Your 7-Day Average", verdict `average-popup` and the timer
+held at `⏱ 09:13`; after Continue, verdict `running` and the timer moving.
 
 ## Gotchas
 
 - The rules-on and full-week requirements make it rare; a missing popup is
   usually one of those, not a bug.
+- The heading is one nowrap line in a 302px box. Title Case is wide: measure
+  new wording in a browser before changing it (`test/popup-copy.test.mjs`).

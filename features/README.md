@@ -15,7 +15,7 @@ building it again.
 | End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Nudges | [nudges.md](nudges.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Wind-down | [wind-down.md](wind-down.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| 7-day average popup | [average-popup.md](average-popup.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
+| 7-day average popup | [average-popup.md](average-popup.md) | Firefox, Chrome | Yes, Chrome (2026-10-12) |
 | Past-day sessions | [past-day-sessions.md](past-day-sessions.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Global settings | [global-settings.md](global-settings.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Your data | [your-data.md](your-data.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
