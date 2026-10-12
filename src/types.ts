@@ -219,38 +219,11 @@ export interface OverlayDurations {
   NUDGE_SHRINK_MS: number;
 }
 
-export interface ChartConfig {
-  movingAverageDays: number;
-  daysToDisplay: number;
-  initAnimationDuration: number;
-  topDomainsLimit: number;
-}
-
-export interface MovingAverageColors {
-  background: string;
-  border: string;
-  width: number;
-}
-
-export interface CurrentDomainColors {
-  background: string;
-  border: string;
-}
-
-export interface Colors {
-  domains: string[];
-  others: string;
-  movingAverage: MovingAverageColors;
-  currentDomain: CurrentDomainColors;
-}
-
 export interface ConstantsType {
   INACTIVITY_THRESHOLD_MS: number;
   ACTIVITY_CHECK_INTERVAL_MS: number;
   SAVE_INTERVAL_SECONDS: number;
   OVERLAY_DURATIONS: OverlayDurations;
-  CHART_CONFIG: ChartConfig;
-  COLORS: Colors;
 }
 
 // Chart.js types (simplified for this project)
