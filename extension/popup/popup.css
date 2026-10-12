@@ -209,7 +209,7 @@ body {
 }
 /* Detail view's right panel stacks three cards (usage + rules + session) — space
    them, and let the whole panel scroll as one unit if they overflow. */
-#detail-page .right-panel { gap: 10px; overflow-y: auto; padding-right: 4px; }
+#detail-page .right-panel { gap: 12px; overflow-y: auto; padding-right: 4px; }
 
 /* ===========================================================================
    USAGE CARDS — detail-page card (bordered) + general-page headline (flush).
@@ -299,7 +299,7 @@ body {
 }
 .breakdown-time {
   grid-column: 3; grid-row: 1;
-  font: 500 11.5px 'IBM Plex Mono'; color: var(--text-dim); white-space: nowrap;
+  font: 500 12px 'IBM Plex Mono'; color: var(--text-dim); white-space: nowrap;
 }
 .breakdown-fill {
   grid-column: 2 / 4; grid-row: 2; margin-top: 5px;
@@ -497,7 +497,7 @@ body {
 .sc-btn:hover { background: #262b34; border-color: var(--line-strong); }
 
 .sc-off-title { font: 600 12.5px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: 4px; }
-.sc-off-sub { font: 400 11.5px 'IBM Plex Sans'; color: var(--text-dim); line-height: 1.4; }
+.sc-off-sub { font: 400 12px 'IBM Plex Sans'; color: var(--text-dim); line-height: 1.4; }
 
 /* ---- per-site "Session rules" card ---- */
 .sc-card.sc-settings { background: var(--bg-raise); border: 1px solid var(--line); padding: 10px 15px 11px; }
@@ -552,7 +552,7 @@ body {
 .sc-stepper-btns { display: flex; flex-direction: column; gap: 2px; flex: none; }
 .sc-stepper-btn {
   width: 20px; height: 14px; border: none; border-radius: 4px;
-  background: rgba(255,255,255,0.07); color: var(--text-dim);
+  background: rgba(255,255,255,0.06); color: var(--text-dim);
   font-size: 8px; line-height: 1; cursor: pointer; padding: 0;
   /* Hold-to-repeat: suppress text selection and browser touch gestures so a
      long press just repeats the step. */
@@ -570,13 +570,13 @@ body {
    One read-only card per finished session on a locked past day. Empty on today,
    where the live session card stands in its place.
    =========================================================================== */
-.past-day-cards { display: flex; flex-direction: column; gap: 10px; }
+.past-day-cards { display: flex; flex-direction: column; gap: 12px; }
 
 /* "← Back to today", appended inside the usage card on a past day. */
 .usage-back {
   display: block; width: 100%; margin-top: 12px;
   background: rgba(94,142,251,0.10); border: 1px solid rgba(94,142,251,0.22);
-  color: #9dbaff; font: 400 11.5px 'IBM Plex Sans';
+  color: #9dbaff; font: 400 12px 'IBM Plex Sans';
   padding: 6px 10px; border-radius: 8px; cursor: pointer; text-align: center;
 }
 .usage-back:hover { background: rgba(94,142,251,0.16); }
@@ -625,7 +625,7 @@ body {
    like a session that failed to render. Quiet text in the cards' place. */
 .past-day-empty {
   padding: 14px 4px; text-align: center;
-  font: 400 11.5px 'IBM Plex Sans'; color: var(--text-faint);
+  font: 400 12px 'IBM Plex Sans'; color: var(--text-faint);
 }
 
 /* ===========================================================================
