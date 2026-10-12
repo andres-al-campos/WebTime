@@ -48,6 +48,15 @@
   --radius-control-sm: 8px;
   --radius-card:       12px;
   --bg-hover:          #262b34;   /* hover fill of an outlined button */
+
+  /* Spacing by context. Neighbours are --gap apart in either direction:
+     stacked cards, fields side by side, a button beside an input. A label sits
+     --label-gap above its control. Every card pads its content by --card-pad
+     (the sides are --seam-pad) and puts its title --title-gap above the data. */
+  --gap:               12px;
+  --label-gap:         6px;
+  --card-pad:          13px var(--seam-pad);
+  --title-gap:         9px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -221,7 +230,7 @@ body {
 }
 /* Detail view's right panel stacks three cards (usage + rules + session) — space
    them, and let the whole panel scroll as one unit if they overflow. */
-#detail-page .right-panel { gap: 12px; overflow-y: auto; padding-right: 4px; }
+#detail-page .right-panel { gap: var(--gap); overflow-y: auto; padding-right: 4px; }
 
 /* ===========================================================================
    USAGE CARDS — detail-page card (bordered) + general-page headline (flush).
@@ -233,7 +242,7 @@ body {
   font: 700 10.5px 'IBM Plex Mono'; letter-spacing: 0.1em; color: var(--text);
   text-transform: uppercase;
 }
-.usage-eyebrow { margin-bottom: 9px; }
+.usage-eyebrow { margin-bottom: var(--title-gap); }
 /* Headline: two stat columns reading as a fraction (this site / all sites), each
    a value over its own caption. Aligned to the value row so the slash sits with
    the numbers; the row color is the faint tone so the " · " before the general
@@ -256,7 +265,7 @@ body {
 /* Detail card: bordered surface, like the session cards below it. */
 .usage-card {
   flex: none; background: var(--bg-raise);
-  border: 1px solid var(--line); border-radius: var(--radius-card); padding: 13px 15px;
+  border: 1px solid var(--line); border-radius: var(--radius-card); padding: var(--card-pad);
 }
 
 /* General view: the headline + breakdown bars live in one bordered card (like
@@ -325,7 +334,7 @@ body {
 /* The slot itself doesn't scroll — the whole detail panel is the single scroll
    container (see #detail-page .right-panel), so a scrollbar only appears when the
    three stacked cards genuinely overflow, not from internal flex sizing. */
-.session-card-slot { display: flex; flex-direction: column; gap: 12px; }
+.session-card-slot { display: flex; flex-direction: column; gap: var(--gap); }
 
 /* ===========================================================================
    SETTINGS OVERLAY — covers the RIGHT HALF only, slides in from the divider.
@@ -370,11 +379,11 @@ body {
 
 .field { margin-bottom: 13px; }
 .field label,
-.interventions-header { display: block; font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: 7px; }
+.interventions-header { display: block; font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: var(--label-gap); }
 /* A mounted stepper provides its own label + box; drop the stepper group's own
    bottom margin so the surrounding .field owns the spacing. */
 .settings-stepper-mount > .sc-stepper-group { margin-bottom: 0; }
-.field-row { display: flex; gap: 11px; }
+.field-row { display: flex; gap: var(--gap); }
 .field-row .field { flex: 1; }
 
 .field input,
@@ -435,7 +444,7 @@ body {
 .dd-option:hover { background: rgba(255,255,255,0.06); }
 .dd-option.is-selected { background: rgba(79,134,247,0.16); color: var(--text); }
 
-.shortcut-row { display: flex; gap: 8px; align-items: center; }
+.shortcut-row { display: flex; gap: var(--gap); align-items: center; }
 .shortcut-row input { flex: 1; cursor: pointer; }
 .shortcut-row button {
   width: 40px; height: var(--control-h); border: 1px solid var(--line-strong); border-radius: var(--radius-control);
@@ -447,10 +456,10 @@ body {
 .interventions-header .domain { color: var(--accent); font-family: 'IBM Plex Mono'; }
 .rec-hint { color: var(--text-faint); font-size: 10px; font-weight: 400; margin-left: 4px; }
 
-.intervention-row { display: flex; gap: 10px; align-items: flex-start; }
+.intervention-row { display: flex; gap: var(--gap); align-items: flex-start; }
 .intervention-row > input[type="checkbox"] { margin-top: 4px; flex: none; }
 .intervention-grid { flex: 1; display: flex; flex-direction: column; gap: 11px; }
-.intervention-group label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: 6px; }
+.intervention-group label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: var(--label-gap); }
 .time-inputs { display: flex; align-items: center; gap: 6px; }
 .time-inputs input { width: 64px; }
 .time-inputs span { font: 400 11px 'IBM Plex Sans'; color: var(--text-faint); }
@@ -470,12 +479,12 @@ body {
   background: var(--bg-raise);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
-  padding: 10px 15px 11px;
+  padding: var(--card-pad);
 }
 .sc-card.sc-off { background: var(--bg-raise); border: 1px dashed var(--line-strong); padding: 15px; }
 
 /* Title sits alone now — the Active/Cooldown badge was dropped as noise. */
-.sc-head { display: flex; align-items: center; margin-bottom: 11px; }
+.sc-head { display: flex; align-items: center; margin-bottom: var(--title-gap); }
 
 /* The live "· NN% left" now rides on the session title (the elapsed/limit line
    was dropped as redundant with the ledger's "time left"). */
@@ -512,12 +521,12 @@ body {
 .sc-off-sub { font: 400 12px 'IBM Plex Sans'; color: var(--text-dim); line-height: 1.4; }
 
 /* ---- per-site "Session rules" card ---- */
-.sc-card.sc-settings { background: var(--bg-raise); border: 1px solid var(--line); padding: 10px 15px 11px; }
+.sc-card.sc-settings { background: var(--bg-raise); border: 1px solid var(--line); padding: var(--card-pad); }
 /* Title left, toggle pinned right (the active card's head dropped its badge and
    so its space-between, but the settings head still has two ends to push apart). */
-.sc-settings .sc-head { justify-content: space-between; margin-bottom: 11px; }
+.sc-settings .sc-head { justify-content: space-between; margin-bottom: var(--title-gap); }
 .sc-settings-body { transition: opacity 0.15s; }
-.sc-settings-twoup { display: flex; gap: 11px; }
+.sc-settings-twoup { display: flex; gap: var(--gap); }
 .sc-settings-twoup + .sc-settings-twoup { margin-top: 13px; }
 .sc-settings-twoup > .sc-stepper-group { flex: 1; }
 
@@ -539,9 +548,9 @@ body {
 
 /* Cooldown: one heading over a side-by-side [minutes][seconds] box pair, so the
    two read as a single setting (units m/s carry their roles, no "secs" label). */
-.sc-cooldown-boxes { display: flex; gap: 11px; }
+.sc-cooldown-boxes { display: flex; gap: var(--gap); }
 .sc-cooldown-boxes > .sc-stepper-group { flex: 1; margin-bottom: 0; }
-.sc-stepper-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 7px; }
+.sc-stepper-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: var(--label-gap); }
 .sc-stepper-label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); }
 .sc-stepper-box {
   display: flex; align-items: center; justify-content: space-between;
@@ -582,7 +591,7 @@ body {
    One read-only card per finished session on a locked past day. Empty on today,
    where the live session card stands in its place.
    =========================================================================== */
-.past-day-cards { display: flex; flex-direction: column; gap: 12px; }
+.past-day-cards { display: flex; flex-direction: column; gap: var(--gap); }
 
 /* "← Back to today", appended inside the usage card on a past day. */
 .usage-back {
@@ -597,10 +606,10 @@ body {
   flex: none; background: var(--bg-raise); border: 1px solid var(--line);
   border-radius: var(--radius-card); overflow: hidden;
 }
-.past-day-cards .cbody { padding: 11px 14px 12px; }
+.past-day-cards .cbody { padding: var(--card-pad); }
 .past-day-cards .crow {
   display: flex; align-items: baseline; justify-content: space-between;
-  margin-bottom: 9px; gap: 6px;
+  margin-bottom: var(--title-gap); gap: 6px;
 }
 .past-day-cards .cnum {
   font: 700 10.5px 'IBM Plex Mono'; letter-spacing: 0.1em;
@@ -627,7 +636,7 @@ body {
 /* Footer sits on a darker ground so the card reads as body + ledger strip. */
 .past-day-cards .cfoot {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 14px; font: 400 10px 'IBM Plex Mono';
+  padding: 7px var(--seam-pad); font: 400 10px 'IBM Plex Mono';
   background: rgba(0,0,0,0.22); border-top: 1px solid var(--line);
   color: var(--text-faint);
 }
@@ -680,7 +689,7 @@ body {
 .data-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--gap);
 }
 .data-summary {
   flex: 1;
