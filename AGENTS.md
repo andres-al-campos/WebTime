@@ -102,6 +102,22 @@ decision worth testing or a bug worth pinning. `checkWindDown` was left alone:
 its arithmetic is already pure in `windDownState` and what remains is a
 three-line edge flag.
 
+## Principles
+
+Look-and-feel calls, with the owner's why.
+
+- **One component, sized by its context** (2026-10-12). A button is the same
+  button at any size; where it sits picks the size, because "a small button on
+  a big popup looks bad and a big button on a small header might not even fit."
+  So one size per context, not one per button. `popup.css` names them
+  (`--control-h`, `--control-h-sm`). Colours follow the same rule: every card
+  shares a ground, and text of one rank shares a colour.
+- **On-page dialog headings are Title Case** (2026-10-12): "title case looks a
+  bit neater." Captions inside the popup stay sentence case.
+- **The design system holds consistency, not laws** (2026-10-12). When the code
+  and the system disagree on a look, the code adjusts. No lint checks for
+  design values.
+
 ## Feature map
 
 `features/` lists what a user can do and how to drive it. Read its README
