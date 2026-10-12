@@ -106,12 +106,12 @@ three-line edge flag.
 
 Look-and-feel calls, with the owner's why.
 
-- **One component, sized by its context** (2026-10-12). A button is the same
-  button at any size; where it sits picks the size, because "a small button on
-  a big popup looks bad and a big button on a small header might not even fit."
-  So one size per context, not one per button. `popup.css` names them
-  (`--control-h`, `--control-h-sm`). Colours follow the same rule: every card
-  shares a ground, and text of one rank shares a colour.
+- **Sizes by context** (2026-10-12). The popup has two control contexts. Bars
+  (topbar, storage banner) take `--control-h-sm` and `--radius-control-sm`.
+  Cards and the settings sheet take `--control-h` and `--radius-control`, the
+  field height, so a button beside an input lines up. Steppers stay 32px: they
+  sit two-up inside cards. The on-page dialogs are their own context with
+  their own greys.
 - **On-page dialog headings are Title Case** (2026-10-12): "title case looks a
   bit neater." Captions inside the popup stay sentence case.
 - **The design system holds consistency, not laws** (2026-10-12). When the code
