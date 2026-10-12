@@ -55,14 +55,12 @@ function setupShortcutCapture(input: HTMLInputElement): void {
 
   const stopCapture = (): void => {
     capturing = false;
-    input.style.background = '';
     input.blur();
   };
 
   input.addEventListener('focus', () => {
     capturing = true;
     priorValue = input.value;
-    input.style.background = '#3a3a5a';
     input.value = 'Press a key combo…';
   });
 
@@ -70,7 +68,6 @@ function setupShortcutCapture(input: HTMLInputElement): void {
     if (capturing) {
       // Aborted without pressing anything — restore previous
       capturing = false;
-      input.style.background = '';
       // Blurred without pressing anything: restore exactly what was there.
       if (input.value === 'Press a key combo…') {
         input.value = priorValue;
@@ -743,7 +740,7 @@ export function updateDetailHeader(_domain: string, selectedDate?: string | null
 /** The shared "No data for this day" empty-state element. */
 function noDataMessage(): HTMLElement {
   const div = document.createElement('div');
-  div.style.cssText = 'color: #888; font-style: italic;';
+  div.style.cssText = 'color: var(--text-dim); font-style: italic;';
   div.textContent = 'No data for this day';
   return div;
 }
