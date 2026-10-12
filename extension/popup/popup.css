@@ -455,12 +455,12 @@ body {
    SESSION CARD (.sc-*) — rendered by session-card.ts into #session-card
    =========================================================================== */
 .sc-card {
-  background: #161922;
+  background: var(--bg-raise);
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 12px;
   padding: 10px 15px 11px;
 }
-.sc-card.sc-off { background: #161922; border: 1px dashed var(--line-strong); padding: 15px; }
+.sc-card.sc-off { background: var(--bg-raise); border: 1px dashed var(--line-strong); padding: 15px; }
 
 /* Title sits alone now — the Active/Cooldown badge was dropped as noise. */
 .sc-head { display: flex; align-items: center; margin-bottom: 11px; }
