@@ -592,23 +592,24 @@ body {
 }
 .past-day-cards .cnum {
   font: 700 10.5px 'IBM Plex Mono'; letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--text-dim);
+  text-transform: uppercase; color: var(--text);
 }
 .past-day-cards .cval { font: 400 12px 'IBM Plex Mono'; color: var(--text-dim); white-space: nowrap; }
 .past-day-cards .cval b { color: var(--text); font-weight: 600; }
-/* End state, colour-coded: blue ran its course, green stopped early, amber the
-   day rolled over underneath it. */
+/* End state: blue ran its course, green stopped early (a win, so it takes
+   --good's tint), neutral when the day rolled over underneath it — nothing
+   went wrong there, so it gets no warning colour. */
 .past-day-cards .tag { font: 400 9.5px 'IBM Plex Mono'; padding: 2px 6px; border-radius: 20px; margin-left: 3px; }
 .past-day-cards .tag.done   { background: rgba(94,142,251,0.15); color: #9dbaff; }
-.past-day-cards .tag.early  { background: rgba(86,214,154,0.15); color: var(--good); }
-.past-day-cards .tag.dayend { background: rgba(214,163,86,0.15); color: #e0bd7f; }
+.past-day-cards .tag.early  { background: rgba(63,191,127,0.15); color: var(--good); }
+.past-day-cards .tag.dayend { background: rgba(255,255,255,0.08); color: var(--text-dim); }
 
 .past-day-cards .track {
   background: rgba(255,255,255,0.06); border-radius: 4px; height: 15px; overflow: hidden;
 }
 .past-day-cards .fill {
   height: 100%; border-radius: 4px;
-  background: linear-gradient(180deg, #5e8efb, #4a6fd0);
+  background: linear-gradient(180deg, #5e8efb, #3f6fe0);  /* the chart's bar gradient */
 }
 
 /* Footer sits on a darker ground so the card reads as body + ledger strip. */
