@@ -517,19 +517,21 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
   // sub-line so it can never wrap awkwardly regardless of how large the numbers
   // get. Each line is nowrap so it stays intact on one row.
   const primaryLine = minutesLeft > 0
-    ? `${minutesLeft} min until your 7-day average`
-    : `You've reached your 7-day average`;
+    ? `${minutesLeft}m Until Your 7-Day Average`
+    : `You Reached Your 7-Day Average`;
 
-  // 18px/600/#eee — the same heading treatment as the blocker and the confirm.
-  // At this size the longest primaryLine ("You've reached your 7-day average")
-  // measures 296px against the 302px of usable width inside the 350px box, so
-  // nowrap still holds. Any longer wording here needs re-measuring, not eyeballing.
+  // 18px/600/#eee and Title Case — the same heading treatment as the blocker
+  // and the confirm. At this size the longest primaryLine ("You Reached Your
+  // 7-Day Average") measures 280px against the 302px of usable width inside the
+  // 350px box, so nowrap still holds. Capitals are wide: "You've Reached Your
+  // 7-Day Average" measured 304px and did not fit. Any longer wording here
+  // needs re-measuring, not eyeballing.
   const primary = makeEl('div', {
     style: 'font-size: 18px; color: #eee; margin-bottom: 4px; text-align: center !important; font-weight: 600; white-space: nowrap !important;',
     text: primaryLine,
   });
   const avgLine = makeEl('div', {
-    style: 'font-size: 13px; color: #bbb; margin-bottom: 14px; text-align: center !important; white-space: nowrap !important;',
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 14px; text-align: center !important; white-space: nowrap !important;',
     text: `(${avg})`,
   });
   const chart = makeEl('div', {
@@ -785,7 +787,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
   });
   const progressFill = makeEl('div', {
     className: 'web-time-blocker-progress-fill',
-    style: 'height: 100%; background: #4a9eff; transition: width 1s linear;',
+    style: 'height: 100%; background: #4571e7; transition: width 1s linear;',
   });
   progressFill.style.width = `${initialPct}%`;
   const progressTrack = makeEl('div', {
@@ -862,7 +864,7 @@ function createWindDownOverlay(): void {
     margin: 0 auto;
     width: 100%;
     transition: width 1s linear;
-    background: #4a9eff;
+    background: #4571e7;
   `;
   barTrack.appendChild(barFill);
   overlay.appendChild(barTrack);

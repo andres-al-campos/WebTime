@@ -5,7 +5,7 @@ A one-time check-in when today's time on a site reaches 80% of your trailing
 
 ## Sub-features
 
-- "N min until your 7-day average" (or "You've reached your 7-day average"),
+- "Nm Until Your 7-Day Average" (or "You Reached Your 7-Day Average"),
   the average, and a small bar chart of the last 7 days.
 - Pauses media, blocks keys and freezes the clock until you press Continue.
 - Once per site per day.

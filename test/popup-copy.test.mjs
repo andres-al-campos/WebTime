@@ -32,23 +32,25 @@ test('the average popup heading keeps the size its nowrap was measured at', () =
   assert.match(
     primary,
     /font-size: 18px/,
-    'heading is 18px because that is what the 296px-of-302px measurement was taken at — ' +
+    'heading is 18px because that is what the 280px-of-302px measurement was taken at — ' +
     'changing it needs a re-measure in a browser, not an edit here',
   );
 });
 
 test('the average popup heading strings stay the ones that were measured', () => {
-  // 33 chars: "You've reached your 7-day average", the longer of the two.
-  const MEASURED_MAX = 33;
-  const lines = [...src.matchAll(/^\s*[:?]\s*`([^`]*7-day average)`/gm)].map(m => m[1]);
+  // 30 chars: "You Reached Your 7-Day Average", the longer of the two. Title
+  // Case is wider per character than the sentence case this replaced, so the
+  // ceiling is the measured string's length, not the old 33.
+  const MEASURED_MAX = 30;
+  const lines = [...src.matchAll(/^\s*[:?]\s*`([^`]*7-Day Average)`/gm)].map(m => m[1]);
   assert.equal(lines.length, 2, 'expected both primaryLine branches');
   for (const line of lines) {
-    // The interpolated count is at most 3 digits ("120 min until..."), and that
+    // The interpolated count is at most 3 digits ("120m Until..."), and that
     // form is the shorter branch anyway, so raw length is a fair proxy here.
     const width = line.replace('${minutesLeft}', '120').length;
     assert.ok(
       width <= MEASURED_MAX,
-      `"${line}" is ${width} chars, past the ${MEASURED_MAX} that fit at 18px — re-measure before lengthening`,
+      `"${line}" is ${width} chars, past the ${MEASURED_MAX} that were measured at 18px. Measure the new wording in a browser (it must stay under 302px), then raise MEASURED_MAX`,
     );
   }
 });
