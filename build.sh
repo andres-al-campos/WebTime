@@ -6,6 +6,9 @@ set -e  # Exit immediately if a command fails
 # ./build.sh check: the tests (which hold the laws, e.g. the clock-gate order)
 # and the doctor (the built extension loads and its clock runs). Builds nothing,
 # so run plain ./build.sh first after a change.
+#
+# ./build.sh install: the plain build, then restart the everyday browser so it
+# is running this build.
 if [ "${1:-}" = "check" ]; then
     npm test
     npm run drive -- --doctor
@@ -53,15 +56,23 @@ if [ $? -eq 0 ]; then
     # top level is a wrapper directory, so this zips from inside dist-chrome.
     (cd dist-chrome && zip -r -q "../artifacts/${CHROME_ZIP}" . -x '.DS_Store' -x '__MACOSX/*')
     echo "   Your extension is ready: artifacts/${CHROME_ZIP}"
+
+    # A copy of the Firefox zip with a build-stamped version, which the
+    # everyday browser installs by itself on its next start. See
+    # scripts/install-local.mjs.
+    echo ""
+    echo "📦 Packaging the local install..."
+    node scripts/install-local.mjs package
 else
     echo ""
     echo "❌ Tests failed! Build aborted."
     exit 1
 fi
 
-# Both loadable directories are now refreshed in place — reload from the
-# browser's extensions page to pick up this build. Neither browser can be
-# made to reload from out here, so the paths are printed instead.
+# Both loadable directories are now refreshed in place. Chrome needs a reload
+# from its extensions page. The everyday Firefox-family browser takes the local
+# zip on its next start; ./build.sh install restarts it now and waits for it
+# to report this build.
 echo ""
 echo "✅ Store packages:"
 echo "   Firefox (MV2):  artifacts/web_time-${VERSION}.zip"
@@ -72,6 +83,14 @@ echo "   Firefox (MV2):  $(pwd)/extension"
 echo "   Chrome  (MV3):  $(pwd)/dist-chrome"
 echo ""
 echo "   Chrome: chrome://extensions → Developer mode → Load unpacked → dist-chrome"
-echo ""
-echo "   To test a change: hit reload ⟳ on the card. That's all —"
-echo "   open tabs get the new content script automatically, no page refresh."
+echo "   To test a change there: hit reload ⟳ on the card. Open tabs get the"
+echo "   new content script automatically, no page refresh."
+
+if [ "${1:-}" = "install" ]; then
+    echo ""
+    node scripts/install-local.mjs install
+else
+    echo ""
+    echo "   Everyday browser: installs this build on its next start."
+    echo "   ./build.sh install restarts it now."
+fi
