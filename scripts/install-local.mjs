@@ -5,13 +5,19 @@
 //   node scripts/install-local.mjs package   (every ./build.sh)
 //   node scripts/install-local.mjs install   (./build.sh install)
 //
-// package writes artifacts/local/web_time.zip and artifacts/local/policies.json.
+// package writes artifacts/local/web_time.zip.
 // install restarts the browser and waits for its profile to report the build.
 //
-// The browser does the installing. A policies.json in its app bundle names the
-// zip as a file: URL, and Firefox's policy code reinstalls a file: URL on every
-// start. It skips the install when the version is unchanged, so the local zip
-// is the store zip with a build stamp as a fourth version part.
+// The browser does the installing. An enterprise policy names the zip as a
+// file: URL, and Firefox's policy code reinstalls a file: URL on every start.
+// It skips the install when the version is unchanged, so the local zip is the
+// store zip with a build stamp as a fourth version part.
+//
+// The policy lives in the browser's macOS preferences domain, not in a
+// policies.json inside the app. A browser update replaces the app bundle and
+// the file with it (the first real run lost it that way), and macOS refuses
+// writes into another app's bundle without App Management permission.
+// install prints the one-time setup when the policy is missing.
 //
 // Only browsers that accept an unsigned add-on can use this: Floorp does,
 // release Firefox does not. WEBTIME_BROWSER picks the app bundle.
@@ -25,10 +31,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const localDir = join(root, 'artifacts', 'local');
 const localZip = join(localDir, 'web_time.zip');
-const localPolicy = join(localDir, 'policies.json');
 const browser = process.env.WEBTIME_BROWSER ?? '/Applications/Floorp.app';
 const browserName = basename(browser, '.app');
-const browserPolicy = join(browser, 'Contents', 'Resources', 'distribution', 'policies.json');
 
 // Seconds since 2026-01-01. Firefox compares version parts as 32-bit integers,
 // which a full Unix timestamp outgrows in 2038.
@@ -64,19 +68,6 @@ function packageLocal() {
     rmSync(tmp, { recursive: true, force: true });
   }
 
-  // normal_installed: the browser installs it and keeps the uninstall button
-  // away, but it can still be disabled from the add-ons page.
-  writeFileSync(localPolicy, JSON.stringify({
-    policies: {
-      ExtensionSettings: {
-        [manifest.browser_specific_settings.gecko.id]: {
-          installation_mode: 'normal_installed',
-          install_url: pathToFileURL(localZip).href,
-        },
-      },
-    },
-  }, null, 2) + '\n');
-
   console.log(`   Local install:  artifacts/local/web_time.zip (${version})`);
 }
 
@@ -87,27 +78,44 @@ function zipManifest() {
   return JSON.parse(execFileSync('unzip', ['-p', localZip, 'manifest.json'], { encoding: 'utf8' }));
 }
 
-const placePolicyHint = () =>
-  `run this once, then ./build.sh install again:\n` +
-  `     mkdir -p "${dirname(browserPolicy)}" && cp "${localPolicy}" "${browserPolicy}"`;
+function bundleId() {
+  return execFileSync('plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', join(browser, 'Contents', 'Info.plist')],
+    { encoding: 'utf8' }).trim();
+}
+
+// One key of a preferences domain, or undefined. plutil's json format only
+// takes a dict or array, so a scalar key is read as raw text instead.
+function readDefault(domain, key, format = 'json') {
+  try {
+    const plist = execFileSync('defaults', ['export', domain, '-'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execFileSync('plutil', ['-extract', key, format, '-o', '-', '-'],
+      { input: plist, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    return format === 'json' ? JSON.parse(out) : out.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function setupCommands(domain, id) {
+  // normal_installed: the browser installs it and keeps the uninstall button
+  // away, but it can still be disabled from the add-ons page.
+  const entry = `<dict><key>${id}</key><dict>` +
+    `<key>installation_mode</key><string>normal_installed</string>` +
+    `<key>install_url</key><string>${pathToFileURL(localZip).href}</string></dict></dict>`;
+  return `     defaults write ${domain} EnterprisePoliciesEnabled -bool true\n` +
+    `     defaults write ${domain} ExtensionSettings '${entry}'`;
+}
 
 function checkPolicy(id) {
   if (!existsSync(browser)) {
     fail(`No browser at ${browser}.`, 'set WEBTIME_BROWSER to the app bundle to install into, e.g. WEBTIME_BROWSER=/Applications/Floorp.app.');
   }
-  if (!existsSync(browserPolicy)) {
-    fail(`${browserName} has no policy file, so it will not install this build.`, placePolicyHint());
-  }
-  let wanted;
-  try {
-    wanted = JSON.parse(readFileSync(browserPolicy, 'utf8')).policies?.ExtensionSettings?.[id]?.install_url;
-  } catch (e) {
-    fail(`${browserPolicy} is not valid JSON (${e.message}).`, placePolicyHint());
-  }
-  if (wanted !== pathToFileURL(localZip).href) {
-    fail(`${browserName}'s policy file does not point at ${localZip}.`,
-      `add the ExtensionSettings entry from ${localPolicy} to ${browserPolicy}.`);
-  }
+  const domain = bundleId();
+  const enabled = readDefault(domain, 'EnterprisePoliciesEnabled', 'raw') === 'true';
+  const wanted = readDefault(domain, 'ExtensionSettings')?.[id]?.install_url;
+  if (enabled && wanted === pathToFileURL(localZip).href) return domain;
+  fail(`${browserName} has no policy pointing at ${localZip}, so it will not install this build.`,
+    `run these once (they survive browser updates), then ./build.sh install again:\n${setupCommands(domain, id)}`);
 }
 
 function running() {
@@ -137,7 +145,7 @@ function installedVersion(id) {
 
 async function install() {
   const { version, name, browser_specific_settings: { gecko: { id } } } = zipManifest();
-  checkPolicy(id);
+  const domain = checkPolicy(id);
 
   if (running()) {
     console.log(`🔄 Restarting ${browserName}...`);
@@ -165,14 +173,10 @@ async function install() {
     }
     await sleep(1000);
   }
-  // A pending browser update applies on restart and replaces the app bundle,
-  // policies.json with it. The first real run hit exactly this.
-  if (!existsSync(browserPolicy)) {
-    fail(`${browserName} lost its policy file during the restart (a browser update replaces the app bundle), so it did not install ${version}.`,
-      placePolicyHint());
-  }
   fail(`${browserName} restarted but reports ${name} ${seen.join(', ') || 'not installed'}, not ${version}.`,
-    `open about:policies in ${browserName} and read its Errors tab for why the install was refused.`);
+    `open about:policies in ${browserName}. If its Errors tab names the install, that is the cause. ` +
+    `If it lists no active policies, ${browserName} is not reading your user preferences: ` +
+    `run the setup commands again with sudo and /Library/Preferences/${domain} in place of ${domain}.`);
 }
 
 const mode = process.argv[2];

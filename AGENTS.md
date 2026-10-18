@@ -10,10 +10,11 @@ loadable dirs: `extension/` (Firefox) and `dist-chrome/` (Chrome). Never build
 only one.
 
 Each build also writes `artifacts/local/web_time.zip`, the Firefox zip with a
-build-stamped version. A policy file in the everyday browser (Floorp, which
-takes unsigned add-ons) points at it, so that browser installs the build on its
-next start. `./build.sh install` restarts it now and waits for the profile to
-report the new version. Plain `./build.sh` never restarts the browser: sessions
+build-stamped version. A policy in the everyday browser's macOS preferences
+(Floorp, which takes unsigned add-ons) points at it, so that browser installs
+the build on its next start. The policy is not a `policies.json` in the app:
+a browser update replaces the bundle and deletes it. `./build.sh install`
+restarts the browser now and waits for the profile to report the new version. Plain `./build.sh` never restarts the browser: sessions
 run it often and it would close the owner's windows each time.
 `scripts/install-local.mjs` has the mechanics and the one-time setup.
 
