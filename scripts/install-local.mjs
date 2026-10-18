@@ -1,26 +1,35 @@
 #!/usr/bin/env node
-// Get the build into the browser it is used in day to day, without clicking
-// through Install Add-on From File.
+// Dev loop: get each dev build into the Firefox you develop in, without
+// clicking through Install Add-on From File. Release builds never come here.
 //
-//   node scripts/install-local.mjs package   (every ./build.sh)
+//   node scripts/install-local.mjs package   (every dev ./build.sh)
 //   node scripts/install-local.mjs install   (./build.sh install)
 //
 // package writes artifacts/local/web_time.zip.
-// install restarts the browser and waits for its profile to report the build.
+// install restarts that Firefox and waits for its profile to report the build.
 //
 // The browser does the installing. An enterprise policy names the zip as a
 // file: URL, and Firefox's policy code reinstalls a file: URL on every start.
 // It skips the install when the version is unchanged, so the local zip is the
 // store zip with a build stamp as a fourth version part.
 //
-// The policy lives in the browser's macOS preferences domain, not in a
+// One-time setup:
+//
+//   1. Pick a Firefox that accepts unsigned add-ons: Developer Edition,
+//      Nightly, or a fork. Release Firefox requires Mozilla's signature.
+//   2. Name it in .env.local (gitignored; see .env.local.example):
+//        WEBTIME_FIREFOX="/Applications/Firefox Developer Edition.app"
+//   3. Run ./build.sh install. The first run prints two `defaults write`
+//      commands that set the policy; run them, then ./build.sh install again.
+//
+// The policy lives in that Firefox's macOS preferences domain, not in a
 // policies.json inside the app. A browser update replaces the app bundle and
 // the file with it (the first real run lost it that way), and macOS refuses
 // writes into another app's bundle without App Management permission.
-// install prints the one-time setup when the policy is missing.
 //
-// Only browsers that accept an unsigned add-on can use this: Floorp does,
-// release Firefox does not. WEBTIME_BROWSER picks the app bundle.
+// normal_installed removes the add-on's uninstall button in that Firefox; it
+// can still be disabled. To undo: `defaults delete <bundle id> ExtensionSettings`,
+// the same for EnterprisePoliciesEnabled, then restart the browser.
 
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -31,8 +40,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const localDir = join(root, 'artifacts', 'local');
 const localZip = join(localDir, 'web_time.zip');
-const browser = process.env.WEBTIME_BROWSER ?? '/Applications/Floorp.app';
-const browserName = basename(browser, '.app');
+const browser = process.env.WEBTIME_FIREFOX;
+const browserName = browser ? basename(browser, '.app') : '';
 
 // Seconds since 2026-01-01. Firefox compares version parts as 32-bit integers,
 // which a full Unix timestamp outgrows in 2038.
@@ -107,8 +116,12 @@ function setupCommands(domain, id) {
 }
 
 function checkPolicy(id) {
+  if (!browser) {
+    fail('No Firefox to install into.',
+      'name one that accepts unsigned add-ons in .env.local, e.g. WEBTIME_FIREFOX="/Applications/Firefox Developer Edition.app" (see .env.local.example).');
+  }
   if (!existsSync(browser)) {
-    fail(`No browser at ${browser}.`, 'set WEBTIME_BROWSER to the app bundle to install into, e.g. WEBTIME_BROWSER=/Applications/Floorp.app.');
+    fail(`No app at ${browser}.`, 'fix WEBTIME_FIREFOX in .env.local to point at an installed Firefox app bundle.');
   }
   const domain = bundleId();
   const enabled = readDefault(domain, 'EnterprisePoliciesEnabled', 'raw') === 'true';
@@ -127,8 +140,16 @@ function running() {
   }
 }
 
+// Firefox keeps profiles under Application Support/<Profile or Name from
+// application.ini>: "Firefox" for Developer Edition too, a fork's own name.
+function profilesDir() {
+  const ini = readFileSync(join(browser, 'Contents', 'Resources', 'application.ini'), 'utf8');
+  const key = (k) => ini.match(new RegExp(`^${k}=(.+)$`, 'm'))?.[1].trim();
+  return join(homedir(), 'Library', 'Application Support', key('Profile') ?? key('Name'), 'Profiles');
+}
+
 function installedVersion(id) {
-  const profiles = join(homedir(), 'Library', 'Application Support', browserName, 'Profiles');
+  const profiles = profilesDir();
   if (!existsSync(profiles)) return null;
   const found = [];
   for (const profile of readdirSync(profiles)) {

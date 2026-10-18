@@ -9,14 +9,15 @@ on Firefox (MV2) and Chrome (MV3) from one source.
 loadable dirs: `extension/` (Firefox) and `dist-chrome/` (Chrome). Never build
 only one.
 
-Each build also writes `artifacts/local/web_time.zip`, the Firefox zip with a
-build-stamped version. A policy in the everyday browser's macOS preferences
-(Floorp, which takes unsigned add-ons) points at it, so that browser installs
-the build on its next start. The policy is not a `policies.json` in the app:
-a browser update replaces the bundle and deletes it. `./build.sh install`
-restarts the browser now and waits for the profile to report the new version. Plain `./build.sh` never restarts the browser: sessions
-run it often and it would close the owner's windows each time.
-`scripts/install-local.mjs` has the mechanics and the one-time setup.
+A dev build also writes `artifacts/local/web_time.zip`, the Firefox zip with a
+build-stamped version, for the Firefox the developer works in (one that takes
+unsigned add-ons, named by `WEBTIME_FIREFOX` in the gitignored `.env.local`).
+A policy in that Firefox's macOS preferences points at the zip, so it installs
+the build on its next start; `./build.sh install` restarts it now and waits for
+the profile to report the new version. Release builds never write the zip.
+Plain `./build.sh` never restarts the browser: sessions run it often and it
+would close the owner's windows each time. This is a dev-loop tool, so it stays
+out of the README; `scripts/install-local.mjs` has the setup and the mechanics.
 
 Debug logging is on for `./build.sh` and off for `release.sh`
 (`WEBTIME_DEBUG=0`), substituted by esbuild rather than edited by hand.
