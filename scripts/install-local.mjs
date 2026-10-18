@@ -165,6 +165,12 @@ async function install() {
     }
     await sleep(1000);
   }
+  // A pending browser update applies on restart and replaces the app bundle,
+  // policies.json with it. The first real run hit exactly this.
+  if (!existsSync(browserPolicy)) {
+    fail(`${browserName} lost its policy file during the restart (a browser update replaces the app bundle), so it did not install ${version}.`,
+      placePolicyHint());
+  }
   fail(`${browserName} restarted but reports ${name} ${seen.join(', ') || 'not installed'}, not ${version}.`,
     `open about:policies in ${browserName} and read its Errors tab for why the install was refused.`);
 }
