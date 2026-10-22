@@ -1,5 +1,7 @@
 # WebTime features
 
+Updated 2026-10-22 18:54, at 2.10.0.
+
 What a user can do with WebTime, how to reach it, and how to drive it. Read
 this before adding anything: if it's already here, extend it instead of
 building it again.
@@ -72,10 +74,17 @@ both, not that both have been driven.
   bites.
 - Each file has Sub-features, How to get to it, Driving it (preconditions,
   steps, what you can observe; the scenario that checks it; if there isn't one
-  yet, the reason is the to-do), and Gotchas. Describe behavior, not code locations, unless
+  yet, the reason is the to-do), and Gotchas. Under its title is a stamp,
+  `Updated 2026-10-22 19:00, at 2.10.0.`: when the description last changed,
+  and WebTime's version then. The pre-commit hook in `hooks/` writes it. Describe behavior, not code locations, unless
   the location is the point.
 - `test/feature-map.test.mjs` fails when a row has no file, a file has no
-  row, or a file names a scenario that doesn't exist.
+  row, or a file names a scenario that doesn't exist. `test/doc-stamps.test.mjs`
+  fails when a feature file, the README or a guide in `docs/` has no stamp, or
+  a stamp or Principle lacks a time and a version WebTime has had.
+- Before acting on a file, run `git log --since="<stamp time>"` on the code
+  you're about to touch. Where it moved after the stamp, read the file against
+  it and fix what's no longer true; the fix moves the stamp.
 - Change a feature's file in the same commit that changes the feature. A new
   feature gets a file and a row in the index. After driving one, set its row
   to "Yes, <browser> (YYYY-MM-DD)" and update its "Last driven" line.

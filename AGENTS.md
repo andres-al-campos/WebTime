@@ -114,17 +114,18 @@ three-line edge flag.
 
 ## Principles
 
-Look-and-feel calls, with the owner's why.
+Look-and-feel calls, with the owner's why, each starting with the time and version it was
+made or reworded at (the hook in `hooks/` writes it).
 
-- **Sizes by context** (2026-10-12). The popup has two control contexts. Bars
+- 2026-10-12 13:19, 2.10.0. **Sizes by context.** The popup has two control contexts. Bars
   (topbar, storage banner) take `--control-h-sm` and `--radius-control-sm`.
   Cards and the settings sheet take `--control-h` and `--radius-control`, the
   field height, so a button beside an input lines up. Steppers stay 32px: they
   sit two-up inside cards. The on-page dialogs are their own context with
   their own greys.
-- **On-page dialog headings are Title Case** (2026-10-12): "title case looks a
-  bit neater." Captions inside the popup stay sentence case.
-- **The design system holds consistency, not laws** (2026-10-12). When the code
+- 2026-10-12 12:43, 2.10.0. **On-page dialog headings are Title Case.** "Title case
+  looks a bit neater." Captions inside the popup stay sentence case.
+- 2026-10-12 12:43, 2.10.0. **The design system holds consistency, not laws.** When the code
   and the system disagree on a look, the code adjusts. No lint checks for
   design values.
 

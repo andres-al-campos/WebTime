@@ -1,5 +1,7 @@
 # Your data
 
+Updated 2026-10-07 21:06, at 2.10.0.
+
 All data stays in the browser. You can see how much is stored and export it.
 
 ## Sub-features

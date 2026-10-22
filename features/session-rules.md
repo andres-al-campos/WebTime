@@ -1,5 +1,7 @@
 # Session rules
 
+Updated 2026-10-07 20:37, at 2.10.0.
+
 Per-site limits. Turn them on for a site and browsing it runs in sessions with
 cooldowns between them.
 

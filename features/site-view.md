@@ -1,5 +1,7 @@
 # Site view
 
+Updated 2026-10-07 01:01, at 2.10.0.
+
 The popup's default page: your history on one site, today's usage, and that
 site's session controls.
 

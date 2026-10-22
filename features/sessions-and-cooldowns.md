@@ -1,5 +1,7 @@
 # Sessions and cooldowns
 
+Updated 2026-10-07 01:23, at 2.10.0.
+
 On a site with rules on, each session lasts its length; when it runs out the
 page is blocked for a cooldown that grows with each session.
 

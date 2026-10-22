@@ -1,5 +1,7 @@
 # Nudges
 
+Updated 2026-10-07 20:37, at 2.10.0.
+
 A brief reminder during a session: the corner timer swells to 7× its size for
 half a second while the page blurs and media pauses, then shrinks back.
 
