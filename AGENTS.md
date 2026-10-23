@@ -114,20 +114,32 @@ three-line edge flag.
 
 ## Principles
 
-Look-and-feel calls, with the owner's why, each starting with the time and version it was
-made or reworded at (the hook in `hooks/` writes it).
+How WebTime ought to be, so a session can decide a case nobody has met yet.
+Each earns its place by deciding Calls, which end by naming the principle they
+apply. Listed in the order they were written; when two disagree on a case, the
+owner decides and the winner moves up. The hook in `hooks/` starts each with
+the time and version it was made or reworded at.
+
+- 2026-10-12 12:43, 2.10.0. **The design system holds consistency, not laws.** When the code
+  and the system disagree on a look, the code adjusts. No lint checks for
+  design values.
+- 2026-10-22 19:10, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
+  alarm colours, nudges are brief, and stopping early is rewarded, not
+  punished.
+
+## Calls
+
+Look-and-feel calls about the popup or the on-page dialogs as a whole, with the
+owner's why. A call about one feature goes in its file.
 
 - 2026-10-12 13:19, 2.10.0. **Sizes by context.** The popup has two control contexts. Bars
   (topbar, storage banner) take `--control-h-sm` and `--radius-control-sm`.
   Cards and the settings sheet take `--control-h` and `--radius-control`, the
   field height, so a button beside an input lines up. Steppers stay 32px: they
   sit two-up inside cards. The on-page dialogs are their own context with
-  their own greys.
+  their own greys. Applies *The design system holds consistency, not laws*.
 - 2026-10-12 12:43, 2.10.0. **On-page dialog headings are Title Case.** "Title case
   looks a bit neater." Captions inside the popup stay sentence case.
-- 2026-10-12 12:43, 2.10.0. **The design system holds consistency, not laws.** When the code
-  and the system disagree on a look, the code adjusts. No lint checks for
-  design values.
 
 ## Feature map
 
