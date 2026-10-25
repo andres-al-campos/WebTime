@@ -1,7 +1,5 @@
 # WebTime
 
-Updated 2026-10-24 20:55, at 2.10.0.
-
 > Track and take control of your time.
 
 A browser extension for Firefox and Chrome that tracks how long you spend on
