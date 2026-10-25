@@ -1,6 +1,6 @@
 # WebTime
 
-Updated 2026-10-06 00:13, at 2.10.0.
+Updated 2026-10-24 20:55, at 2.10.0.
 
 > Track and take control of your time.
 
@@ -9,11 +9,7 @@ each site, with a small timer in the corner of your screen, and gives you the
 tools to spend that time mindfully. It uses **session-based browsing** that's both disciplined and
 flexible — focused sessions, gentle nudges, and cooldowns when a limit is reached.
 
-## Screenshots
-
-| All sites | Single site |
-|:---:|:---:|
-| ![All-sites view — daily usage chart with 7-day average and a per-site breakdown](store-assets/GeneralView.png) | ![Single-site view — usage vs. all sites, session rules, and the live session card](store-assets/SingleDomainView.png) |
+![WebTime tracking time on a site, with its timer in the corner and the usage view](docs/demo.webp)
 
 ## Install
 
