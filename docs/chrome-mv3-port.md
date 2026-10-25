@@ -1,7 +1,5 @@
 # Chrome (MV3) port — design record
 
-Updated 2026-08-10 18:42, at 2.9.0.
-
 Written 2026-08-06 as the plan, after measuring Chrome's service-worker behavior
 with a throwaway probe extension (since deleted). The port shipped 2026-08-10;
 this is kept for the reasoning, not as a to-do list. It explains why the timer
