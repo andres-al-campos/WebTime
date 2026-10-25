@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Drive the Chrome build headless: load dist-chrome/ into Playwright's
 // Chromium, open a local page, act like a user on it, and report what the
-// extension did. See features/README.md for what each scenario proves.
+// extension did. See dev/features/README.md for what each scenario proves.
 //
 //   node scripts/drive.mjs [scenario] [options]
 //

@@ -1,6 +1,6 @@
 # 7-day average popup
 
-Updated 2026-10-12 12:45, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 A one-time check-in when today's time on a site reaches 80% of your trailing
 7-day average for it.

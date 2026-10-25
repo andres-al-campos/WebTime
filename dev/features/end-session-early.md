@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-10-07 20:37, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 Stop a session before it runs out. The unused time plus a 10% bonus rolls into
 the next session, and the cooldown starts now.

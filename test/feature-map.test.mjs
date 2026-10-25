@@ -10,28 +10,28 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { scenarios } from '../scripts/drive/scenarios.mjs';
 
-const readme = readFileSync('features/README.md', 'utf8');
+const readme = readFileSync('dev/features/README.md', 'utf8');
 const rows = [...readme.matchAll(/^\|[^|]+\| \[[^\]]+\]\(([^)]+\.md)\)/gm)].map((m) => m[1]);
-const files = readdirSync('features').filter((f) => f.endsWith('.md') && f !== 'README.md');
+const files = readdirSync('dev/features').filter((f) => f.endsWith('.md') && f !== 'README.md');
 
 test('every row in the feature index has a file', () => {
   const missing = rows.filter((r) => !files.includes(r));
   assert.deepEqual(missing, [],
-    `features/README.md links ${missing.join(', ')}, which don't exist. ` +
+    `dev/features/README.md links ${missing.join(', ')}, which don't exist. ` +
       'Fix the link or remove the row.');
 });
 
 test('every feature file has a row in the index', () => {
   const unlisted = files.filter((f) => !rows.includes(f));
   assert.deepEqual(unlisted, [],
-    `${unlisted.join(', ')} ${unlisted.length > 1 ? 'have' : 'has'} no row in features/README.md. ` +
+    `${unlisted.join(', ')} ${unlisted.length > 1 ? 'have' : 'has'} no row in dev/features/README.md. ` +
       'Add a row to the table.');
 });
 
 test('every feature names a drive scenario that exists', () => {
   const problems = [];
   for (const f of files) {
-    const text = readFileSync(`features/${f}`, 'utf8');
+    const text = readFileSync(`dev/features/${f}`, 'utf8');
     const driving = /^## Driving it\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(text)?.[1];
     if (driving === undefined) {
       problems.push(`${f} has no "## Driving it" section.`);

@@ -1,6 +1,6 @@
 # All-sites overview
 
-Updated 2026-10-07 21:06, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 The popup's "All sites" page: how much time you spent browsing each day, and
 on what.

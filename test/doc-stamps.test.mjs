@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 test('every doc, Principle and Call is stamped, and every citation names a Principle', () => {
-  const hook = fileURLToPath(new URL('../hooks/stamp-docs.mjs', import.meta.url));
+  const hook = fileURLToPath(new URL('../dev/hooks/stamp-docs.mjs', import.meta.url));
   const r = spawnSync(process.execPath, [hook, '--check', 'extension/manifest.json'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 });

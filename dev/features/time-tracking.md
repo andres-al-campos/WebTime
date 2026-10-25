@@ -1,6 +1,6 @@
 # Time tracking
 
-Updated 2026-10-06 00:45, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 WebTime counts the seconds you spend on each site per day, in the background,
 on any http or https page. Nothing to turn on.

@@ -1,6 +1,6 @@
 # On-page timer
 
-Updated 2026-10-06 00:13, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 A small timer in the top-right corner of every tracked page. With a session
 running it counts down the session; otherwise it shows today's total on this

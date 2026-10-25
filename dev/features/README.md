@@ -1,6 +1,6 @@
 # WebTime features
 
-Updated 2026-10-22 18:54, at 2.10.0.
+Updated 2026-10-25 11:42, at 2.10.0.
 
 What a user can do with WebTime, how to reach it, and how to drive it. Read
 this before adding anything: if it's already here, extend it instead of
@@ -76,7 +76,7 @@ both, not that both have been driven.
   steps, what you can observe; the scenario that checks it; if there isn't one
   yet, the reason is the to-do), and Gotchas. Under its title is a stamp,
   `Updated 2026-10-22 19:00, at 2.10.0.`: when the description last changed,
-  and WebTime's version then. The pre-commit hook in `hooks/` writes it. Describe behavior, not code locations, unless
+  and WebTime's version then. The pre-commit hook in `dev/hooks/` writes it. Describe behavior, not code locations, unless
   the location is the point.
 - `test/feature-map.test.mjs` fails when a row has no file, a file has no
   row, or a file names a scenario that doesn't exist. `test/doc-stamps.test.mjs`

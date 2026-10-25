@@ -117,7 +117,7 @@ three-line edge flag.
 How WebTime ought to be, so a session can decide a case nobody has met yet.
 Each earns its place by deciding Calls, which end by naming the principle they
 apply. Listed in the order they were written; when two disagree on a case, the
-owner decides and the winner moves up. The hook in `hooks/` starts each with
+owner decides and the winner moves up. The hook in `dev/hooks/` starts each with
 the time and version it was made or reworded at.
 
 - 2026-10-12 12:43, 2.10.0. **The design system holds consistency, not laws.** When the code
@@ -143,5 +143,5 @@ owner's why. A call about one feature goes in its file.
 
 ## Feature map
 
-`features/` lists what a user can do and how to drive it. Read its README
+`dev/features/` lists what a user can do and how to drive it. Read its README
 before adding or changing a feature.
