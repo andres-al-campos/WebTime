@@ -32,7 +32,7 @@ if [ "${1:-}" = "install" ] && [ "${WEBTIME_DEBUG:-1}" = "0" ]; then
 fi
 
 # extension/manifest.json is the single source of truth for the version;
-# manifest-chrome.mjs derives the MV3 manifest from it, so both zips below
+# scripts/manifest-chrome.mjs derives the MV3 manifest from it, so both zips below
 # carry the same number without it being written down twice.
 VERSION=$(node -e "console.log(require('./extension/manifest.json').version)")
 

@@ -38,7 +38,7 @@ test('the screenshots are still on disk, just not in the extension', () => {
 test('source maps are tied to the debug flag, not always on', () => {
   // A map excluded from the zip but still emitted leaves a sourceMappingURL
   // pointing at a 404, so the switch has to be at the bundler.
-  const build = readFileSync('build.mjs', 'utf8');
+  const build = readFileSync('scripts/build.mjs', 'utf8');
   assert.match(build, /const SOURCEMAPS = DEBUG_ENABLED;/,
     'sourcemaps must follow the release/dev flag');
   assert.match(build, /sourcemap: SOURCEMAPS,/,

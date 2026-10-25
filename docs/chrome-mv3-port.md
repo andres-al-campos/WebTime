@@ -467,7 +467,7 @@ all and the content script is the only detector.
   verify this holds after the refactor. `init()` at
   [src/background.ts](../src/background.ts) re-runs on every wake, which
   is correct MV3 behavior.
-- [build.mjs](../build.mjs): emit two manifests from one source. Firefox
+- [build.mjs](../scripts/build.mjs): emit two manifests from one source. Firefox
   MV3 prefers event pages (`background.scripts`) over service workers, so the
   manifests differ in that key. Single-source with a build-time transform beats
   two diverging codebases, and keeps the AMO listing working.

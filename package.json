@@ -6,7 +6,7 @@
     "test": "node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run bundle",
-    "bundle": "node build.mjs",
+    "bundle": "node scripts/build.mjs",
     "watch": "tsc --watch --noEmit",
     "clean": "rm -rf extension/dist dist-chrome",
     "drive": "node scripts/drive.mjs"

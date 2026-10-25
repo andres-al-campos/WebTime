@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { toMv3 } from '../manifest-chrome.mjs';
+import { toMv3 } from '../scripts/manifest-chrome.mjs';
 
 const real = JSON.parse(await readFile('extension/manifest.json', 'utf8'));
 

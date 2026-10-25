@@ -91,7 +91,7 @@ messaging, storage, alarms — live in the background script.
 
 One source builds both browsers. [`extension/manifest.json`](extension/manifest.json)
 is the Firefox (MV2) manifest and the single source of truth;
-[`manifest-chrome.mjs`](manifest-chrome.mjs) derives the Chrome (MV3) manifest
+[`scripts/manifest-chrome.mjs`](scripts/manifest-chrome.mjs) derives the Chrome (MV3) manifest
 from it and assembles `dist-chrome/`. The design record for the port is in
 [`docs/chrome-mv3-port.md`](docs/chrome-mv3-port.md).
 
@@ -110,7 +110,7 @@ npm run watch      # tsc in watch mode
 ```
 
 `npm run build` bundles `background.ts`, `content.ts`, `offscreen.ts` and the
-popup into `extension/dist/` (see [`build.mjs`](build.mjs)), then assembles the
+popup into `extension/dist/` (see [`scripts/build.mjs`](scripts/build.mjs)), then assembles the
 Chrome build in `dist-chrome/`. Those bundled files are what the manifests load.
 
 ### Full build + package

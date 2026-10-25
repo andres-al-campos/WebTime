@@ -11,7 +11,7 @@ import { readFile, writeFile, mkdir, rm, cp } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = dirname(fileURLToPath(import.meta.url));
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** MV2 manifest object → MV3 manifest object. */
 export function toMv3(mv2) {
