@@ -6,16 +6,22 @@ set -e  # Exit immediately if a command fails
 # The pre-commit hook stamps the docs a commit changes (dev/hooks/stamp-docs.mjs).
 git -C "$(dirname "$0")" config core.hooksPath dev/hooks 2>/dev/null || true
 
-# ./build.sh check: the tests (which hold the laws, e.g. the clock-gate order)
-# and the doctor (the built extension loads and its clock runs). Builds nothing,
-# so run plain ./build.sh first after a change.
+# ./build.sh check: the typecheck and the tests (which hold the laws, e.g. the
+# clock-gate order). Opens no browser; the pre-push hook runs it.
+# ./build.sh check --drives: rebuilds extension/dist/ and dist-chrome/ from the
+# source, so the drive tests this code and not the last build, then runs the
+# tests and the doctor (the built extension loads and its clock runs).
 #
 # ./build.sh install: the plain build, then restart the Firefox you develop in
 # so it is running this build. See scripts/install-local.mjs for the setup.
 if [ "${1:-}" = "check" ]; then
-    npm test
-    npm run drive -- --doctor
-    exit
+    case "${2:-}" in
+        "") npm run typecheck; npm test
+            echo "The drives didn't run: ./build.sh check --drives runs them."
+            exit ;;
+        --drives) npm run build; npm test; npm run drive -- --doctor; exit ;;
+        *) echo "❌ Unknown option '$2'. Use ./build.sh check or ./build.sh check --drives."; exit 1 ;;
+    esac
 fi
 
 # Machine-local settings (WEBTIME_FIREFOX), gitignored. See .env.local.example.

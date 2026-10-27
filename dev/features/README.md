@@ -1,6 +1,6 @@
 # WebTime features
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-10-26 22:22, at 2.10.0.
 
 What a user can do with WebTime, how to reach it, and how to drive it. Read
 this before adding anything: if it's already here, extend it instead of
@@ -45,8 +45,8 @@ both, not that both have been driven.
 - **Every feature gets a scenario.** Popup-only features seed stored history,
   open the popup and read what it shows; they take a few seconds. A scenario
   that can't see some way the feature breaks says so in its comment.
-- **Doctor:** `./build.sh check` runs the tests, then `npm run drive --
-  --doctor`, which prints `✓ doctor: stack up, clock
+- **Doctor:** `./build.sh check --drives` builds, runs the tests, then
+  `npm run drive -- --doctor`, which prints `✓ doctor: stack up, clock
   runs on a tracked page` when the build loads, the worker starts and the clock
   reaches `running`. Verdicts come from debug logging, so a `release.sh` build
   reports none.
