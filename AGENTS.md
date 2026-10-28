@@ -120,9 +120,6 @@ apply. Listed in the order they were written; when two disagree on a case, the
 owner decides and the winner moves up. The hook in `dev/hooks/` starts each with
 the time and version it was made or reworded at.
 
-- 2026-10-12 12:43, 2.10.0. **The design system holds consistency, not laws.** When the code
-  and the system disagree on a look, the code adjusts. No lint checks for
-  design values.
 - 2026-10-22 19:10, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
   alarm colours, nudges are brief, and stopping early is rewarded, not
   punished.
