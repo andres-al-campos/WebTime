@@ -45,13 +45,16 @@ VERSION=$(node -e "console.log(require('./extension/manifest.json').version)")
 echo "🔷 Compiling TypeScript..."
 npm run build
 
-# Archive any previously-built zips into old_versions/ so artifacts/
-# only ever holds the build we're about to make.
+# Archive other versions' zips into old_versions/ so artifacts/ only ever holds
+# this version's build. This version's zips stay to be overwritten: archived, a
+# rebuild at the same version would leave a copy of itself in old_versions/.
+# test/old-versions.test.mjs runs this block on scratch zips.
 echo ""
 echo "🗄  Archiving previous builds to old_versions/..."
 mkdir -p artifacts/old_versions
 shopt -s nullglob
 for zip in artifacts/*.zip; do
+    case "$zip" in "artifacts/web_time-${VERSION}.zip"|"artifacts/web_time-chrome-${VERSION}.zip") continue ;; esac
     mv "$zip" artifacts/old_versions/
     echo "   moved $(basename "$zip")"
 done
