@@ -27,7 +27,7 @@ const {
   startSession, effectiveLength, displayFor,
   naturalEnd, endEarly, changeLength, cooldownLength, incrementSeconds,
   computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
-  windDownState, WIND_DOWN_DURATION,
+  windDownState, windDownProgress, WIND_DOWN_DURATION,
   endsAtSessionTime, windDownAtSessionTime, secondsUntil, instantFor, scheduleFor,
   shouldScheduleWakes,
 } = mod;
@@ -364,6 +364,21 @@ test('windDownState: not active at base-60 when session has carryover+grace', ()
   // One second before the very end — progress near 1.
   const wd = windDownState(s, eff - 1);
   assert.ok(wd.progress > 0.9 && wd.progress <= 1);
+});
+
+test('windDownProgress: the bar is the timer drawn as a line', () => {
+  // Outside the final minute there is no bar.
+  assert.equal(windDownProgress(0, 30 * M), null);
+  assert.equal(windDownProgress(30 * M - 61, 30 * M), null);
+  // Inside it, progress follows remaining and nothing else: the same timer
+  // numbers give the same bar, so a paused clock is a paused bar.
+  assert.equal(windDownProgress(30 * M - 60, 30 * M), 0);
+  assert.equal(windDownProgress(30 * M - 30, 30 * M), 0.5);
+  assert.equal(windDownProgress(30 * M, 30 * M), 1);
+  // Time added mid-wind-down pushes remaining past a minute: the bar goes.
+  assert.equal(windDownProgress(30 * M - 30, 31 * M), null);
+  // Sessions shorter than the wind-down never show it.
+  assert.equal(windDownProgress(10, 50), null);
 });
 
 // ---------------------------------------------------------------------------

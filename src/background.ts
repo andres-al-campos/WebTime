@@ -1761,11 +1761,7 @@ function checkWindDown(settings: InterventionSettings): void {
   }
 
   if (wd.active) {
-    sendMessageToAllTabsOfDomain(domain, {
-      type: MSG.SHOW_WIND_DOWN,
-      progress: wd.progress,
-      remainingSeconds: wd.remaining
-    });
+    sendMessageToAllTabsOfDomain(domain, { type: MSG.SHOW_WIND_DOWN });
   } else {
     clearWindDown(domain);
   }

@@ -165,8 +165,6 @@ export interface RequestBlockerStateMessage {
 
 export interface ShowWindDownMessage {
   type: typeof MSG.SHOW_WIND_DOWN;
-  progress: number;
-  remainingSeconds: number;
 }
 
 export interface HideWindDownMessage {

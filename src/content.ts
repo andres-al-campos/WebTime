@@ -1,7 +1,7 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { formatClock, formatTimeCompact, log } from './shared/utils.js';
-import { cooldownLength, computeGraceSeconds } from './shared/session-model.js';
+import { cooldownLength, computeGraceSeconds, windDownProgress } from './shared/session-model.js';
 import type { ExtensionMessage, SessionStartStats } from './types.js';
 
 declare const browser: typeof chrome;
@@ -197,15 +197,10 @@ function setTimerVisible(visible: boolean): void {
  * Local render tick.
  *
  * The timer text is driven by TIME_UPDATE, so this no longer advances it — it
- * re-renders the same value, which is a no-op once the text matches. It stays
- * because the wind-down bar animates against its own deadline and needs a tick
- * of its own.
+ * re-renders the same value, which is a no-op once the text matches.
  */
 function startLocalTick(): void {
-  setInterval(() => {
-    updateTimerText();
-    updateWindDownLocal();
-  }, 1000);
+  setInterval(updateTimerText, 1000);
 }
 
 /** Adaptive time format: MM:SS when < 1h, H:MM:SS when >= 1h */
@@ -872,35 +867,28 @@ function createWindDownOverlay(): void {
   windDownOverlay = overlay;
 }
 
-// Wind-down deadline in LOCAL time, derived from the remainingSeconds the
-// background sends. Like the timer, the bar has to advance on its own between
-// updates — the worker can die mid-wind-down, and a bar frozen at 40% while
-// the session actually ends is worse than no bar.
-let windDownEndsAt = 0;
+// Set by the background's SHOW/HIDE: whether wind-down applies to this site at
+// all (not during a cooldown, not on another domain's updates). How far along
+// it is comes from the timer's own numbers, so the two never disagree. The bar
+// once ran on a local deadline and kept draining while the clock was paused.
+let windDownEnabled = false;
 
-/**
- * Advance the wind-down bar from its local deadline.
- *
- * Runs on the local tick. Unlike the timer this doesn't need the background at
- * all: windDownEndsAt is an absolute deadline, so the bar stays correct on its
- * own even if updates stop arriving.
- */
-function updateWindDownLocal(): void {
-  if (!windDownOverlay || windDownEndsAt === 0) return;
-  if (windDownOverlay.style.visibility !== 'visible') return;
-
-  const remaining = (windDownEndsAt - Date.now()) / 1000;
-  const progress = Math.min(1, Math.max(0, 1 - remaining / WIND_DOWN_DURATION_S));
-  renderWindDown(progress);
+/** Paint the bar from the values the timer is showing, or hide it. */
+function syncWindDownToTimer(): void {
+  if (!windDownOverlay) return;
+  const progress = windDownEnabled && hasSession()
+    ? windDownProgress(lastSessionTime!, lastSessionLimitSeconds!)
+    : null;
+  if (progress === null) {
+    if (windDownOverlay.style.visibility === 'visible') hideWindDownOverlay();
+    return;
+  }
+  renderWindDownVisible(progress);
 }
 
-const WIND_DOWN_DURATION_S = 60;
-
-function showWindDown(progress: number, remainingSeconds: number): void {
-  if (!windDownOverlay) return;
-  // Anchor the local deadline so the bar keeps moving without the background.
-  windDownEndsAt = Date.now() + remainingSeconds * 1000;
-  renderWindDownVisible(progress);
+function showWindDown(): void {
+  windDownEnabled = true;
+  syncWindDownToTimer();
 }
 
 function renderWindDownVisible(progress: number): void {
@@ -937,8 +925,12 @@ function renderWindDown(progress: number): void {
 }
 
 function hideWindDown(): void {
+  windDownEnabled = false;
+  hideWindDownOverlay();
+}
+
+function hideWindDownOverlay(): void {
   if (!windDownOverlay) return;
-  windDownEndsAt = 0; // drop the local deadline so the tick stops advancing it
   windDownOverlay.style.visibility = 'hidden';
   try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
   windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
@@ -1223,6 +1215,7 @@ function handleIncomingMessage(
     // user action. updateTimerText() falls back to daily on its own when session
     // data is unavailable for this tab (e.g. domain has no session limit, or
     // another domain is currently active so background sends shared updates).
+    syncWindDownToTimer();
     if (timerText) {
       updateTimerText();
     } else {
@@ -1241,7 +1234,7 @@ function handleIncomingMessage(
   } else if (message.type === MSG.HIDE_BLOCKER) {
     hideBlocker();
   } else if (message.type === MSG.SHOW_WIND_DOWN) {
-    showWindDown(message.progress, message.remainingSeconds);
+    showWindDown();
   } else if (message.type === MSG.HIDE_WIND_DOWN) {
     hideWindDown();
   }

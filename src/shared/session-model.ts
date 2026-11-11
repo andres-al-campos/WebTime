@@ -438,18 +438,25 @@ export function scheduleFor(
 // Wind-down — also derived live.
 // ---------------------------------------------------------------------------
 
+/**
+ * Wind-down progress for the numbers the on-page timer shows, or null outside
+ * the final minute. The page renders the bar from this, so the bar is the timer
+ * drawn as a line: it pauses when the clock pauses and leaves when time is added.
+ */
+export function windDownProgress(sessionTime: number, sessionLimitSeconds: number): number | null {
+  const remaining = sessionLimitSeconds - sessionTime;
+  if (sessionLimitSeconds < WIND_DOWN_DURATION || remaining > WIND_DOWN_DURATION) return null;
+  return Math.min(1, 1 - Math.max(0, remaining) / WIND_DOWN_DURATION);
+}
+
 export function windDownState(s: ActiveSession, dailyTotal: number): {
   active: boolean; progress: number; remaining: number;
 } {
   const { sessionTime, sessionLimitSeconds } = displayFor(s, dailyTotal);
-  const start = sessionLimitSeconds - WIND_DOWN_DURATION;
-  if (sessionTime < start || sessionLimitSeconds < WIND_DOWN_DURATION) {
-    return { active: false, progress: 0, remaining: sessionLimitSeconds - sessionTime };
-  }
-  const elapsed = sessionTime - start;
+  const progress = windDownProgress(sessionTime, sessionLimitSeconds);
   return {
-    active: true,
-    progress: Math.min(1, elapsed / WIND_DOWN_DURATION),
+    active: progress !== null,
+    progress: progress ?? 0,
     remaining: Math.max(0, sessionLimitSeconds - sessionTime),
   };
 }
