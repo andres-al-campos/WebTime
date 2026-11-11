@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-10 21:11, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions with
 cooldowns between them.
@@ -36,3 +36,7 @@ cooldown step, 20-minute nudges; the page timer went from `00:03` to
   sheet is global-only and doesn't show them.
 - The cooldown is stored as fractional minutes and rounded to whole seconds on
   read; without the rounding some values displayed a second short.
+- A length change is applied by comparing the running session's length with
+  the settings, not with the previous settings. Remembering the previous ones
+  lost the first change after every worker start. The wind-down drive raises
+  the length mid-session and catches this.

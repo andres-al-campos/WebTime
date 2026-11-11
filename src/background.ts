@@ -183,9 +183,6 @@ const cooldownTotalSec: Record<Domain, number> = {};
 const cooldownTickers: Record<Domain, ReturnType<typeof setInterval>> = {};
 const windDownActive: Record<Domain, boolean> = {};
 
-// Cache previous intervention settings per domain to detect actual changes
-const previousInterventionSettings: Record<Domain, string> = {};
-
 // Which tab has the end-session-early confirmation popup open (null = none).
 // Freezes the timer (no daily increment) so the user has time to decide.
 //
@@ -1369,36 +1366,28 @@ function applyUpdatedSettings(): void {
       }
     }
 
-    // For every domain that we have prior fingerprints for OR for the
-    // currently tracked domain, detect actual changes. Only reset session
-    // state for domains whose intervention settings *actually* changed.
+    // Act where a session disagrees with the settings, judged against the
+    // session itself. This used to compare against a fingerprint remembered
+    // from the previous SETTINGS_UPDATED, and nothing was remembered after a
+    // worker start, so the first length change after one was silently dropped.
     const allDomainsToCheck = new Set<Domain>([
-      ...Object.keys(previousInterventionSettings),
+      ...Object.keys(sessions),
+      ...Object.keys(suspendedSessions),
+      ...Object.keys(cachedDomainSessionLimit),
       ...(trackedTabDomain ? [trackedTabDomain] : []),
     ]);
 
     for (const domain of allDomainsToCheck) {
       const domainCfg = settings.domains?.[domain];
-      const fingerprint = JSON.stringify({
-        sessionLimitEnabled: domainCfg?.sessionLimitEnabled,
-        sessionLimit: domainCfg?.sessionLimit,
-        cooldownIncrement: domainCfg?.cooldownIncrement
-      });
-      const prev = previousInterventionSettings[domain];
       const slEnabled = domainCfg?.sessionLimitEnabled || false;
-      const settingsActuallyChanged = prev !== undefined && prev !== fingerprint;
-      // First time we've seen this domain's fingerprint: normally we just
-      // record it and wait. But if rules are ALREADY on for the tracked tab
-      // and no session is running, act now — otherwise the first toggle-on of
-      // a fresh domain does nothing until a refresh re-runs init.
-      const firstSeenNeedsStart = prev === undefined && slEnabled
-        && domain === trackedTabDomain && !sessions[domain];
-      previousInterventionSettings[domain] = fingerprint;
-
-      if (!settingsActuallyChanged && !firstSeenNeedsStart) continue;
       const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
       const cooldownIncrementSeconds = slEnabled ? incrementSeconds(domainCfg?.cooldownIncrement) : 0;
-      cachedDomainSessionLimit[domain] = { sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
+      const session = sessions[domain];
+      const disagrees = newLimitSeconds <= 0
+        ? !!session
+        : domain === trackedTabDomain && (!session || session.baseLength !== newLimitSeconds);
+      cachedDomainSessionLimit[domain] = { ...cachedDomainSessionLimit[domain], sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
+      if (!disagrees) continue;
 
       if (newLimitSeconds <= 0) {
         // Rules turned OFF. Don't delete the session — SUSPEND it (stash the
