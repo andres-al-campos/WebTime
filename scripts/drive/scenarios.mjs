@@ -251,7 +251,52 @@ async function windDown(opts) {
       return fail(`The wind-down dim did not deepen: ${dims.join('% → ')}%.`,
         'check the opacity windDownState returns and how content.ts applies SHOW_WIND_DOWN.');
     }
-    return pass(`wind-down dimmed from ${dims[0]}% to ${dims.at(-1)}% over 40s`);
+
+    // Adding time takes the session out of its final minute: the overlay
+    // should fade out, not vanish, and stay gone.
+    console.log('  session raised to 2 minutes');
+    // Opened first and left behind the page: a popup tab in front would take
+    // tracking away from the page, and the change wouldn't reach its session.
+    const popup = await openPopup(run);
+    await page.bringToFront();
+    await stay(page, 2);
+    await page.evaluate(() => {
+      window.__windFade = [];
+      const id = setInterval(() => {
+        const w = document.querySelector('.web-time-wind-down-overlay');
+        const v = w.style.visibility === 'hidden' ? 'hidden' : Number(getComputedStyle(w).opacity).toFixed(2);
+        if (window.__windFade.at(-1) !== v) window.__windFade.push(v);
+        if (v === 'hidden') clearInterval(id);
+      }, 30);
+      setTimeout(() => clearInterval(id), 10_000);
+    });
+    // From the popup, as the settings sheet does: the background acts on its
+    // SETTINGS_UPDATED, not on the storage write.
+    await popup.evaluate(async () => {
+      const { webTimeSettings: s } = await chrome.storage.local.get('webTimeSettings');
+      s.domains.localhost.sessionLimit = 2;
+      await chrome.storage.local.set({ webTimeSettings: s });
+      await chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED' }).catch(() => {});
+    });
+    await page.waitForFunction(() => window.__windFade.at(-1) === 'hidden', null, { timeout: 5000 }).catch(() => {});
+    const fade = await page.evaluate(() => window.__windFade);
+    const partial = fade.filter((o) => o !== 'hidden' && o > 0 && o < 1);
+    console.log(`    opacity: ${fade.join(' → ')}`);
+    if (fade.at(-1) !== 'hidden') {
+      return fail(`The wind-down overlay was still up 5s after the session went past a minute left (${fade.at(-1)}).`,
+        'check syncWindDownToTimer in content.ts hides when windDownProgress returns null.');
+    }
+    if (!partial.length) {
+      return fail('The wind-down overlay vanished without fading.',
+        'check hideWindDownOverlay in content.ts fades opacity before hiding.');
+    }
+    await popup.close();
+    const back = await stay(page, 3);
+    if (back.includes('wind-down')) {
+      return fail(`The wind-down overlay came back with 2 minutes on the session: ${back}.`,
+        'check checkWindDown in background.ts and windDownProgress in session-model.ts.');
+    }
+    return pass(`wind-down dimmed from ${dims[0]}% to ${dims.at(-1)}% over 40s, then faded out when time was added`);
   } finally {
     await run.close();
   }

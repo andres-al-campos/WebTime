@@ -838,7 +838,8 @@ function createWindDownOverlay(): void {
     background: transparent;
     z-index: 999998;
     pointer-events: none;
-    transition: background 1s linear;
+    opacity: 1;
+    transition: background 1s linear, opacity ${WIND_DOWN_FADE_MS}ms ease-out;
     visibility: hidden;
   `;
 
@@ -873,6 +874,11 @@ function createWindDownOverlay(): void {
 // once ran on a local deadline and kept draining while the clock was paused.
 let windDownEnabled = false;
 
+// Leaving fades rather than vanishes: time added mid-wind-down shouldn't make
+// the page snap back to full brightness. Set while that fade runs.
+const WIND_DOWN_FADE_MS = 400;
+let windDownFadeTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** Paint the bar from the values the timer is showing, or hide it. */
 function syncWindDownToTimer(): void {
   if (!windDownOverlay) return;
@@ -880,7 +886,7 @@ function syncWindDownToTimer(): void {
     ? windDownProgress(lastSessionTime!, lastSessionLimitSeconds!)
     : null;
   if (progress === null) {
-    if (windDownOverlay.style.visibility === 'visible') hideWindDownOverlay();
+    if (windDownOverlay.style.visibility === 'visible' && !windDownFadeTimer) hideWindDownOverlay();
     return;
   }
   renderWindDownVisible(progress);
@@ -900,6 +906,13 @@ function renderWindDownVisible(progress: number): void {
   // popup dialogs) that opened mid-wind-down. Entering fullscreen later is
   // handled by the fullscreenchange listener, which re-promotes in back-to-front
   // order.
+  // Back into the final minute mid-fade: cancel the fade and stay up. It never
+  // left the top layer, so it isn't re-promoted.
+  if (windDownFadeTimer) {
+    clearTimeout(windDownFadeTimer);
+    windDownFadeTimer = null;
+  }
+  windDownOverlay.style.opacity = '1';
   const wasHidden = windDownOverlay.style.visibility !== 'visible';
   windDownOverlay.style.visibility = 'visible';
   if (wasHidden) promoteToTopLayer(windDownOverlay);
@@ -930,14 +943,27 @@ function hideWindDown(): void {
 }
 
 function hideWindDownOverlay(): void {
-  if (!windDownOverlay) return;
-  windDownOverlay.style.visibility = 'hidden';
-  try { windDownOverlay.hidePopover(); } catch { /* not open or unsupported */ }
-  windDownOverlay.style.background = 'rgba(0, 0, 0, 0)';
-  const barFill = windDownOverlay.querySelector('.web-time-wind-down-bar-fill') as HTMLElement | null;
-  if (barFill) {
-    barFill.style.width = '100%';
-  }
+  const overlay = windDownOverlay;
+  if (!overlay || overlay.style.visibility !== 'visible' || windDownFadeTimer) return;
+  overlay.style.opacity = '0';
+  windDownFadeTimer = setTimeout(() => {
+    windDownFadeTimer = null;
+    overlay.style.visibility = 'hidden';
+    try { overlay.hidePopover(); } catch { /* not open or unsupported */ }
+    // Reset with transitions off, so the next show starts from a full bar
+    // instead of animating up to it.
+    const barFill = overlay.querySelector('.web-time-wind-down-bar-fill') as HTMLElement | null;
+    const overlayTransition = overlay.style.transition;
+    const barTransition = barFill?.style.transition ?? '';
+    overlay.style.transition = 'none';
+    if (barFill) barFill.style.transition = 'none';
+    overlay.style.background = 'rgba(0, 0, 0, 0)';
+    overlay.style.opacity = '1';
+    if (barFill) barFill.style.width = '100%';
+    void overlay.offsetWidth;
+    overlay.style.transition = overlayTransition;
+    if (barFill) barFill.style.transition = barTransition;
+  }, WIND_DOWN_FADE_MS);
 }
 
 
