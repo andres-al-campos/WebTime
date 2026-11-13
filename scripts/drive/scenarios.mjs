@@ -84,11 +84,16 @@ async function track(opts) {
 /** Nudges at a 30s interval in a 3-minute session: due at ~60, 90 and 120s.
  *  None can fire before 60s or in the last 60s, so that's the shortest run. */
 async function nudges(opts) {
-  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 3, nudgeInterval: 0.5 }) });
+  // Each nudge is jittered by up to a quarter of the interval and dropped if
+  // that lands it under 60s or inside the final minute. In a 3-minute session
+  // the 60s and 120s slots were both coin flips, and 22% of seeds scheduled
+  // only one nudge. Four minutes keeps the 120s slot clear of the wind-down,
+  // so every seed has at least two by 140s.
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 4, nudgeInterval: 0.5 }) });
   try {
-    console.log('  3-minute session, nudge every 30s');
+    console.log('  4-minute session, nudge every 30s');
     const page = await openPage(run);
-    await stay(page, 128);
+    await stay(page, 140);
     const seen = await readNudges(page);
     const logged = run.logs.filter((l) => /nudge at/.test(l)).length;
     console.log(`  nudges on the page at: ${seen.map((s) => `${s}s`).join(', ') || '(none)'}`);
@@ -96,7 +101,7 @@ async function nudges(opts) {
     console.log(`  clock verdicts seen: ${run.verdicts().join(' → ')}`);
 
     if (seen.length < 2) {
-      return fail(`Expected 2–3 nudges by 128s, the page showed ${seen.length} (background logged ${logged}).`,
+      return fail(`Expected 2–3 nudges by 140s, the page showed ${seen.length} (background logged ${logged}).`,
         logged > seen.length
           ? 'the background fired them but the page did not animate: check NUDGE handling and showNudge in content.ts.'
           : 'check checkPhiNudges in background.ts and nudgeTimes in session-model.ts.');
@@ -430,7 +435,7 @@ function exportData(opts) {
 
 export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
-  nudges: { run: nudges, about: 'Nudges at a 30s interval (~2 min)' },
+  nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },
