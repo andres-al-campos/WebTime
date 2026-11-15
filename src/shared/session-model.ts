@@ -90,6 +90,28 @@ export function startSession(opts: {
   };
 }
 
+/**
+ * Where a domain stands between "nothing started" and "can't start".
+ *
+ * Named because the shell used to answer this in six places, each by testing
+ * its own mix of "is there a session object" and "is a cooldown running".
+ */
+export type SessionPhase = 'none' | 'running' | 'blocked';
+
+/**
+ * `blockedUntil` is the epoch ms a block lifts (0 when there is none). Blocked
+ * outranks running: during a cooldown the next session already exists, and it
+ * must not be treated as under way.
+ */
+export function sessionPhase(opts: {
+  hasSession: boolean;
+  blockedUntil: number;
+  now: number;
+}): SessionPhase {
+  if (opts.blockedUntil > opts.now) return 'blocked';
+  return opts.hasSession ? 'running' : 'none';
+}
+
 export interface CooldownResult {
   cooldownSeconds: number;
   /** The session the user enters AFTER the cooldown ends. */

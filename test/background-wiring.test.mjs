@@ -574,3 +574,34 @@ test('clockStart refuses to start unless the gates allow it', () => {
   assert.equal(firstLine, 'if (!shouldClockRun()) return;',
     'clockStart() must open with `if (!shouldClockRun()) return;` so nothing starts the clock past the gates');
 });
+
+// ---------------------------------------------------------------------------
+// WHERE A SESSION BEGINS
+//
+// A session used to be started on demand by whichever function asked for it
+// first, six of them. With a gate in front of sessions, any such caller is a
+// way in behind the gate, and nothing would fail: the session would simply
+// exist. So the callers of ensureSessionStarted are a fixed list.
+// ---------------------------------------------------------------------------
+
+test('only the tick and a settings change start a session', () => {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const callers = [];
+  const call = /ensureSessionStarted\(/g;
+  let m;
+  while ((m = call.exec(code)) !== null) {
+    const before = code.slice(0, m.index);
+    const fns = [...before.matchAll(/\n(?:async )?function (\w+)\(/g)];
+    const enclosing = fns.length ? fns[fns.length - 1][1] : '(top level)';
+    // The declaration itself matches the call pattern; skip it.
+    if (/function $/.test(before.slice(-9))) continue;
+    callers.push(enclosing);
+  }
+  assert.deepEqual(
+    callers.sort(),
+    ['applyUpdatedSettings', 'runInterventionPass', 'updateTimerDisplay'],
+    'ensureSessionStarted has a caller outside the fixed list. A function that ' +
+    'needs the session reads sessions[domain] and returns when it is empty; ' +
+    'only the three listed may start one.',
+  );
+});

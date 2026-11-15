@@ -9,6 +9,8 @@ import {
   endEarly as computeEndEarly,
   changeLength,
   cooldownLength,
+  sessionPhase,
+  type SessionPhase,
   incrementSeconds,
   windDownState,
   scheduleFor,
@@ -357,7 +359,7 @@ async function rescheduleWakes(): Promise<void> {
   const ok = shouldScheduleWakes({
     clockRunning: isRunning(dailyClock),
     hasSession: Boolean(session),
-    inCooldown: (cooldownEndTime[domain] || 0) > Date.now(),
+    inCooldown: isBlocked(domain),
   });
   if (!ok || !session) return;
 
@@ -537,14 +539,20 @@ function handleAlarm(alarm: chrome.alarms.Alarm): void {
 }
 
 /**
- * Get the current session for a domain, lazily starting one anchored at the
- * current daily total if none exists yet. Runs on the first tick after a domain
- * switch / extension load / settings change. `baseLength` is the live limit in
- * seconds; callers only invoke this when baseLength > 0.
+ * Get the current session for a domain, starting one anchored at the current
+ * daily total if the domain has none and isn't blocked. `baseLength` is the
+ * live limit in seconds; callers only invoke this when baseLength > 0.
+ *
+ * This is the only function that begins a session on its own, and it has three
+ * callers: the tick's display, the tick's intervention pass, and a settings
+ * change. Everything else reads `sessions[domain]` and does nothing when it is
+ * empty. Six callers each starting one on demand meant "is there a session"
+ * had no single answer; a wiring test pins the list.
  */
-function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession {
+function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession | undefined {
   let s = sessions[domain];
   if (!s) {
+    if (isBlocked(domain)) return undefined;
     s = startSession({ dailyTotal: anchorDaily, baseLength });
     sessions[domain] = s;
     // Not just persistence. saveSessionState() also calls rescheduleWakes(),
@@ -554,6 +562,19 @@ function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: n
     saveSessionState();
   }
   return s;
+}
+
+/** Where a domain stands: no session, one running, or blocked between them. */
+function phaseOf(domain: Domain): SessionPhase {
+  return sessionPhase({
+    hasSession: !!sessions[domain],
+    blockedUntil: cooldownEndTime[domain] || 0,
+    now: Date.now(),
+  });
+}
+
+function isBlocked(domain: Domain): boolean {
+  return phaseOf(domain) === 'blocked';
 }
 
 /**
@@ -953,7 +974,7 @@ function currentClockVerdict(): ClockVerdict {
     browserIsFocused,
     trackedDomain: trackedTabDomain,
     inCooldown: trackedTabDomain
-      ? (cooldownEndTime[trackedTabDomain] || 0) > Date.now()
+      ? isBlocked(trackedTabDomain)
       : false,
     endSessionConfirmOpen: endSessionConfirmTabId !== null,
     averagePopupOpen: averagePopupTabId !== null,
@@ -1101,22 +1122,24 @@ function updateTimerDisplay(updatedTime: number): void {
     const baseLimitSec = data?.sessionLimitSeconds || 0;
     if (baseLimitSec > 0) {
       const session = ensureSessionStarted(trackedTabDomain, updatedTime, baseLimitSec);
-      const display = displayFor(session, updatedTime);
-      message.sessionTime = display.sessionTime;
-      message.sessionLimitSeconds = display.sessionLimitSeconds;
-      message.sessionNum = session.sessionNum;
-      message.cooldownIncrementSeconds = data?.cooldownIncrementSeconds || 0;
-      // The base, NOT the effective limit: the end-session confirm adds this
-      // session's carryover+grace to it to state what the next session will be.
-      // Sending the effective limit would double-count the current carryover.
-      message.baseLengthSeconds = session.baseLength;
-      log(
-        `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
-        `start=${session.startDaily}s base=${session.baseLength}s ` +
-        `carryover=${session.carryover}s grace=${session.graceSeconds}s ` +
-        `effLimit=${display.sessionLimitSeconds}s sessionTime=${display.sessionTime}s ` +
-        `→ remaining=${display.remaining}s`
-      );
+      if (session) {
+        const display = displayFor(session, updatedTime);
+        message.sessionTime = display.sessionTime;
+        message.sessionLimitSeconds = display.sessionLimitSeconds;
+        message.sessionNum = session.sessionNum;
+        message.cooldownIncrementSeconds = data?.cooldownIncrementSeconds || 0;
+        // The base, NOT the effective limit: the end-session confirm adds this
+        // session's carryover+grace to it to state what the next session will be.
+        // Sending the effective limit would double-count the current carryover.
+        message.baseLengthSeconds = session.baseLength;
+        log(
+          `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
+          `start=${session.startDaily}s base=${session.baseLength}s ` +
+          `carryover=${session.carryover}s grace=${session.graceSeconds}s ` +
+          `effLimit=${display.sessionLimitSeconds}s sessionTime=${display.sessionTime}s ` +
+          `→ remaining=${display.remaining}s`
+        );
+      }
     }
   }
 
@@ -1422,7 +1445,9 @@ function applyUpdatedSettings(): void {
         // No session ever existed — start one NOW (not "next tick"), so the
         // timer appears immediately on the tracked tab instead of after a
         // refresh. Anchored at the current daily total.
-        existing = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
+        const started = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
+        if (!started) continue; // blocked with nothing to resize
+        existing = started;
         updateTimerDisplay(dailyTotal());
       }
 
@@ -1488,7 +1513,7 @@ const messageHandlers: {
     // number + breakdown), reconstructed from existing state.
     if (sender.tab.url) {
       const domain = extractDomain(sender.tab.url);
-      if (domain && (cooldownEndTime[domain] || 0) > Date.now()) {
+      if (domain && isBlocked(domain)) {
         void sendBlockerToLateJoiningTab(sender.tab.id, domain);
       }
     }
@@ -1615,6 +1640,13 @@ async function runInterventionPass(): Promise<void> {
   const settings = await loadInterventionSettings();
   if (!settings) return;
 
+  // The checks below only read the session. On a worker's first tick the
+  // display ran before the settings were cached and started nothing, so this
+  // is where that tick's session begins.
+  if (trackedTabDomain && settings.sessionLimitSeconds > 0) {
+    ensureSessionStarted(trackedTabDomain, dailyTotal(), settings.sessionLimitSeconds);
+  }
+
   checkWindDown(settings);
   if (checkSessionLimit(settings)) return;
 
@@ -1663,7 +1695,8 @@ function checkPhiNudges(settings: InterventionSettings): void {
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
 
   const domain = trackedTabDomain;
-  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
+  const session = sessions[domain];
+  if (!session) return;
 
   const outcome = decideNudge({
     session,
@@ -1739,9 +1772,10 @@ function checkWindDown(settings: InterventionSettings): void {
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
 
   const domain = trackedTabDomain;
-  if ((cooldownEndTime[domain] || 0) > Date.now()) return;
+  if (isBlocked(domain)) return;
 
-  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
+  const session = sessions[domain];
+  if (!session) return;
   const wd = windDownState(session, dailyTotal());
 
   if (wd.active && !windDownActive[domain]) {
@@ -1905,14 +1939,15 @@ async function endSessionEarly(): Promise<void> {
   const domain = trackedTabDomain;
 
   // Don't end if already in cooldown
-  if ((cooldownEndTime[domain] || 0) > Date.now()) return;
+  if (isBlocked(domain)) return;
 
   const settings = await loadInterventionSettings();
   if (!settings) return;
   const { sessionLimitSeconds, cooldownIncrementSeconds } = settings;
   if (sessionLimitSeconds <= 0) return;
 
-  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
+  const session = sessions[domain];
+  if (!session) return;
 
   const result = computeEndEarly(session, {
     dailyTotal: dailyTotal(),
@@ -1934,14 +1969,10 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
 
   const domain = trackedTabDomain;
 
-  // Check the cooldown before touching the session: ensureSessionStarted creates
-  // and persists one as a side effect, and a domain sitting in cooldown must
-  // not get a session started for it.
-  if ((cooldownEndTime[domain] || 0) > Date.now()) return true;
+  if (isBlocked(domain)) return true;
 
-  // Lazily start the session for this domain. Runs once on the first tick after
-  // a domain switch / extension load / settings change.
-  const session = ensureSessionStarted(domain, dailyTotal(), sessionLimitSeconds);
+  const session = sessions[domain];
+  if (!session) return false;
 
   const outcome = decideSessionLimit({
     session,
