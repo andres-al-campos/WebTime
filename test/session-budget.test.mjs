@@ -23,7 +23,7 @@ await build({
 });
 const {
   fullBudget, regenIntervalMs, sessionsAt, settle, canStart, spend, giveBack,
-  unusedFraction, nextSessionAt,
+  unusedFraction, nextSessionAt, startable, nextStartAt,
 } = await import(pathToFileURL(outFile).href);
 
 const T = 1_700_000_000_000;
@@ -56,7 +56,7 @@ test('a clock set back takes nothing away', () => {
 
 test('starting uses one whole session', () => {
   const after = spend(fullBudget(rules, T), rules, T);
-  assert.deepEqual(after, { sessions: 3, at: T });
+  assert.deepEqual(after, { budget: { sessions: 3, at: T }, fraction: 1 });
 });
 
 test('no whole session, no start', () => {
@@ -67,39 +67,62 @@ test('no whole session, no start', () => {
   assert.equal(canStart(b, rules, T + 0.8 * HOUR + 1), true);
 });
 
-test('a cancelled start gives the session back', () => {
-  const start = { sessions: 2.4, at: T };
-  const spent = spend(start, rules, T);
-  near(giveBack(spent, rules, T + 5000, 1).sessions, sessionsAt(start, rules, T + 5000));
-});
-
 test('ending early costs only the time used', () => {
   // 5 of 40 minutes used: an eighth of a session.
-  const spent = spend({ sessions: 2, at: T }, rules, T);
-  const back = giveBack(spent, rules, T, unusedFraction(35 * 60, 40 * 60));
+  const { budget } = spend({ sessions: 2, at: T }, rules, T);
+  const back = giveBack(budget, rules, T, unusedFraction(35 * 60, 40 * 60));
   near(back.sessions, 2 - 1 / 8);
 });
 
 test('eight five-minute visits add up to exactly one session', () => {
-  // Two held, so each visit has a whole session to start from.
   let b = { sessions: 2, at: T };
   const frozen = { sessionsPerDay: 0, maxSessions: 4 };
   for (let i = 0; i < 8; i++) {
-    b = spend(b, frozen, T);
-    assert.notEqual(b, null, `visit ${i + 1} should have been able to start`);
-    b = giveBack(b, frozen, T, unusedFraction(35 * 60, 40 * 60));
+    const started = spend(b, frozen, T);
+    assert.notEqual(started, null, `visit ${i + 1} should have been able to start`);
+    b = giveBack(started.budget, frozen, T, unusedFraction(35 * 60, 40 * 60));
   }
   near(b.sessions, 1);
   assert.equal(canStart(b, frozen, T), true);
 });
 
-test('most of a session is not a session', () => {
-  // The last one, used for five minutes: seven eighths remain and the gate
-  // waits for the missing eighth (an hour at this rate).
-  const spent = spend({ sessions: 1, at: T }, rules, T);
-  const b = giveBack(spent, rules, T, unusedFraction(35 * 60, 40 * 60));
-  assert.equal(canStart(b, rules, T), false);
-  assert.equal(nextSessionAt(b, rules, T), T + HOUR);
+test('what is left of the last session starts a shorter one', () => {
+  // The last one, used for five minutes: seven eighths remain.
+  const frozen = { sessionsPerDay: 0, maxSessions: 4 };
+  const first = spend({ sessions: 1, at: T }, frozen, T);
+  const b = giveBack(first.budget, frozen, T, unusedFraction(35 * 60, 40 * 60));
+  const min = 5 / 40;
+  near(startable(b, frozen, T, min), 7 / 8);
+  const second = spend(b, frozen, T, min);
+  near(second.fraction, 7 / 8);
+  near(second.budget.sessions, 0);
+});
+
+test('a partial session ended early returns its share of a full one', () => {
+  // A 35-minute partial session with 10 minutes left returns 10/40.
+  const frozen = { sessionsPerDay: 0, maxSessions: 4 };
+  const started = spend({ sessions: 7 / 8, at: T }, frozen, T, 1 / 8);
+  near(giveBack(started.budget, frozen, T, unusedFraction(10 * 60, 40 * 60)).sessions, 0.25);
+});
+
+test('less than the minimum is not offered', () => {
+  const b = { sessions: 0.1, at: T };
+  assert.equal(startable(b, rules, T, 1 / 8), 0);
+  assert.equal(spend(b, rules, T, 1 / 8), null);
+  // 0.025 short of an eighth, at 8h a session: 12 minutes.
+  assert.equal(nextStartAt(b, rules, T, 1 / 8), T + 0.2 * HOUR);
+  assert.equal(canStart(b, rules, nextStartAt(b, rules, T, 1 / 8), 1 / 8), true);
+});
+
+test('nextStartAt is null when a session can start or nothing regenerates', () => {
+  assert.equal(nextStartAt({ sessions: 1, at: T }, rules, T, 1 / 8), null);
+  assert.equal(nextStartAt({ sessions: 0.5, at: T }, rules, T, 1 / 8), null);
+  assert.equal(nextStartAt({ sessions: 0, at: T }, { sessionsPerDay: 0, maxSessions: 4 }, T, 1 / 8), null);
+});
+
+test('without a minimum only a whole session starts', () => {
+  assert.equal(startable({ sessions: 0.9, at: T }, rules, T), 0);
+  assert.equal(nextStartAt({ sessions: 0.75, at: T }, rules, T), T + 2 * HOUR);
 });
 
 test('giving back never passes the maximum', () => {
@@ -125,7 +148,7 @@ test('over a week of starting whenever possible, use stays at the rate', () => {
   const week = 7 * 24 * HOUR;
   for (let t = T; t <= T + week; t += 60_000) {
     const next = spend(b, rules, t);
-    if (next) { b = next; started += 1; }
+    if (next) { b = next.budget; started += 1; }
   }
   // The row it began with, plus three a day.
   assert.equal(started, 4 + 3 * 7);

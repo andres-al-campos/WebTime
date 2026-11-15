@@ -67,20 +67,63 @@ export function settle(b: Budget, rules: BudgetRules, now: number): Budget {
   return { sessions: sessionsAt(b, rules, now), at: now };
 }
 
-/** Whether a whole session is there to start. */
-export function canStart(b: Budget, rules: BudgetRules, now: number): boolean {
-  return sessionsAt(b, rules, now) >= 1 - EPSILON;
+/**
+ * How much of a session a start would use right now: 1 when a whole one is
+ * held, what is held when that is at least `minFraction`, otherwise 0.
+ *
+ * A partial start exists so that ending early loses nothing all the way down:
+ * seven eighths left over from a short visit is a 35-minute session, not an
+ * hour's wait for the missing eighth. `minFraction` keeps the gate from
+ * offering a session too short to be one.
+ */
+export function startable(b: Budget, rules: BudgetRules, now: number, minFraction = 1): number {
+  const held = sessionsAt(b, rules, now);
+  if (held >= 1 - EPSILON) return 1;
+  const floor = Math.min(1, Math.max(0, minFraction));
+  return held > EPSILON && held >= floor - EPSILON ? held : 0;
 }
 
-/** Use one session. Null when there isn't a whole one. */
-export function spend(b: Budget, rules: BudgetRules, now: number): Budget | null {
-  if (!canStart(b, rules, now)) return null;
-  return { sessions: Math.max(0, sessionsAt(b, rules, now) - 1), at: now };
+/** Whether a session can start. */
+export function canStart(b: Budget, rules: BudgetRules, now: number, minFraction = 1): boolean {
+  return startable(b, rules, now, minFraction) > 0;
 }
 
 /**
- * Return part of a session: 1 for a start that was cancelled, the unused
- * fraction for one ended early. Never past the maximum.
+ * Start a session: use what `startable` offers. `fraction` is how much of a
+ * full-length session was bought. Null when nothing can start.
+ */
+export function spend(
+  b: Budget,
+  rules: BudgetRules,
+  now: number,
+  minFraction = 1,
+): { budget: Budget; fraction: number } | null {
+  const fraction = startable(b, rules, now, minFraction);
+  if (fraction <= 0) return null;
+  return {
+    budget: { sessions: Math.max(0, sessionsAt(b, rules, now) - fraction), at: now },
+    fraction,
+  };
+}
+
+/**
+ * The instant a session can next start, or null when one can start now or
+ * nothing regenerates. This is the wait the out-of-sessions screen counts.
+ */
+export function nextStartAt(b: Budget, rules: BudgetRules, now: number, minFraction = 1): number | null {
+  if (canStart(b, rules, now, minFraction)) return null;
+  const interval = regenIntervalMs(rules);
+  if (!Number.isFinite(interval)) return null;
+  const floor = Math.min(1, Math.max(0, minFraction));
+  const target = Math.min(Math.max(0, rules.maxSessions), Math.max(floor, EPSILON * 2));
+  const missing = target - sessionsAt(b, rules, now);
+  if (missing <= 0) return null;
+  return now + missing * interval;
+}
+
+/**
+ * Return part of a session, as a share of a full-length one: what an early
+ * end left unused. Never past the maximum.
  */
 export function giveBack(b: Budget, rules: BudgetRules, now: number, fraction: number): Budget {
   const part = Math.min(1, Math.max(0, fraction));
@@ -88,7 +131,11 @@ export function giveBack(b: Budget, rules: BudgetRules, now: number, fraction: n
   return { sessions: Math.min(max, sessionsAt(b, rules, now) + part), at: now };
 }
 
-/** The share of a session left unused, for giveBack. */
+/**
+ * The share of a FULL-LENGTH session left unused, for giveBack. Pass the
+ * site's session length, not this session's: a 35-minute partial session
+ * ended with 10 minutes left returns 10/40, not 10/35.
+ */
 export function unusedFraction(remainingSeconds: number, lengthSeconds: number): number {
   if (lengthSeconds <= 0) return 0;
   return Math.min(1, Math.max(0, remainingSeconds / lengthSeconds));
@@ -96,8 +143,7 @@ export function unusedFraction(remainingSeconds: number, lengthSeconds: number):
 
 /**
  * The instant the next whole session completes, or null when the row is full
- * or nothing regenerates. With none held this is when the gate can come back;
- * with some held it is the "Next session in" on the gate.
+ * or nothing regenerates: the "Next session in" on the gate.
  */
 export function nextSessionAt(b: Budget, rules: BudgetRules, now: number): number | null {
   const held = sessionsAt(b, rules, now);
