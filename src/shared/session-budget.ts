@@ -34,6 +34,26 @@ export interface BudgetRules {
   maxSessions: number;
 }
 
+export const DEFAULT_SESSIONS_PER_DAY = 3;
+export const DEFAULT_MAX_SESSIONS = 4;
+
+/** A session shorter than this isn't offered; the gate waits for more. */
+export const MIN_SESSION_SECONDS = 5 * 60;
+
+/** A site's rules from its settings, with the defaults filled in. */
+export function budgetRules(cfg?: { sessionsPerDay?: number; maxSessions?: number }): BudgetRules {
+  return {
+    sessionsPerDay: cfg?.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
+    maxSessions: cfg?.maxSessions ?? DEFAULT_MAX_SESSIONS,
+  };
+}
+
+/** The smallest share of a session worth starting, for a given full length. */
+export function minFractionFor(sessionLengthSeconds: number): number {
+  if (sessionLengthSeconds <= 0) return 1;
+  return Math.min(1, MIN_SESSION_SECONDS / sessionLengthSeconds);
+}
+
 /** A site that has never spent anything: a full row. */
 export function fullBudget(rules: BudgetRules, now: number): Budget {
   return { sessions: Math.max(0, rules.maxSessions), at: now };

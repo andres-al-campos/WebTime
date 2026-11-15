@@ -27,7 +27,7 @@ function base(overrides = {}) {
   return {
     browserIsFocused: true,
     trackedDomain: 'youtube.com',
-    inCooldown: false,
+    atGate: false,
     endSessionConfirmOpen: false,
     averagePopupOpen: false,
     osIdleState: 'active',
@@ -90,10 +90,10 @@ test('audio does not override an unfocused browser', () => {
   })), false);
 });
 
-test('audio does not override a cooldown', () => {
+test('audio does not override the gate', () => {
   // Cooldown means the timer is deliberately frozen; audio must not resume it.
   assert.equal(shouldClockRun(base({
-    inCooldown: true,
+    atGate: true,
     activeTabAudible: true,
   })), false);
 });
@@ -118,8 +118,8 @@ test('no trackable domain does not count', () => {
   assert.equal(shouldClockRun(base({ trackedDomain: null })), false);
 });
 
-test('a cooldown freezes the clock', () => {
-  assert.equal(shouldClockRun(base({ inCooldown: true })), false);
+test('the gate freezes the clock', () => {
+  assert.equal(shouldClockRun(base({ atGate: true })), false);
 });
 
 test('an open confirmation or average popup freezes the clock', () => {
@@ -147,7 +147,7 @@ test('each gate reports itself by name', () => {
   assert.equal(clockVerdict(base({ activeTabAudible: true })), 'audible');
   assert.equal(clockVerdict(base({ browserIsFocused: false })), 'unfocused');
   assert.equal(clockVerdict(base({ trackedDomain: null })), 'untracked');
-  assert.equal(clockVerdict(base({ inCooldown: true })), 'cooldown');
+  assert.equal(clockVerdict(base({ atGate: true })), 'gate');
   assert.equal(
     clockVerdict(base({ endSessionConfirmOpen: true })),
     'end-session-confirm',
@@ -168,14 +168,14 @@ test('the verdict and the boolean never disagree', () => {
 
   for (const browserIsFocused of bools)
   for (const trackedDomain of [null, 'youtube.com'])
-  for (const inCooldown of bools)
+  for (const atGate of bools)
   for (const endSessionConfirmOpen of bools)
   for (const averagePopupOpen of bools)
   for (const osIdleState of idleStates)
   for (const activeTabAudible of bools)
   for (const tabIsEngaged of bools) {
     const input = {
-      browserIsFocused, trackedDomain, inCooldown, endSessionConfirmOpen,
+      browserIsFocused, trackedDomain, atGate, endSessionConfirmOpen,
       averagePopupOpen, osIdleState, activeTabAudible, tabIsEngaged,
     };
     const v = clockVerdict(input);

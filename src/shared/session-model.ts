@@ -91,25 +91,17 @@ export function startSession(opts: {
 }
 
 /**
- * Where a domain stands between "nothing started" and "can't start".
+ * Where a domain stands. `off`: no session rules. `gate`: rules on and no
+ * session running, so the page is behind the gate. `running`: a session.
  *
  * Named because the shell used to answer this in six places, each by testing
  * its own mix of "is there a session object" and "is a cooldown running".
  */
-export type SessionPhase = 'none' | 'running' | 'blocked';
+export type SessionPhase = 'off' | 'gate' | 'running';
 
-/**
- * `blockedUntil` is the epoch ms a block lifts (0 when there is none). Blocked
- * outranks running: during a cooldown the next session already exists, and it
- * must not be treated as under way.
- */
-export function sessionPhase(opts: {
-  hasSession: boolean;
-  blockedUntil: number;
-  now: number;
-}): SessionPhase {
-  if (opts.blockedUntil > opts.now) return 'blocked';
-  return opts.hasSession ? 'running' : 'none';
+export function sessionPhase(opts: { rulesOn: boolean; hasSession: boolean }): SessionPhase {
+  if (!opts.rulesOn) return 'off';
+  return opts.hasSession ? 'running' : 'gate';
 }
 
 export interface CooldownResult {

@@ -1,21 +1,22 @@
 # Session rules
 
-Updated 2026-11-10 21:11, at 2.10.0.
+Updated 2026-11-15 17:13, at 2.10.0.
 
-Per-site limits. Turn them on for a site and browsing it runs in sessions with
-cooldowns between them.
+Per-site limits. Turn them on for a site and browsing it runs in sessions,
+each started at the [gate](sessions-and-cooldowns.md).
 
 ## Sub-features
 
 - On/off toggle per site. Off means tracking only.
 - Session length: 1–240 min (default 40).
 - Nudge every: 0–120 min (default 20; 0 shows "Disabled").
-- Base cooldown: minutes 0–120 plus seconds in 5s steps (default 5m). 0m0s
-  is refused while rules are on. Session N's cooldown is N × base.
+- Base cooldown: still shown, no longer used. Sessions per day (3) and the
+  most a site can hold (4) run on their defaults and have no controls yet.
 - Every change saves immediately and applies to a running session: shrinking
   the length past the time already used ends the session on the spot.
-- Turning rules off suspends the session; turning them back on resumes the
-  same session number rather than starting at Session 1.
+- Turning rules on puts the site's tabs behind the gate. Turning them off
+  suspends a running session and lifts the gate; turning them back on resumes
+  that session. What the site holds is untouched by the toggle.
 
 ## How to get to it
 
@@ -23,11 +24,12 @@ Popup → site view → "Session rules" card (today only; hidden on past days).
 
 ## Driving it
 
-`npm run drive -- session-rules` (~10s): opens the popup for `localhost`,
-clicks the toggle, and checks the saved settings and the page timer.
+`npm run drive -- session-rules` (~25s): opens the popup for `localhost`,
+clicks the toggle, starts a session at the gate that appears, and checks the
+saved settings and the page timer.
 
-Last driven: 2026-10-07, Chrome headless. Saved 40-minute sessions, 5-minute
-cooldown step, 20-minute nudges; the page timer went from `00:03` to
+Last driven: 2026-11-15, Chrome headless. Saved 40-minute sessions and
+20-minute nudges; after the gate the page timer went from `00:03` to
 `⏱ 39:58`. The steppers were not driven.
 
 ## Gotchas

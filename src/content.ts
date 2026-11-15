@@ -1,8 +1,9 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { formatClock, formatTimeCompact, log } from './shared/utils.js';
-import { cooldownLength, computeGraceSeconds, windDownProgress } from './shared/session-model.js';
-import type { ExtensionMessage, SessionStartStats } from './types.js';
+import { windDownProgress } from './shared/session-model.js';
+import { sessionsAt, startable, nextSessionAt, nextStartAt } from './shared/session-budget.js';
+import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
 
@@ -21,8 +22,6 @@ let lastSessionTime: number | undefined;
 let lastSessionLimitSeconds: number | undefined;
 
 let lastSessionNum: number | undefined;
-let lastCooldownIncrementSeconds: number | undefined;
-let lastBaseLengthSeconds: number | undefined;
 // Set while a nudge animates. The timer's text is rewritten every second by
 // startLocalTick, and at 7x scale each rewrite re-rasterizes the enlarged text
 // mid-transform — a visible stutter, landing on whichever second boundary falls
@@ -35,7 +34,7 @@ let nudgeAnimating = false;
 let blurOverlay: HTMLDivElement | null = null;
 let averagePopupDialog: HTMLDivElement | null = null;
 let averagePopupPausedMedia: HTMLMediaElement[] = [];
-let blockerDialog: HTMLDivElement | null = null;
+let gateDialog: HTMLDivElement | null = null;
 let endSessionDialog: HTMLDivElement | null = null;
 let windDownOverlay: HTMLDivElement | null = null;
 let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
@@ -650,77 +649,71 @@ function hideAveragePopup(): void {
   }
 }
 
-/**
- * Set the cooldown bar's width. Normal per-second ticks move it by a small
- * amount and should animate smoothly (transition: width 1s). But a *re-sync* —
- * e.g. refocusing a tab that was hidden, where the content script's bar froze
- * at a stale high % while the real cooldown kept draining — produces a large
- * jump. Animating that jump is the "stray slide" the user sees. So: snap
- * instantly when the step is bigger than one tick could account for, animate
- * otherwise. We snap by disabling the transition, setting the width, forcing a
- * reflow, then restoring it.
- */
-function setProgressWidth(el: HTMLElement, pct: number): void {
-  const prev = parseFloat(el.style.width) || 0;
-  // One tick ≈ 1s of cooldown. Anything beyond a few % of jump in a single
-  // update is a re-sync, not a tick — snap it.
-  const isResync = Math.abs(pct - prev) > 5;
-  if (isResync) {
-    const saved = el.style.transition;
-    el.style.transition = 'none';
-    el.style.width = `${pct}%`;
-    void el.offsetWidth; // force reflow so the no-transition width commits
-    el.style.transition = saved;
-  } else {
-    el.style.width = `${pct}%`;
-  }
-}
+// ============================================================================
+// The gate — a site with session rules on and no session running
+// ============================================================================
+//
+// One dialog with three faces. `gate`: the row of sessions and OK / Cancel.
+// `starting`: after OK, the session drains from the row and the countdown runs
+// inside the Cancel button; at zero the background is asked to start. And the
+// wait, which is the gate face when nothing can start yet: a clock counting to
+// the moment something can.
+//
+// The page draws all of it from the budget the background sent, so the row
+// regenerates on screen and the wait ends on its own without a message a
+// second. shared/session-budget.ts is the one arithmetic for both sides.
 
-function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, cooldownCount: number, cooldownIncrementSeconds: number): void {
-  pauseAllMedia();
+type GateView = 'gate' | 'starting' | 'dismissed';
+
+let gateState: ShowGateMessage | null = null;
+let gateView: GateView = 'gate';
+let gateTicker: ReturnType<typeof setInterval> | null = null;
+let gateCountdownEndsAt = 0;
+let gateStartSentAt = 0;
+let gatePausedMedia: HTMLMediaElement[] = [];
+let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+const GATE_BLUE = '#4571e7';
+// More sessions than this and the row would outgrow the 350px box.
+const GATE_MAX_DOTS = 10;
+// How long to wait for the background to answer a start before offering the
+// gate again. It answers with HIDE_GATE or SHOW_GATE; silence means the worker
+// was restarting.
+const GATE_START_TIMEOUT_MS = 4000;
+
+// The dot's fill is a conic-gradient up to --wt-gate-fill. A custom property
+// only transitions once it is registered with a type, which is what makes a
+// session visibly drain when it is used instead of blinking out. Where the
+// registration isn't supported the dot changes at once.
+try {
+  (CSS as unknown as { registerProperty(d: object): void }).registerProperty({
+    name: '--wt-gate-fill', syntax: '<percentage>', inherits: false, initialValue: '0%',
+  });
+} catch { /* already registered by an earlier injection, or unsupported */ }
+
+function showGate(state: ShowGateMessage): void {
+  gateState = state;
+  // A SHOW_GATE while a start is in flight is the background declining it.
+  if (gateStartSentAt) {
+    gateStartSentAt = 0;
+    gateView = 'gate';
+  }
+
+  gatePausedMedia.push(...pauseAllMedia());
   exitFullscreenIfActive();
 
   const blurBg = showBlurOverlay();
   blurBg.style.pointerEvents = 'all';
   blurBg.style.opacity = '1';
-
   blockKeyboard(true);
 
-  if (blockerDialog) {
-    // Update existing blocker countdown
-    const countdownEl = blockerDialog.querySelector('.web-time-blocker-countdown');
-    if (countdownEl) {
-      countdownEl.textContent = formatClock(remainingSeconds);
-    }
-    const progressEl = blockerDialog.querySelector('.web-time-blocker-progress-fill') as HTMLElement | null;
-    if (progressEl && totalCooldownSeconds > 0) {
-      // Bar shrinks from 100% to 0% (same direction as reminder)
-      const pct = Math.max(0, (remainingSeconds / totalCooldownSeconds) * 100);
-      setProgressWidth(progressEl, pct);
-    }
-    return;
-  }
+  if (!gateDialog) buildGateDialog();
+  renderGate();
+}
 
-  // Clock format, like every other duration the user sees: the running timer is
-  // hh:mm:ss, so that is the format their eye is calibrated to. It also keeps
-  // both sides of the multiplication in the same units — "4 x 1:30 = 6:00" can
-  // be checked at a glance, "4 x 1:30 = 6m" cannot — and gives every cooldown
-  // the same width regardless of whether the increment divides evenly.
-  const total = formatClock(totalCooldownSeconds);
-  const increment = formatClock(cooldownIncrementSeconds);
-  // Heading says which session ended; the sub-line shows the breakdown. When
-  // the cooldown grows with each session (count × increment), show the math so
-  // the rising duration reads as intentional — but compactly: "3 × 3m = 9m".
-  // Otherwise just the total.
-  let cooldownExplanation: string;
-  if (cooldownCount > 1 && cooldownIncrementSeconds > 0) {
-    cooldownExplanation = `${cooldownCount} × ${increment} = ${total} cooldown`;
-  } else {
-    cooldownExplanation = `${total} cooldown`;
-  }
-
+function buildGateDialog(): void {
   const el = document.createElement('div');
-  el.className = 'web-time-blocker-overlay';
+  el.className = 'web-time-gate-overlay';
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
@@ -728,12 +721,7 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     background: #2a2a2a !important;
-    /* Slightly taller than the confirm's 24px so this box matches its height
-       (~171px) in the usual two-body-line form. The confirm often precedes this
-       dialog directly, and a height jump between them reads as a layout shift.
-       Measured in a browser, not derived — re-measure if either box's type
-       sizes or margins change. */
-    padding: 30px 24px !important;
+    padding: 24px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
@@ -745,69 +733,192 @@ function showBlocker(remainingSeconds: number, totalCooldownSeconds: number, coo
     overflow: hidden !important;
   `;
 
-  // Initial fill width = the ACTUAL remaining fraction, not 100%. When a tab
-  // joins mid-cooldown the bar must appear already at the right position;
-  // hardcoding 100% here let the first ticker update animate it from full down
-  // to the real value (transition: width 1s), which read as a stray slide.
-  const initialPct = totalCooldownSeconds > 0
-    ? Math.max(0, Math.min(100, (remainingSeconds / totalCooldownSeconds) * 100))
-    : 100;
-
-  // Same size as the end-session confirm's title (18px/600/#eee) — the two
-  // dialogs sit in the same flow and their headings should not step.
-  const heading = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 16px; line-height: 1.3;',
-    text: cooldownCount > 0 ? `Session ${cooldownCount} Ended` : 'Session Ended',
+  const title = makeEl('div', {
+    className: 'web-time-gate-title',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 14px; line-height: 1.3;',
   });
-  // The countdown sits between the heading and the explanation so the number —
-  // the thing the user is actually waiting on — lands in the box's vertical
-  // middle, rather than hanging low as it used to.
-  // The box itself sits at top: 45%, matching every other overlay. `position:
-  // fixed` percentages resolve against the viewport, which excludes the browser
-  // chrome (tab strip, address bar, bookmarks) — but the eye centers on the
-  // whole window. A box at a true 50% therefore lands roughly half the chrome
-  // height below where it looks centered. 45% is that correction for a typical
-  // ~120px chrome on a ~960px viewport; it can't be measured from a content
-  // script, so it's a fixed approximation rather than a computed value.
-  const countdown = makeEl('div', {
-    className: 'web-time-blocker-countdown',
-    style: 'font-size: 28px; font-weight: 500; color: #eee; margin-bottom: 16px; font-variant-numeric: tabular-nums; line-height: 1.1;',
-    text: formatClock(remainingSeconds),
+  const dots = makeEl('div', {
+    className: 'web-time-gate-dots',
+    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 12px;',
   });
-  // 14px/#ccc, matching the end-session confirm's body copy — the two dialogs'
-  // small text is one size and one colour, a step under the #eee headings.
-  const explanation = makeEl('div', {
-    style: 'font-size: 14px; color: #ccc; margin-bottom: 8px;',
-    text: cooldownExplanation,
+  // Two lines tall whatever it says, so the box keeps its height when the
+  // text changes after OK. A dialog that resizes under the cursor draws the
+  // eye to the frame.
+  const body = makeEl('div', {
+    className: 'web-time-gate-body',
+    style: 'font-size: 14px; color: #ccc; line-height: 1.5; min-height: 42px; display: flex; flex-direction: column; justify-content: center; font-variant-numeric: tabular-nums;',
   });
-  const progressFill = makeEl('div', {
-    className: 'web-time-blocker-progress-fill',
-    style: 'height: 100%; background: #4571e7; transition: width 1s linear;',
+  const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;';
+  const cancelBtn = makeEl('button', {
+    className: 'web-time-gate-cancel',
+    style: `${buttonStyle} background: #3a3a3a; color: #eee;`,
+    text: 'Cancel',
   });
-  progressFill.style.width = `${initialPct}%`;
-  const progressTrack = makeEl('div', {
+  const okBtn = makeEl('button', {
+    className: 'web-time-gate-ok',
+    style: `${buttonStyle} background: ${GATE_BLUE}; color: #fff;`,
+    text: 'OK',
+  });
+  const buttonRow = makeEl('div', {
+    className: 'web-time-gate-buttons',
+    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 16px;',
+    children: [cancelBtn, okBtn],
+  });
+  const barFill = makeEl('div', {
+    className: 'web-time-gate-bar-fill',
+    style: `height: 100%; background: ${GATE_BLUE}; width: 0%;`,
+  });
+  const bar = makeEl('div', {
+    className: 'web-time-gate-bar',
     style: 'position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1);',
-    children: [progressFill],
+    children: [barFill],
   });
 
-  el.replaceChildren(heading, countdown, explanation, progressTrack);
-
+  el.replaceChildren(title, dots, body, buttonRow, bar);
   blurOverlay!.appendChild(el);
-  blockerDialog = el;
-  setTimeout(() => { el.style.opacity = '1'; }, 50);
+  gateDialog = el;
+  setTimeout(() => { if (gateView !== 'dismissed') el.style.opacity = '1'; }, 50);
+
+  okBtn.addEventListener('click', gateOk);
+  cancelBtn.addEventListener('click', gateCancel);
+  // After Cancel the dialog is gone and the page stays blurred; clicking the
+  // blurred page asks again. Clicks inside the dialog don't count.
+  el.addEventListener('click', (e) => e.stopPropagation());
+  blurOverlay!.addEventListener('click', gateReopen);
+
+  gateKeyHandler = (e: KeyboardEvent): void => {
+    if (e.key === 'Enter' && gateView === 'gate') { e.preventDefault(); e.stopPropagation(); gateOk(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); gateCancel(); }
+  };
+  document.addEventListener('keydown', gateKeyHandler, true);
+
+  gateTicker = setInterval(renderGate, 250);
 }
 
-function hideBlocker(): void {
-  hideBlurOverlay();
+function gateOk(): void {
+  if (!gateState || gateView !== 'gate') return;
+  const now = Date.now();
+  if (startable(gateState.budget, gateState.rules, now, gateState.minFraction) <= 0) return;
+  gateView = 'starting';
+  gateCountdownEndsAt = now + gateState.countdownSeconds * 1000;
+  renderGate();
+}
 
-  blockKeyboard(false);
-  if (blockerDialog) {
-    blockerDialog.style.opacity = '0';
-    setTimeout(() => {
-      blockerDialog?.parentNode?.removeChild(blockerDialog);
-      blockerDialog = null;
-    }, 300);
+function gateCancel(): void {
+  if (gateView === 'starting') {
+    // Nothing was spent yet: the session is only used when the countdown ends.
+    gateView = 'gate';
+    gateStartSentAt = 0;
+  } else if (gateView === 'gate') {
+    gateView = 'dismissed';
   }
+  renderGate();
+}
+
+function gateReopen(): void {
+  if (gateView !== 'dismissed') return;
+  gateView = 'gate';
+  renderGate();
+}
+
+function renderGate(): void {
+  if (!gateDialog || !gateState) return;
+  const { budget, rules, sessionLengthSeconds, minFraction } = gateState;
+  const now = Date.now();
+  const held = sessionsAt(budget, rules, now);
+  const offer = startable(budget, rules, now, minFraction);
+
+  if (gateView === 'starting') {
+    if (gateStartSentAt && now - gateStartSentAt > GATE_START_TIMEOUT_MS) {
+      gateStartSentAt = 0;
+      gateView = 'gate';
+    } else if (!gateStartSentAt && now >= gateCountdownEndsAt) {
+      gateStartSentAt = now;
+      if (!sendToBackground({ type: MSG.START_SESSION })) recoverFromOrphan();
+    }
+  }
+
+  const q = (c: string) => gateDialog!.querySelector(`.web-time-gate-${c}`) as HTMLElement;
+  const starting = gateView === 'starting';
+  const waiting = !starting && offer <= 0;
+
+  gateDialog.style.opacity = gateView === 'dismissed' ? '0' : '1';
+  gateDialog.style.pointerEvents = gateView === 'dismissed' ? 'none' : 'auto';
+
+  q('title').textContent = starting ? 'Starting Session' : waiting ? 'Next Session In' : 'Start a Session?';
+
+  // While starting, the row already shows the session as used.
+  renderGateDots(q('dots'), starting ? Math.max(0, held - offer) : held, rules.maxSessions);
+
+  const body = q('body');
+  if (starting) {
+    body.textContent = 'Are you sure?';
+    body.style.fontSize = '14px';
+    body.style.color = '#ccc';
+  } else if (waiting) {
+    const at = nextStartAt(budget, rules, now, minFraction);
+    body.textContent = at === null ? 'No sessions regenerate' : formatClock(Math.ceil((at - now) / 1000));
+    body.style.fontSize = at === null ? '14px' : '28px';
+    body.style.color = '#eee';
+  } else {
+    const next = nextSessionAt(budget, rules, now);
+    const lines = [`${formatClock(Math.round(offer * sessionLengthSeconds))} session`];
+    if (next !== null) lines.push(`Next session in ${formatClock(Math.ceil((next - now) / 1000))}`);
+    body.replaceChildren(...lines.map((text) => makeEl('div', { text })));
+    body.style.fontSize = '14px';
+    body.style.color = '#ccc';
+  }
+
+  const left = Math.max(0, Math.ceil((gateCountdownEndsAt - now) / 1000));
+  q('cancel').textContent = starting && left > 0 ? `Cancel (${left})` : 'Cancel';
+  q('ok').style.display = starting || waiting ? 'none' : '';
+  q('buttons').style.display = waiting ? 'none' : 'flex';
+
+  // The wait's bar fills toward the least the gate will offer.
+  q('bar').style.display = waiting ? 'block' : 'none';
+  if (waiting) q('bar-fill').style.width = `${Math.min(100, (held / Math.max(minFraction, 1e-6)) * 100)}%`;
+}
+
+/** One dot per session the site can hold; `held` of them filled, the last in part. */
+function renderGateDots(row: HTMLElement, held: number, maxSessions: number): void {
+  const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(maxSessions)));
+  while (row.children.length < count) {
+    row.appendChild(makeEl('span', {
+      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0); transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1), border-color .7s cubic-bezier(.2,.8,.2,1), opacity .3s;`,
+    }));
+  }
+  while (row.children.length > count) row.lastElementChild!.remove();
+  for (let i = 0; i < count; i++) {
+    const dot = row.children[i] as HTMLElement;
+    const fill = Math.min(1, Math.max(0, held - i));
+    const whole = fill > 0.999;
+    dot.style.setProperty('--wt-gate-fill', `${(whole ? 1 : fill) * 100}%`);
+    dot.style.borderColor = whole ? GATE_BLUE : 'rgba(255,255,255,.22)';
+    // The one regenerating reads as not yet there.
+    dot.style.opacity = fill > 0 && !whole ? '0.5' : '1';
+  }
+}
+
+function hideGate(): void {
+  if (gateTicker) { clearInterval(gateTicker); gateTicker = null; }
+  if (gateKeyHandler) { document.removeEventListener('keydown', gateKeyHandler, true); gateKeyHandler = null; }
+  blurOverlay?.removeEventListener('click', gateReopen);
+  const wasShown = gateDialog !== null;
+  gateState = null;
+  gateView = 'gate';
+  gateStartSentAt = 0;
+  if (!wasShown) return;
+
+  hideBlurOverlay();
+  blockKeyboard(false);
+  // What the gate paused plays again: the session the user just chose to start
+  // is the reason to be here.
+  gatePausedMedia.forEach(m => m.play().catch(() => {}));
+  gatePausedMedia = [];
+  const el = gateDialog!;
+  gateDialog = null;
+  el.style.opacity = '0';
+  setTimeout(() => { el.parentNode?.removeChild(el); }, 300);
 }
 
 // ============================================================================
@@ -1004,7 +1115,7 @@ function isEndSessionShortcutMatch(e: KeyboardEvent): boolean {
 
 function isAnyInterventionVisible(): boolean {
   return averagePopupDialog !== null
-    || blockerDialog !== null
+    || gateDialog !== null
     || endSessionDialog !== null
 ;
 }
@@ -1060,41 +1171,20 @@ function showEndSessionConfirm(): void {
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
   `;
-  // State the next session's actual length rather than the bonus alone: "+11m"
-  // required knowing the base to mean anything. endEarly() builds the next
-  // session as base + carryover + grace, so mirror that exactly — and use
-  // computeGraceSeconds rather than a local *1.1, so the two can't drift.
-  //
-  // Clock-style ("41:30" / "1:04:05"), same formatClock as the session card and
-  // the timer: this number is read against the timer the user is looking at, so
-  // it has to be in the timer's units. Both lines in this dialog use it, or
-  // they step against each other.
-  const nextLength = formatClock(
-    (lastBaseLengthSeconds ?? 0) + remaining + computeGraceSeconds(remaining),
-  );
-  // Title, then the two consequences as body copy. The gap under the title is
+  // Title, then what happens to the unused time. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
     style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 10px; line-height: 1.3;',
     text: `End Session ${lastSessionNum ?? ''}?`,
   });
 
-  // Name the cooldown this would trigger — the cost side of the trade, which the
-  // user otherwise only discovers after committing. Same source of truth as the
-  // blocker (sessionNum × increment), so the two can't drift.
-  const cooldownSeconds = cooldownLength(lastSessionNum ?? 1, lastCooldownIncrementSeconds ?? 0);
-  // #ccc, same as the blocker's explanation line — these two dialogs sit in the
-  // same flow and their body copy should not step.
+  // #ccc, same as the gate's body line: these two dialogs sit in the same flow
+  // and their body copy should not step. Clock-style, same formatClock as the
+  // timer the number is read against.
   const body = makeEl('div', {
     style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
+    text: `${formatClock(remaining)} unused is kept for later`,
   });
-  if (cooldownSeconds > 0) {
-    body.append(
-      `Site will go on a ${formatClock(cooldownSeconds)} cooldown`,
-      document.createElement('br'),
-    );
-  }
-  body.append(`Next session will be ${nextLength}`);
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
@@ -1152,7 +1242,7 @@ function showEndSessionConfirm(): void {
 }
 
 // When this tab becomes visible (after being backgrounded/discarded), ask
-// background for the current blocker state. If the message fails, it means the
+// background whether this site is at the gate. If the message fails, it means the
 // extension was updated and this content script is orphaned — reload the tab
 // so it picks up the new version instead of running stale code.
 document.addEventListener('visibilitychange', () => {
@@ -1160,7 +1250,7 @@ document.addEventListener('visibilitychange', () => {
   // Reaching for the background is also the orphan check. The synchronous
   // throw is the usual signal after an extension reload, so both paths
   // (throw and rejection) have to lead to the same recovery.
-  if (!sendToBackground({ type: MSG.REQUEST_BLOCKER_STATE })) {
+  if (!sendToBackground({ type: MSG.REQUEST_GATE_STATE })) {
     recoverFromOrphan();
   }
 });
@@ -1232,8 +1322,6 @@ function handleIncomingMessage(
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
-    lastCooldownIncrementSeconds = message.cooldownIncrementSeconds;
-    lastBaseLengthSeconds = message.baseLengthSeconds;
     // Marks that a real value has arrived, which is what lets the timer show at
     // all. Not used for arithmetic any more — the background sends the number.
     receivedAt = Date.now();
@@ -1255,10 +1343,10 @@ function handleIncomingMessage(
     showNudge();
   } else if (message.type === MSG.SHOW_AVERAGE_POPUP) {
     showAveragePopup(message.minutesLeft, message.averageMinutes, message.stats);
-  } else if (message.type === MSG.SHOW_BLOCKER) {
-    showBlocker(message.cooldownRemainingSeconds, message.totalCooldownSeconds, message.cooldownCount, message.cooldownIncrementSeconds);
-  } else if (message.type === MSG.HIDE_BLOCKER) {
-    hideBlocker();
+  } else if (message.type === MSG.SHOW_GATE) {
+    showGate(message);
+  } else if (message.type === MSG.HIDE_GATE) {
+    hideGate();
   } else if (message.type === MSG.SHOW_WIND_DOWN) {
     showWindDown();
   } else if (message.type === MSG.HIDE_WIND_DOWN) {

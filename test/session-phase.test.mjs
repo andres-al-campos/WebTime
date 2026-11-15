@@ -18,22 +18,15 @@ await build({
 });
 const { sessionPhase } = await import(pathToFileURL(outFile).href);
 
-const T = 1_700_000_000_000;
-
-test('no session and no block is none', () => {
-  assert.equal(sessionPhase({ hasSession: false, blockedUntil: 0, now: T }), 'none');
+test('no rules is off, whatever is stored', () => {
+  assert.equal(sessionPhase({ rulesOn: false, hasSession: false }), 'off');
+  assert.equal(sessionPhase({ rulesOn: false, hasSession: true }), 'off');
 });
 
-test('a session with no block is running', () => {
-  assert.equal(sessionPhase({ hasSession: true, blockedUntil: 0, now: T }), 'running');
+test('rules on with no session is the gate', () => {
+  assert.equal(sessionPhase({ rulesOn: true, hasSession: false }), 'gate');
 });
 
-test('a block outranks the session that waits behind it', () => {
-  assert.equal(sessionPhase({ hasSession: true, blockedUntil: T + 1, now: T }), 'blocked');
-  assert.equal(sessionPhase({ hasSession: false, blockedUntil: T + 1, now: T }), 'blocked');
-});
-
-test('a block that has lifted no longer blocks', () => {
-  assert.equal(sessionPhase({ hasSession: true, blockedUntil: T, now: T }), 'running');
-  assert.equal(sessionPhase({ hasSession: false, blockedUntil: T - 1, now: T }), 'none');
+test('rules on with a session is running', () => {
+  assert.equal(sessionPhase({ rulesOn: true, hasSession: true }), 'running');
 });

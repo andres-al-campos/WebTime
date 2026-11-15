@@ -11,8 +11,8 @@ export interface GateInput {
   browserIsFocused: boolean;
   /** A trackable domain is active; null means nothing to count against. */
   trackedDomain: string | null;
-  /** The active domain is in a cooldown period. */
-  inCooldown: boolean;
+  /** The active domain has session rules on and no session running. */
+  atGate: boolean;
   /** The end-session confirmation dialog is open. */
   endSessionConfirmOpen: boolean;
   /** The weekly-average popup is open. */
@@ -38,7 +38,7 @@ export type ClockVerdict =
   | 'audible'
   | 'unfocused'
   | 'untracked'
-  | 'cooldown'
+  | 'gate'
   | 'end-session-confirm'
   | 'average-popup'
   | 'locked'
@@ -55,7 +55,7 @@ export type ClockVerdict =
 export function clockVerdict(g: GateInput): ClockVerdict {
   if (!g.browserIsFocused) return 'unfocused';
   if (!g.trackedDomain) return 'untracked';
-  if (g.inCooldown) return 'cooldown';
+  if (g.atGate) return 'gate';
   if (g.endSessionConfirmOpen) return 'end-session-confirm';
   if (g.averagePopupOpen) return 'average-popup';
 

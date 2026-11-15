@@ -5,13 +5,9 @@ import {
   type ActiveSession,
   startSession,
   displayFor,
-  naturalEnd,
-  endEarly as computeEndEarly,
   changeLength,
-  cooldownLength,
   sessionPhase,
   type SessionPhase,
-  incrementSeconds,
   windDownState,
   scheduleFor,
   shouldScheduleWakes,
@@ -20,6 +16,17 @@ import {
   checkSessionLimit as decideSessionLimit,
   checkNudge as decideNudge,
 } from './shared/interventions.js';
+import {
+  type Budget,
+  type BudgetRules,
+  budgetRules,
+  fullBudget,
+  giveBack,
+  minFractionFor,
+  settle,
+  spend,
+  unusedFraction,
+} from './shared/session-budget.js';
 import {
   type ClockState,
   createClock,
@@ -50,6 +57,7 @@ import type {
   InterventionState,
   InterventionSettings,
   WebTimeSettings,
+  DomainSettings,
   ExtensionMessage,
   SessionStartStats
 } from './types.js';
@@ -161,28 +169,29 @@ let interventionState: InterventionState = {
 const sessions: Record<Domain, ActiveSession> = {};
 
 // Sessions whose rules were toggled OFF mid-session. We KEEP the object here
-// (out of `sessions`, so the tick/cooldown logic ignores it) instead of deleting
+// (out of `sessions`, so the tick logic ignores it) instead of deleting
 // it, so flipping rules back ON resumes the SAME session rather than starting a
 // fresh Session 1. The clock is NOT frozen while suspended — elapsed time still
 // accrues against startDaily — so toggling off can't be used to dodge the limit;
 // it only suspends *enforcement*, not the count.
 const suspendedSessions: Record<Domain, ActiveSession> = {};
 
-// Inter-session / UI state — deliberately NOT on the session object, since it
-// describes the gap *between* sessions or transient overlay state:
-//   cooldownEndTime[domain]   = ms epoch when the active cooldown ends (absent = not in cooldown).
-//   cooldownTotalSec[domain]  = the FULL length (s) of the active cooldown, captured when it fired.
-//                               The blocker progress bar is remaining/total; recomputing the total
-//                               elsewhere (sessionNum × increment) is fragile — if the increment
-//                               setting reads as 0 the bar collapses to 100%. So store it once.
-//   cooldownTickers[domain]   = the 1s setInterval that drives the blocker countdown UI.
-//   windDownActive[domain]    = whether the wind-down overlay is currently shown.
-// nudgeInterval rides along because rescheduleWakes() is synchronous with respect
-// to clock transitions and must not await a settings read to arm alarms.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownIncrementSeconds?: number; nudgeInterval?: number }> = {};
-const cooldownEndTime: Record<Domain, number> = {};
-const cooldownTotalSec: Record<Domain, number> = {};
-const cooldownTickers: Record<Domain, ReturnType<typeof setInterval>> = {};
+// What each site with rules on holds: a fractional number of sessions that
+// regenerates (shared/session-budget.ts). Not scoped to the day, unlike the
+// session state: waiting overnight is how the row refills.
+const budgets: Record<Domain, Budget> = {};
+
+// How many sessions each site has started today, for the session number.
+const sessionsStartedToday: Record<Domain, number> = {};
+
+/** Seconds between OK on the gate and the session starting. */
+const GATE_COUNTDOWN_SECONDS = 10;
+
+// The session rules as last read, per domain. The clock gate and the wake
+// scheduler are synchronous and must not await a settings read, so they ask
+// this. budgetRules rides along for the same reason: ending a session returns
+// the unused part at once.
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; nudgeInterval?: number; budgetRules?: BudgetRules }> = {};
 const windDownActive: Record<Domain, boolean> = {};
 
 // Which tab has the end-session-early confirmation popup open (null = none).
@@ -355,11 +364,11 @@ async function rescheduleWakes(): Promise<void> {
   // A stopped clock means no deadline has a knowable instant — time is not
   // advancing toward any of them. Leaving alarms armed would fire them against
   // a frozen clock, where checkForInterventions correctly does nothing; better
-  // not to wake the worker at all. Same for a cooldown: the session is paused.
+  // not to wake the worker at all.
   const ok = shouldScheduleWakes({
     clockRunning: isRunning(dailyClock),
     hasSession: Boolean(session),
-    inCooldown: isBlocked(domain),
+    inCooldown: false,
   });
   if (!ok || !session) return;
 
@@ -538,43 +547,16 @@ function handleAlarm(alarm: chrome.alarms.Alarm): void {
   void checkForInterventions();
 }
 
-/**
- * Get the current session for a domain, starting one anchored at the current
- * daily total if the domain has none and isn't blocked. `baseLength` is the
- * live limit in seconds; callers only invoke this when baseLength > 0.
- *
- * This is the only function that begins a session on its own, and it has three
- * callers: the tick's display, the tick's intervention pass, and a settings
- * change. Everything else reads `sessions[domain]` and does nothing when it is
- * empty. Six callers each starting one on demand meant "is there a session"
- * had no single answer; a wiring test pins the list.
- */
-function ensureSessionStarted(domain: Domain, anchorDaily: number, baseLength: number): ActiveSession | undefined {
-  let s = sessions[domain];
-  if (!s) {
-    if (isBlocked(domain)) return undefined;
-    s = startSession({ dailyTotal: anchorDaily, baseLength });
-    sessions[domain] = s;
-    // Not just persistence. saveSessionState() also calls rescheduleWakes(),
-    // which is what arms the alarms for this session's deadlines — and those
-    // alarms are the only thing that fires the cooldown once the worker dies.
-    // Without this call the session exists in memory with no armed end.
-    saveSessionState();
-  }
-  return s;
-}
-
-/** Where a domain stands: no session, one running, or blocked between them. */
+/** Where a domain stands: no rules, at the gate, or in a session. */
 function phaseOf(domain: Domain): SessionPhase {
   return sessionPhase({
+    rulesOn: (cachedDomainSessionLimit[domain]?.sessionLimitSeconds || 0) > 0,
     hasSession: !!sessions[domain],
-    blockedUntil: cooldownEndTime[domain] || 0,
-    now: Date.now(),
   });
 }
 
-function isBlocked(domain: Domain): boolean {
-  return phaseOf(domain) === 'blocked';
+function atGate(domain: Domain): boolean {
+  return phaseOf(domain) === 'gate';
 }
 
 /**
@@ -590,58 +572,28 @@ function clearWindDown(domain: Domain): void {
   sendMessageToAllTabsOfDomain(domain, { type: MSG.HIDE_WIND_DOWN });
 }
 
-function clearAllCooldowns(): void {
-  for (const domain of Object.keys(cooldownTickers)) {
-    clearInterval(cooldownTickers[domain]);
-    delete cooldownTickers[domain];
-  }
-  for (const domain of Object.keys(cooldownEndTime)) {
-    // Drop the blocker on any page still showing the cooldown screen. As with
-    // wind-down, deleting the state only makes the background forget — the
-    // content script keeps the blur painted until told to hide. Without this, a
-    // page left mid-cooldown keeps the blocker after the day rolls over.
-    sendHideBlockerToAllTabsOfDomain(domain);
-    delete cooldownEndTime[domain];
-    delete cooldownTotalSec[domain];
-  }
-  syncClock(); // cooldown gates lifted for every domain
-}
-
 // --- Session-state persistence -------------------------------------------
 //
 // In MV3 the background is a service worker that is killed on idle (and
 // definitely on browser close), wiping all in-memory state. Without this,
-// closing the browser (or just walking away during a cooldown) loses the
-// session number, carryover, grace, and any in-progress cooldown — so the
+// closing the browser loses the running session and the day's session count — so the
 // next visit starts at "session 1" again mid-day. We persist the current
-// day's session objects + active cooldowns to storage.local and rehydrate on
+// day's session objects and counts to storage.local and rehydrate on
 // startup. Only the current day is stored (keyed by date); it's a few KB at
 // most and is discarded automatically when the date no longer matches.
 
 function saveSessionState(): void {
-  // Only persist domains that actually have a session or a live cooldown.
-  const activeCooldowns: Record<Domain, number> = {};
-  const activeCooldownTotals: Record<Domain, number> = {};
-  for (const domain of Object.keys(cooldownEndTime)) {
-    if ((cooldownEndTime[domain] || 0) > Date.now()) {
-      activeCooldowns[domain] = cooldownEndTime[domain];
-      // Persist the full length too, so the bar's denominator survives a
-      // worker restart instead of collapsing to "remaining at rehydrate".
-      activeCooldownTotals[domain] = cooldownTotalSec[domain] || 0;
-    }
-  }
   browser.storage.local.set({
     [STORAGE.SESSION_STATE]: {
       date: currentDateStr,
       sessions,
-      cooldownEndTime: activeCooldowns,
-      cooldownTotalSec: activeCooldownTotals,
+      started: sessionsStartedToday,
     },
   }).catch(err => console.warn('Failed to persist session state:', err));
 
   // Every scheduled wake is derived from the session, so any change that is
   // worth persisting is also a change that can have moved a deadline: a live
-  // length change, a nudge firing, a cooldown starting or ending, a new
+  // length change, a nudge firing, a session ending, a new
   // session. Rebuilding here rather than at each of those call sites means a
   // future one cannot forget to reschedule — the alarms follow the state by
   // construction. Rebuilds are cheap and idempotent.
@@ -660,29 +612,10 @@ async function loadSessionState(): Promise<void> {
       }
     }
 
-    // Re-arm any cooldown still in the future; drop expired ones.
-    const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
-    const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
-    for (const [domain, endTime] of Object.entries(stored.cooldownEndTime || {})) {
-      if ((endTime as number) <= Date.now()) continue; // expired during downtime
-      cooldownEndTime[domain] = endTime as number;
-      // Reconstruct the blocker-UI args. The session stored for this domain is
-      // the NEXT session (created when the cooldown fired), so the session that
-      // is cooling down is sessionNum - 1.
-      const nextSession = sessions[domain];
-      const endedSessionNum = nextSession ? Math.max(1, nextSession.sessionNum - 1) : 1;
-      const incrementSec = incrementSeconds(settings.domains?.[domain]?.cooldownIncrement);
-      const remainingSec = Math.ceil(((endTime as number) - Date.now()) / 1000);
-      // Restore the bar's denominator: prefer the persisted full length, then
-      // reconstruct from the formula, then fall back to remaining (last resort,
-      // bar starts full but at least drains correctly).
-      const storedTotal = (stored.cooldownTotalSec || {})[domain] as number | undefined;
-      const totalCooldownSec = storedTotal && storedTotal > 0
-        ? storedTotal
-        : (incrementSec > 0 ? endedSessionNum * incrementSec : remainingSec);
-      cooldownTotalSec[domain] = totalCooldownSec;
-      startCooldownTicker(domain, totalCooldownSec, endedSessionNum, incrementSec);
-      log(`Rehydrated active cooldown for ${domain}: ${remainingSec}s left of ${totalCooldownSec}s total`);
+    // A state written before sessions regenerated may carry a cooldown; it is
+    // dropped, and the session stored beside it runs as it stands.
+    for (const [domain, n] of Object.entries(stored.started || {})) {
+      sessionsStartedToday[domain] = n as number;
     }
     log(`Session state rehydrated for ${currentDateStr} (${Object.keys(sessions).length} domains)`);
   } catch (err) {
@@ -692,6 +625,47 @@ async function loadSessionState(): Promise<void> {
 
 function clearSessionState(): void {
   browser.storage.local.remove(STORAGE.SESSION_STATE).catch(() => {});
+}
+
+function saveBudgets(): void {
+  browser.storage.local.set({ [STORAGE.SESSION_BUDGET]: budgets })
+    .catch(err => console.warn('Failed to persist session budgets:', err));
+}
+
+/**
+ * Rehydrate what each site holds, and the rules cache with it: the clock gate
+ * asks the cache whether a site is at the gate, and an empty cache after a
+ * worker start would let the clock run on a page that is still blurred.
+ */
+async function loadBudgets(): Promise<void> {
+  try {
+    const data = await browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]);
+    for (const [domain, b] of Object.entries(data[STORAGE.SESSION_BUDGET] || {})) {
+      const budget = b as Budget;
+      if (typeof budget?.sessions === 'number' && typeof budget?.at === 'number') budgets[domain] = budget;
+    }
+    const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
+    for (const [domain, cfg] of Object.entries(settings.domains || {})) cacheRules(domain, cfg);
+  } catch (err) {
+    console.warn('Failed to load session budgets:', err);
+  }
+}
+
+/** Record a domain's rules in the cache; returns its session length (0 = off). */
+function cacheRules(domain: Domain, cfg: DomainSettings | undefined): number {
+  const on = (cfg?.sessionLimitEnabled || false) && (cfg?.sessionLimit || 0) > 0;
+  const sessionLimitSeconds = on ? (cfg?.sessionLimit || 0) * 60 : 0;
+  cachedDomainSessionLimit[domain] = {
+    sessionLimitSeconds,
+    nudgeInterval: cfg?.nudgeInterval,
+    budgetRules: budgetRules(cfg),
+  };
+  return sessionLimitSeconds;
+}
+
+/** What a site holds, a full row the first time it is asked for. */
+function budgetOf(domain: Domain, rules: BudgetRules, now: number): Budget {
+  return budgets[domain] ?? (budgets[domain] = fullBudget(rules, now));
 }
 
 // ---------------------------------------------------------------------------
@@ -912,7 +886,7 @@ async function loadTimeData(): Promise<void> {
  * If the day has rolled over, reset the daily total and all session state.
  * Returns true if a rollover happened.
  *
- * MUST run before the freeze gates below: a cooldown (or an open popup) that
+ * MUST run before the freeze gates below: a gate (or an open popup) that
  * spans midnight would otherwise return early every tick and the day would
  * never reset — leaving the timer stuck on yesterday's total and session state
  * anchored to a stale daily. That was the "frozen after midnight, sessions look
@@ -929,18 +903,15 @@ function rolloverIfNewDay(): boolean {
   // load-bearing twice over: after the reassignment these file under tomorrow,
   // and after the delete loop there is nothing left to record.
   //
-  // The rollover pre-empted the cooldown, so we store the one this session
-  // WOULD have served rather than 0. It is a true fact about the session, and
-  // storing it means changing the increment later cannot rewrite this card —
-  // the same reason every other record stores its cooldown instead of a rule
-  // to recompute it from. Read from the in-memory cache: this path is sync and
-  // must not await a settings load.
+  //
+  // What a session had left goes back to the site, as at any other end.
+  const ended: Domain[] = [];
   for (const domain of Object.keys(sessions)) {
     const session = sessions[domain];
     if (!session) continue;
-    const incrementSec = cachedDomainSessionLimit[domain]?.cooldownIncrementSeconds || 0;
-    const wouldHaveBeen = cooldownLength(session.sessionNum, incrementSec);
-    recordFinishedSession(domain, session, wouldHaveBeen, 'dayEnded', currentDateStr);
+    returnUnused(domain, session);
+    recordFinishedSession(domain, session, 0, 'dayEnded', currentDateStr);
+    ended.push(domain);
   }
 
   currentDateStr = newDateStr;
@@ -950,10 +921,12 @@ function rolloverIfNewDay(): boolean {
   };
   // Reset session limit state on day rollover. The session object collapses
   // what used to be seven parallel maps into one delete.
-  clearAllCooldowns();
   for (const domain of Object.keys(sessions)) delete sessions[domain];
+  for (const domain of Object.keys(sessionsStartedToday)) delete sessionsStartedToday[domain];
   for (const domain of Object.keys(windDownActive)) clearWindDown(domain);
   clearSessionState(); // drop persisted state for the old day
+  syncClock(); // the sites that had a session are at the gate now
+  for (const domain of ended) void syncGate(domain);
   log("New day, reset timer.");
   return true;
 }
@@ -968,14 +941,11 @@ function rolloverIfNewDay(): boolean {
  */
 function currentClockVerdict(): ClockVerdict {
   // The gates and their ORDER live in shared/clock-gates.ts so they can be
-  // tested. The cooldown ticker (startCooldownTicker) still handles the blocker
-  // UI countdown while this returns false.
+  // tested.
   return gatesVerdict({
     browserIsFocused,
     trackedDomain: trackedTabDomain,
-    inCooldown: trackedTabDomain
-      ? isBlocked(trackedTabDomain)
-      : false,
+    atGate: trackedTabDomain ? atGate(trackedTabDomain) : false,
     endSessionConfirmOpen: endSessionConfirmTabId !== null,
     averagePopupOpen: averagePopupTabId !== null,
     osIdleState,
@@ -1048,7 +1018,7 @@ function syncClock(): void {
  */
 function incrementTimer(): void {
   // Roll the day FIRST — before any freeze gate — so midnight always resets even
-  // mid-cooldown. On a rollover we reset and bail; the next tick counts normally
+  // behind the gate. On a rollover we reset and bail; the next tick counts normally
   // against the fresh day.
   if (rolloverIfNewDay()) {
     updateTimerDisplay(dailyTotal());
@@ -1112,7 +1082,7 @@ function wireTime(updatedTime: number): number {
 
 function updateTimerDisplay(updatedTime: number): void {
   // Include session time info if a session limit is configured for this domain
-  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number; cooldownIncrementSeconds?: number; baseLengthSeconds?: number } = {
+  const message: { type: string; time: number; sessionTime?: number; sessionLimitSeconds?: number; sessionNum?: number } = {
     type: MSG.TIME_UPDATE,
     time: wireTime(updatedTime)
   };
@@ -1121,17 +1091,12 @@ function updateTimerDisplay(updatedTime: number): void {
     const data = cachedDomainSessionLimit[trackedTabDomain];
     const baseLimitSec = data?.sessionLimitSeconds || 0;
     if (baseLimitSec > 0) {
-      const session = ensureSessionStarted(trackedTabDomain, updatedTime, baseLimitSec);
+      const session = sessions[trackedTabDomain];
       if (session) {
         const display = displayFor(session, updatedTime);
         message.sessionTime = display.sessionTime;
         message.sessionLimitSeconds = display.sessionLimitSeconds;
         message.sessionNum = session.sessionNum;
-        message.cooldownIncrementSeconds = data?.cooldownIncrementSeconds || 0;
-        // The base, NOT the effective limit: the end-session confirm adds this
-        // session's carryover+grace to it to state what the next session will be.
-        // Sending the effective limit would double-count the current carryover.
-        message.baseLengthSeconds = session.baseLength;
         log(
           `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
           `start=${session.startDaily}s base=${session.baseLength}s ` +
@@ -1207,7 +1172,7 @@ function handleDomainSwitch(url: string): void {
   const todayData = timeHistory[currentDateStr] || {};
   setDailyTotal(todayData[trackedTabDomain] || 0);
   recoverTime();
-  // The new domain may have a cooldown or other gate of its own, so re-evaluate
+  // The new domain may be at the gate or behind another gate of its own, so re-evaluate
   // rather than assuming the clock should resume.
   syncClock();
   // NOTE: We deliberately do NOT clear the session for this domain here. An
@@ -1219,6 +1184,8 @@ function handleDomainSwitch(url: string): void {
   // session object across tabs of the same domain.
   log(`Switched to domain: ${trackedTabDomain}, time: ${dailyTotal()}`);
   updateTimerDisplay(dailyTotal());
+  // A tab that was in the background when its site reached the gate.
+  if (trackedTabDomain) void syncGate(trackedTabDomain);
 }
 
 /**
@@ -1404,12 +1371,18 @@ function applyUpdatedSettings(): void {
       const domainCfg = settings.domains?.[domain];
       const slEnabled = domainCfg?.sessionLimitEnabled || false;
       const newLimitSeconds = slEnabled ? (domainCfg?.sessionLimit || 0) * 60 : 0;
-      const cooldownIncrementSeconds = slEnabled ? incrementSeconds(domainCfg?.cooldownIncrement) : 0;
       const session = sessions[domain];
       const disagrees = newLimitSeconds <= 0
         ? !!session
         : domain === trackedTabDomain && (!session || session.baseLength !== newLimitSeconds);
-      cachedDomainSessionLimit[domain] = { ...cachedDomainSessionLimit[domain], sessionLimitSeconds: newLimitSeconds, cooldownIncrementSeconds };
+      // What the site holds was earned at the old rate; restate it before the
+      // new rules are the ones it is read with.
+      const oldRules = cachedDomainSessionLimit[domain]?.budgetRules;
+      if (budgets[domain] && oldRules) {
+        budgets[domain] = settle(budgets[domain], oldRules, Date.now());
+        saveBudgets();
+      }
+      cacheRules(domain, domainCfg);
       if (!disagrees) continue;
 
       if (newLimitSeconds <= 0) {
@@ -1441,15 +1414,9 @@ function applyUpdatedSettings(): void {
         sessions[domain] = existing;
         delete suspendedSessions[domain];
       }
-      if (!existing) {
-        // No session ever existed — start one NOW (not "next tick"), so the
-        // timer appears immediately on the tracked tab instead of after a
-        // refresh. Anchored at the current daily total.
-        const started = ensureSessionStarted(domain, dailyTotal(), newLimitSeconds);
-        if (!started) continue; // blocked with nothing to resize
-        existing = started;
-        updateTimerDisplay(dailyTotal());
-      }
+      // No session and none suspended: the site is at the gate, which the
+      // sweep after this loop puts on its tabs.
+      if (!existing) continue;
 
       // Live length change. Anchored to startDaily, so elapsed time is
       // preserved: shrinking the limit by N shrinks remaining by N.
@@ -1462,11 +1429,7 @@ function applyUpdatedSettings(): void {
       if (expired) {
         // The new (shorter) limit puts the user at/past the end → end now.
         // Treat it as a natural end of the (now-expired) session.
-        const result = naturalEnd(updated, {
-          dailyTotal: dailyTotal(),
-          cooldownIncrement: cooldownIncrementSeconds,
-        });
-        fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, updated.sessionNum, 'completed');
+        endSession(domain, 'completed');
         log(
           `Session limit shrunk past elapsed for ${domain}: session ended immediately ` +
           `(daily=${dailyTotal()}s, newLimit=${newLimitSeconds}s)`
@@ -1483,6 +1446,11 @@ function applyUpdatedSettings(): void {
         );
       }
     }
+
+    // Rules turned on put a site at the gate and rules turned off take it
+    // away, on every tab of the site and whether or not it is the tracked one.
+    syncClock();
+    for (const domain of allDomainsToCheck) void syncGate(domain);
   });
 }
 
@@ -1508,14 +1476,10 @@ const messageHandlers: {
     trackedTabIds.add(sender.tab.id);
     updateTimerDisplay(dailyTotal());
 
-    // If the domain is currently in cooldown, immediately show the blocker on
-    // this new tab with the SAME text every other tab shows (correct session
-    // number + breakdown), reconstructed from existing state.
+    // A site at the gate shows it on this tab too.
     if (sender.tab.url) {
       const domain = extractDomain(sender.tab.url);
-      if (domain && isBlocked(domain)) {
-        void sendBlockerToLateJoiningTab(sender.tab.id, domain);
-      }
+      if (domain) void syncGate(domain, sender.tab.id);
     }
   },
 
@@ -1536,7 +1500,7 @@ const messageHandlers: {
   },
 
   [MSG.END_SESSION_EARLY]: () => {
-    void endSessionEarly();
+    endSessionEarly();
   },
 
   [MSG.SHOW_END_SESSION_CONFIRM]: () => {
@@ -1570,19 +1534,19 @@ const messageHandlers: {
     syncClock();
   },
 
-  [MSG.REQUEST_BLOCKER_STATE]: (_message, sender) => {
-    // A tab is asking for the current blocker state — typically on
-    // visibilitychange after waking from a discarded/hidden state. Respond with
-    // SHOW or HIDE so the tab's UI matches reality (it may have missed the
-    // original HIDE_BLOCKER while suspended).
+  [MSG.REQUEST_GATE_STATE]: (_message, sender) => {
+    // A tab asking where it stands: on visibilitychange after waking from a
+    // hidden or discarded state, where it may have missed a SHOW or HIDE, and
+    // when the wait it was counting down runs out.
     if (!sender.tab?.id || !sender.tab?.url) return;
-    const tabId = sender.tab.id;
     const domain = extractDomain(sender.tab.url);
-    if (domain) {
-      // sendBlockerToLateJoiningTab handles both cases: SHOW with correct
-      // reconstructed text if in cooldown, HIDE otherwise.
-      void sendBlockerToLateJoiningTab(tabId, domain);
-    }
+    if (domain) void syncGate(domain, sender.tab.id);
+  },
+
+  [MSG.START_SESSION]: (_message, sender) => {
+    if (!sender.tab?.url) return;
+    const domain = extractDomain(sender.tab.url);
+    if (domain) void beginSession(domain);
   },
 
   [MSG.SETTINGS_UPDATED]: () => {
@@ -1595,8 +1559,8 @@ const messageHandlers: {
   [MSG.TIME_UPDATE]: () => {},
   [MSG.NUDGE]: () => {},
   [MSG.SHOW_AVERAGE_POPUP]: () => {},
-  [MSG.SHOW_BLOCKER]: () => {},
-  [MSG.HIDE_BLOCKER]: () => {},
+  [MSG.SHOW_GATE]: () => {},
+  [MSG.HIDE_GATE]: () => {},
   [MSG.SHOW_WIND_DOWN]: () => {},
   [MSG.HIDE_WIND_DOWN]: () => {},
 };
@@ -1640,11 +1604,14 @@ async function runInterventionPass(): Promise<void> {
   const settings = await loadInterventionSettings();
   if (!settings) return;
 
-  // The checks below only read the session. On a worker's first tick the
-  // display ran before the settings were cached and started nothing, so this
-  // is where that tick's session begins.
-  if (trackedTabDomain && settings.sessionLimitSeconds > 0) {
-    ensureSessionStarted(trackedTabDomain, dailyTotal(), settings.sessionLimitSeconds);
+  // No session on a site with rules on: nothing below applies, and the page
+  // should be behind the gate. Normally it already is; this is the backstop
+  // for a tab that missed the message.
+  const domain = trackedTabDomain;
+  if (domain && settings.sessionLimitSeconds > 0 && !sessions[domain]) {
+    syncClock();
+    void syncGate(domain);
+    return;
   }
 
   checkWindDown(settings);
@@ -1665,14 +1632,8 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   const sessionLimitEnabled = domainSettings.sessionLimitEnabled || false;
   const hasSessionLimit = sessionLimitEnabled && (domainSettings.sessionLimit || 0) > 0;
 
-  // Cache session limit for timer display (even when returning null). The
-  // cooldown increment rides along so the end-session confirm can quote the
-  // cooldown it would trigger without an async settings load per tick.
-  cachedDomainSessionLimit[trackedTabDomain] = {
-    sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
-    cooldownIncrementSeconds: hasSessionLimit ? incrementSeconds(domainSettings.cooldownIncrement) : 0,
-    nudgeInterval: domainSettings.nudgeInterval
-  };
+  // Cache the rules for the synchronous readers (even when returning null).
+  cacheRules(trackedTabDomain, domainSettings);
 
   const { averageSeconds, daysWithData } = compute7DayStats(timeHistory, trackedTabDomain, currentDateStr);
 
@@ -1683,7 +1644,6 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
     daysWithData,
     timeInSeconds: dailyTotal(),
     sessionLimitSeconds: hasSessionLimit ? (domainSettings.sessionLimit || 0) * 60 : 0,
-    cooldownIncrementSeconds: hasSessionLimit ? incrementSeconds(domainSettings.cooldownIncrement) : 0
   };
 }
 
@@ -1772,8 +1732,6 @@ function checkWindDown(settings: InterventionSettings): void {
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
 
   const domain = trackedTabDomain;
-  if (isBlocked(domain)) return;
-
   const session = sessions[domain];
   if (!session) return;
   const wd = windDownState(session, dailyTotal());
@@ -1791,186 +1749,138 @@ function checkWindDown(settings: InterventionSettings): void {
 }
 
 
-/**
- * Send a full-fidelity SHOW_BLOCKER to a single tab that joined mid-cooldown
- * (newly focused / restored). The blocker args aren't passed in — they're
- * reconstructed from existing state so the late-joiner shows the SAME text as
- * every other tab ("Session N ended" + breakdown) instead of placeholders:
- *   - ended session number = next session's sessionNum - 1 (cooldown stored the
- *     next session), same derivation the rehydrate path uses.
- *   - cooldown increment    = the domain's settings value (not on the session).
- *   - remaining / total      = derived from cooldownEndTime.
- * No-ops if the domain isn't actually in cooldown.
- */
-async function sendBlockerToLateJoiningTab(tabId: number, domain: Domain): Promise<void> {
-  const endTime = cooldownEndTime[domain] || 0;
-  if (endTime <= Date.now()) {
-    browser.tabs.sendMessage(tabId, { type: MSG.HIDE_BLOCKER }).catch(() => {});
-    return;
-  }
-  const remaining = Math.ceil((endTime - Date.now()) / 1000);
-  const nextSession = sessions[domain];
-  const endedSessionNum = nextSession ? Math.max(1, nextSession.sessionNum - 1) : 1;
-  const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
-  const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
-  const incrementSec = incrementSeconds(settings.domains?.[domain]?.cooldownIncrement);
-  // The bar's denominator is the cooldown's FULL length, captured when it fired.
-  // Use the stored value — recomputing it from the increment setting is exactly
-  // what made the bar start at 100% when that setting read as 0 on a fresh tab.
-  const totalSeconds = cooldownTotalSec[domain]
-    || (incrementSec > 0 ? endedSessionNum * incrementSec : remaining);
-  browser.tabs.sendMessage(tabId, {
-    type: MSG.SHOW_BLOCKER,
-    cooldownRemainingSeconds: remaining,
-    totalCooldownSeconds: totalSeconds,
-    cooldownCount: endedSessionNum,
-    cooldownIncrementSeconds: incrementSec
-  }).catch(() => {});
-}
-
-function sendBlockerToAllTabsOfDomain(domain: Domain, remainingSeconds: number, totalSeconds: number, cooldownCount: number, cooldownIncrementSeconds: number): void {
-  const message = {
-    type: MSG.SHOW_BLOCKER,
-    cooldownRemainingSeconds: remainingSeconds,
-    totalCooldownSeconds: totalSeconds,
-    cooldownCount,
-    cooldownIncrementSeconds
-  };
-
-  trackedTabIds.forEach(tabId => {
-    browser.tabs.get(tabId).then(tab => {
-      if (tab.url && extractDomain(tab.url) === domain) {
-        browser.tabs.sendMessage(tabId, message).catch(() => {});
-      }
-    }).catch(() => {});
-  });
-}
-
-function sendHideBlockerToAllTabsOfDomain(domain: Domain): void {
-  const message = { type: MSG.HIDE_BLOCKER };
-
-  trackedTabIds.forEach(tabId => {
-    browser.tabs.get(tabId).then(tab => {
-      if (tab.url && extractDomain(tab.url) === domain) {
-        browser.tabs.sendMessage(tabId, message).catch(() => {});
-      }
-    }).catch(() => {});
-  });
-}
-
-function startCooldownTicker(domain: Domain, totalCooldownSeconds: number, sessionNum: number, cooldownIncrementSeconds: number): void {
-  if (cooldownTickers[domain]) {
-    clearInterval(cooldownTickers[domain]);
-  }
-
-  cooldownTickers[domain] = setInterval(() => {
-    const endTime = cooldownEndTime[domain] || 0;
-    const remaining = Math.ceil((endTime - Date.now()) / 1000);
-
-    if (remaining <= 0) {
-      clearInterval(cooldownTickers[domain]);
-      delete cooldownTickers[domain];
-      delete cooldownEndTime[domain];
-      delete cooldownTotalSec[domain];
-      saveSessionState(); // cooldown cleared — persist so a restart doesn't re-arm it
-      syncClock(); // the cooldown gate just lifted — resume counting if applicable
-      // The next session was already created when the cooldown was fired and
-      // anchored at the daily total of that moment — nothing to start here.
-      sendHideBlockerToAllTabsOfDomain(domain);
-      clearWindDown(domain);
-      // Push a fresh timer update so all tabs of this domain immediately show
-      // the new session's full extended length (sessionTime=0, limit=base+carry).
-      if (trackedTabDomain === domain) {
-        updateTimerDisplay(dailyTotal());
-      }
-      log(`Cooldown expired for ${domain}`);
-    } else {
-      // Always send the stored full length as the denominator (single source of
-      // truth) so every tab agrees with the late-join path; fall back to the
-      // value the ticker was started with.
-      const total = cooldownTotalSec[domain] || totalCooldownSeconds;
-      sendBlockerToAllTabsOfDomain(domain, remaining, total, sessionNum, cooldownIncrementSeconds);
-    }
-  }, 1000);
-}
+// ---------------------------------------------------------------------------
+// THE GATE
+//
+// A site with rules on and no session is behind the gate: its tabs are blurred
+// and the clock is stopped until the user starts a session there. Sessions
+// begin in beginSession and nowhere else.
+// ---------------------------------------------------------------------------
 
 /**
- * Begin a cooldown for `domain`: store the next session, start the blocker UI
- * countdown, and notify all tabs. `nextSession` is the session the user enters
- * once the cooldown expires (already anchored at the current daily total).
- * `endedSessionNum` is the number of the session that just ended — it drives the
- * blocker's displayed count. Shared by natural end, early end, and shrink-past.
+ * Bring a domain's tabs (or one tab) in line with where the domain stands:
+ * the gate when it has rules on and no session, nothing otherwise.
+ *
+ * Reads the settings rather than the cache so that a tab of a site the worker
+ * has not tracked since it started is answered correctly.
  */
-function fireCooldown(
-  domain: Domain,
-  nextSession: ActiveSession,
-  cooldownSeconds: number,
-  cooldownIncrementSeconds: number,
-  endedSessionNum: number,
-  endState: SessionEndState
-): void {
-  cooldownEndTime[domain] = Date.now() + cooldownSeconds * 1000;
-  cooldownTotalSec[domain] = cooldownSeconds; // the bar's denominator — never recompute it
-  // Freeze the clock before adopting the next session: that session is anchored
-  // at the current daily total, so any time still accruing here would land in
-  // the new session's elapsed count and eat into a limit the user hasn't begun.
+async function syncGate(domain: Domain, tabId?: number): Promise<void> {
+  const data = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
+  const sessionLengthSeconds = cacheRules(domain, settings.domains?.[domain]);
+  const rules = cachedDomainSessionLimit[domain].budgetRules!;
+
+  let message: Record<string, unknown> = { type: MSG.HIDE_GATE };
+  if (atGate(domain)) {
+    const now = Date.now();
+    budgets[domain] = settle(budgetOf(domain, rules, now), rules, now);
+    message = {
+      type: MSG.SHOW_GATE,
+      budget: budgets[domain],
+      rules,
+      sessionLengthSeconds,
+      minFraction: minFractionFor(sessionLengthSeconds),
+      countdownSeconds: GATE_COUNTDOWN_SECONDS,
+    };
+  }
+  // The cache may have just learned this site has rules on.
   syncClock();
-  // Record the session that just ended BEFORE the assignment below discards it.
-  // This is the only moment it exists: sessions[domain] holds one session per
-  // domain, so adopting the next one is the same act as losing this one.
-  // syncClock() has already banked its final seconds, so dailyTotal() is exact.
-  recordFinishedSession(domain, sessions[domain], cooldownSeconds, endState);
-  sessions[domain] = nextSession;
-  clearWindDown(domain);
-  saveSessionState(); // persist new session number + active cooldown
 
-  sendBlockerToAllTabsOfDomain(domain, cooldownSeconds, cooldownSeconds, endedSessionNum, cooldownIncrementSeconds);
-  startCooldownTicker(domain, cooldownSeconds, endedSessionNum, cooldownIncrementSeconds);
+  if (tabId !== undefined) {
+    browser.tabs.sendMessage(tabId, message).catch(() => { /* tab gone */ });
+  } else {
+    sendMessageToAllTabsOfDomain(domain, message);
+  }
+}
+
+/**
+ * Start a session on `domain`, using what the site holds. The one place a
+ * session begins: the user pressed OK on the gate and the countdown ran out.
+ *
+ * Only on the tracked domain. A session is anchored to the daily total, and
+ * the clock holds one site's total at a time.
+ */
+async function beginSession(domain: Domain): Promise<void> {
+  const data = await browser.storage.local.get(STORAGE.SETTINGS);
+  const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
+  const sessionLengthSeconds = cacheRules(domain, settings.domains?.[domain]);
+  const rules = cachedDomainSessionLimit[domain].budgetRules!;
+
+  if (domain !== trackedTabDomain || !atGate(domain)) return syncGate(domain);
+
+  const now = Date.now();
+  const started = spend(budgetOf(domain, rules, now), rules, now, minFractionFor(sessionLengthSeconds));
+  if (!started) return syncGate(domain);
+
+  budgets[domain] = started.budget;
+  saveBudgets();
+  sessionsStartedToday[domain] = (sessionsStartedToday[domain] || 0) + 1;
+  // A partial session is the full length with a negative carryover. baseLength
+  // has to equal the setting, or the next settings change reads the difference
+  // as a length change and resizes the session to full.
+  const length = Math.round(started.fraction * sessionLengthSeconds);
+  sessions[domain] = startSession({
+    dailyTotal: dailyTotal(),
+    baseLength: sessionLengthSeconds,
+    carryover: length - sessionLengthSeconds,
+    sessionNum: sessionsStartedToday[domain],
+  });
+  saveSessionState();
+  sendMessageToAllTabsOfDomain(domain, { type: MSG.HIDE_GATE });
+  syncClock();
+  updateTimerDisplay(dailyTotal());
+  log(`Session ${sessionsStartedToday[domain]} started for ${domain}: ${length}s, ${started.budget.sessions.toFixed(3)} held after.`);
+}
+
+/** Give a session's unused time back to its site, as a share of a full one. */
+function returnUnused(domain: Domain, session: ActiveSession): void {
+  const remaining = displayFor(session, dailyTotal()).remaining;
+  if (remaining <= 0) return;
+  const cached = cachedDomainSessionLimit[domain];
+  const rules = cached?.budgetRules ?? budgetRules();
+  const fullLength = cached?.sessionLimitSeconds || session.baseLength;
+  const now = Date.now();
+  budgets[domain] = giveBack(budgetOf(domain, rules, now), rules, now, unusedFraction(remaining, fullLength));
+  saveBudgets();
+}
+
+/**
+ * End `domain`'s session: stop the clock, record it, return what was unused,
+ * and put the site back behind the gate. Shared by the natural end, an early
+ * end, and a length change that lands past the time already used.
+ */
+function endSession(domain: Domain, endState: SessionEndState): void {
+  const session = sessions[domain];
+  if (!session) return;
+  // Take the session out first: with none, the site is at the gate and
+  // syncClock() stops the clock, banking the final seconds. Recording before
+  // that would miss them. `session` keeps the object alive for the record.
+  delete sessions[domain];
+  syncClock();
+  recordFinishedSession(domain, session, 0, endState);
+  returnUnused(domain, session);
+  clearWindDown(domain);
+  saveSessionState();
+  void syncGate(domain);
   updateTimerDisplay(dailyTotal());
 }
 
-/**
- * End the current session early. The unused time is "carried over" so the next
- * session lasts (limit + carryover), and 10% of it is earned as grace baked
- * into that next session. The cooldown is for the session that just ended.
- */
-async function endSessionEarly(): Promise<void> {
+/** End the tracked site's session early. What was unused goes back to it. */
+function endSessionEarly(): void {
   if (!trackedTabDomain) return;
   const domain = trackedTabDomain;
-
-  // Don't end if already in cooldown
-  if (isBlocked(domain)) return;
-
-  const settings = await loadInterventionSettings();
-  if (!settings) return;
-  const { sessionLimitSeconds, cooldownIncrementSeconds } = settings;
-  if (sessionLimitSeconds <= 0) return;
-
   const session = sessions[domain];
   if (!session) return;
-
-  const result = computeEndEarly(session, {
-    dailyTotal: dailyTotal(),
-    cooldownIncrement: cooldownIncrementSeconds,
-  });
-  if (!result) return; // no time left to claim — normal cooldown will fire on its own
-
-  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, session.sessionNum, 'early');
-  log(
-    `Session ${session.sessionNum} ended early for ${domain} ` +
-    `(daily=${dailyTotal()}s, carryoverToNext=${result.nextSession.carryover}s, ` +
-    `graceEarned=${result.graceEarned}s, cooldown=${result.cooldownSeconds}s)`
-  );
+  if (displayFor(session, dailyTotal()).remaining <= 0) return; // the natural end is about to fire
+  log(`Session ${session.sessionNum} ended early for ${domain} (daily=${dailyTotal()}s)`);
+  endSession(domain, 'early');
 }
 
 function checkSessionLimit(settings: InterventionSettings): boolean {
-  const { sessionLimitSeconds, cooldownIncrementSeconds } = settings;
+  const { sessionLimitSeconds } = settings;
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return false;
 
   const domain = trackedTabDomain;
-
-  if (isBlocked(domain)) return true;
-
   const session = sessions[domain];
   if (!session) return false;
 
@@ -1978,21 +1888,14 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
     session,
     dailyTotal: dailyTotal(),
     sessionLimitSeconds,
-    cooldownIncrementSeconds,
-    cooldownEndsAt: cooldownEndTime[domain] || 0,
+    cooldownIncrementSeconds: 0,
+    cooldownEndsAt: 0,
     now: Date.now(),
   });
+  if (outcome.kind !== 'limit-reached') return false;
 
-  if (outcome.kind === 'continue') return false;
-  if (outcome.kind === 'in-cooldown') return true;
-
-  const { result, endedSessionNum } = outcome;
-  fireCooldown(domain, result.nextSession, result.cooldownSeconds, cooldownIncrementSeconds, endedSessionNum, 'completed');
-  log(
-    `Session ${endedSessionNum} limit reached for ${domain} ` +
-    `(daily=${dailyTotal()}s, cooldown=${result.cooldownSeconds}s, ` +
-    `nextSession=${result.nextSession.sessionNum})`
-  );
+  log(`Session ${outcome.endedSessionNum} limit reached for ${domain} (daily=${dailyTotal()}s)`);
+  endSession(domain, 'completed');
   return true;
 }
 
@@ -2062,7 +1965,8 @@ async function init(): Promise<void> {
 
   await loadTimeData();
   await loadAveragePopupShown();
-  await loadSessionState(); // rehydrate session numbers / cooldowns after a worker restart
+  await loadSessionState(); // rehydrate today's sessions after a worker restart
+  await loadBudgets();
   await loadSessionHistory(); // finished sessions, for the past-day panel
 
   // Tabs are NOT seeded from tabs.query here. A matching URL says nothing about

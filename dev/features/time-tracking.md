@@ -1,6 +1,6 @@
 # Time tracking
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-15 17:13, at 2.10.0.
 
 WebTime counts the seconds you spend on each site per day, in the background,
 on any http or https page. Nothing to turn on.
@@ -10,7 +10,7 @@ on any http or https page. Nothing to turn on.
 - Per-domain daily totals. `www.` is stripped, so `www.youtube.com` and
   `youtube.com` are one site; other subdomains are separate sites.
 - The clock runs only while all of these hold: the browser is the focused app,
-  the active tab is an http(s) page, the site isn't in a cooldown, and no
+  the active tab is an http(s) page, the site isn't at the gate, and no
   WebTime dialog (end-session confirm, 7-day average popup) is open on it.
 - On top of that it needs either audio playing in the tab, or recent input
   (scroll, key, mouse move within the inactivity timeout, default 30s) while

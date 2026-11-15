@@ -38,7 +38,7 @@ test('formatClock floors, and never renders a negative', () => {
   assert.equal(formatClock(-5), '0:00');
 });
 
-test('the blocker countdown uses the shared formatter, not a local one', () => {
+test('the gate wait clock uses the shared formatter, not a local one', () => {
   const src = readFileSync('src/content.ts', 'utf8');
   // The bug was a second, subtly different implementation living alongside the
   // shared one. Any locally-defined countdown/clock formatter is that bug.
@@ -52,7 +52,7 @@ test('the blocker countdown uses the shared formatter, not a local one', () => {
     `content.ts defines its own ${localFormatter?.[0]} — use formatClock from shared/utils.ts`
   );
   // And the countdown element must actually be fed by it.
-  const countdownAssign = /className: 'web-time-blocker-countdown'[\s\S]{0,300}?text: (\w+)\(/.exec(src);
-  assert.ok(countdownAssign, 'could not find the blocker countdown element');
-  assert.equal(countdownAssign[1], 'formatClock');
+  const wait = /nextStartAt\(budget, rules, now, minFraction\);[\s\S]{0,200}?: (\w+)\(Math\.ceil/.exec(src);
+  assert.ok(wait, 'could not find the wait clock on the gate');
+  assert.equal(wait[1], 'formatClock');
 });

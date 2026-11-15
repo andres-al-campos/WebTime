@@ -117,14 +117,36 @@ export async function startRun({ extDir, headed = false, storage = {} }) {
   };
 }
 
-/** Open the drive page in front. */
-export async function openPage(run) {
+/**
+ * Open the drive page in front. With session rules on for localhost the page
+ * opens behind the gate; this starts a session there the way a user would, so
+ * scenarios begin inside one. `gate: false` leaves the gate up. The timeline
+ * is timed from the moment the page is usable.
+ */
+export async function openPage(run, { gate = true } = {}) {
   const page = await run.context.newPage();
   await page.goto(run.pageUrl);
   await page.bringToFront();
-  page.openedAt = Date.now();
   page.timeline = [];
+  const rulesOn = (await run.storage('webTimeSettings'))?.domains?.localhost?.sessionLimitEnabled;
+  if (gate && rulesOn && !(await passGate(page))) {
+    fail('The page has session rules on but the gate never let a session start.',
+      'run with --headed and watch the page; check SHOW_GATE in content.ts and START_SESSION in background.ts.');
+  }
+  page.openedAt = Date.now();
   return page;
+}
+
+/**
+ * Press OK on the gate and wait out its countdown. Returns whether the gate
+ * came up and then went away.
+ */
+export async function passGate(page) {
+  const ok = page.locator('.web-time-gate-ok');
+  if (!(await ok.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false))) return false;
+  await ok.click();
+  return page.locator('.web-time-gate-overlay')
+    .waitFor({ state: 'detached', timeout: 20_000 }).then(() => true, () => false);
 }
 
 /**
@@ -164,7 +186,7 @@ export function readNudges(page) {
 }
 
 /**
- * The page's own overlays in one line: blocker, wind-down darkness, end-session
+ * The page's own overlays in one line: gate, wind-down darkness, end-session
  * confirm, average popup, blur. Read from the page, not from messages, so what
  * is reported is what a user would see.
  */
@@ -180,9 +202,10 @@ export function readOverlays(page) {
       while (walk.nextNode()) if (walk.currentNode.textContent.trim()) parts.push(walk.currentNode.textContent.trim());
       return parts.join(' / ');
     };
-    const blocker = document.querySelector('.web-time-blocker-overlay');
-    // Without the live countdown, so the timeline logs the blocker once.
-    if (blocker) out.push(`blocker "${leafText(blocker, '.web-time-blocker-countdown')}"`);
+    const gate = document.querySelector('.web-time-gate-overlay');
+    // The title alone, so the timeline logs each face of the gate once and not
+    // every second of its clocks.
+    if (gate && gate.style.opacity !== '0') out.push(`gate "${gate.querySelector('.web-time-gate-title')?.textContent ?? ''}"`);
     const wind = document.querySelector('.web-time-wind-down-overlay');
     if (wind && wind.style.visibility !== 'hidden') {
       const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(wind.style.background)?.[1];
@@ -193,7 +216,7 @@ export function readOverlays(page) {
     if (confirm) out.push(`end-session confirm "${leafText(confirm)}"`);
     const avg = document.querySelector('.web-time-average-popup-overlay');
     if (avg) out.push(`average popup "${leafText(avg)}"`);
-    // Nudges and the blocker share this element.
+    // Nudges and the gate share this element.
     const blur = document.querySelector('.web-time-blur-overlay');
     if (blur && getComputedStyle(blur).opacity !== '0' && blur.style.display !== 'none') out.push('blur');
     return out.join(', ');

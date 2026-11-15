@@ -23,7 +23,6 @@
 //   track only:
 //   --seconds N        how long to stay on the page (default 15)
 //   --limit M          turn session rules on for the page, M-minute sessions
-//   --cooldown M       with --limit: cooldown step in minutes (session N waits N × M)
 //   --popup            afterwards, open the popup and print its cards
 //
 // Chrome only. Firefox has no equivalent here; drive it by hand (web-ext run).

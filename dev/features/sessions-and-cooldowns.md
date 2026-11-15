@@ -1,46 +1,58 @@
-# Sessions and cooldowns
+# Sessions and the gate
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-15 17:13, at 2.10.0.
 
-On a site with rules on, each session lasts its length; when it runs out the
-page is blocked for a cooldown that grows with each session.
+On a site with rules on, browsing happens in sessions. The site holds a number
+of sessions that regenerate over time, and each one is started by hand at a
+gate.
 
 ## Sub-features
 
-- A session starts the first time you browse the site with rules on.
-- When it ends, every tab of that site shows a blocker: "Session N Ended", a
-  countdown, the math (`3 × 1:30 = 4:30 cooldown`) and a draining bar. Media
-  pauses, fullscreen exits, keys are blocked.
-- Tabs of the site opened mid-cooldown, or brought back from the background,
-  show the same blocker at the right point.
-- When the cooldown ends the blocker lifts and the next session starts.
-- Live session card in the popup: "Session N · NN% left", time left, the 10%
-  bonus and what ending early would add to the next session. During a
-  cooldown it shows the cooldown's total length (not a live countdown).
+- With rules on and no session running, every tab of the site is blurred
+  behind the gate: "Start a Session?", a row of dots (one per session the site
+  can hold, the one regenerating at half opacity), the session's length, and
+  when the next session arrives. Media pauses, fullscreen exits, keys are
+  blocked, and the clock is stopped.
+- OK starts a 10-second countdown inside the Cancel button ("Starting Session
+  / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
+  At zero the session starts, the page unblurs and paused media plays again.
+- Cancel on the gate hides the dialog and leaves the page blurred; clicking
+  the blurred page brings the gate back.
+- Sessions regenerate continuously: 3 a day by default (one every 8 hours), up
+  to 4 held. There is no daily reset of what a site holds, and no cooldown.
+- A session that ends with time left returns the unused share. With less than
+  a whole session held, the gate offers a shorter one, down to 5 minutes.
+- With nothing to offer, the gate shows "Next Session In" over a clock, and
+  becomes the gate again on its own.
+- When a session's time runs out the gate comes back.
+- A session running when the day resets ends there and returns what it had
+  left.
 - Each finished session is recorded for [past-day sessions](past-day-sessions.md).
 
 ## How to get to it
 
-Automatic once [session rules](session-rules.md) are on. The card is in the
-popup's site view.
+Automatic once [session rules](session-rules.md) are on.
 
 ## Driving it
 
-Preconditions: `./build.sh`.
+Preconditions: `npm run build`.
 
-1. `npm run drive -- --limit 1 --cooldown 0.25 --seconds 100`: 1-minute
-   sessions, a 15s cooldown after session 1.
-2. Expected in the overlay timeline: the blocker with "Session 1 Ended / 0:15
-   cooldown" just after 60s, gone 15s later; clock verdicts `running →
-   cooldown → running`; the timer counting down session 2.
+1. `npm run drive -- --limit 1 --seconds 90`: 1-minute sessions. The harness
+   presses OK on the gate and waits out the countdown before the stay begins.
+2. Expected in the overlay timeline: `gate "Start a Session?"` just after 60s;
+   clock verdicts `gate → running → gate`.
 
-Last driven: 2026-10-07, Chrome headless. Blocker at 62s, cleared at 77s,
-verdicts `running → cooldown → running`, timer `⏱ 00:37` at 100s (23s into
-session 2). Later sessions' longer cooldowns (N × step) not driven.
+Last driven: 2026-11-15, Chrome headless. Gate back at 61s, verdicts `gate →
+running → gate`, 60s stored. The wait screen, a partial session, Cancel on the
+gate and regeneration over hours were not driven. Not driven on Firefox.
 
 ## Gotchas
 
-- Time doesn't count during a cooldown, and the next session is anchored at
-  the daily total when the cooldown fired, so cooldown time never eats into it.
-- With rules on but no session stored yet today, the card shows "No active
-  session". It used to fall through to the "No limit on this site" card.
+- Time doesn't count at the gate.
+- What a site holds is stored under `webTimeSessionBudget`, apart from the
+  day's session state, because it has to survive the day reset.
+- A partial session is stored as the full length with a negative `carryover`.
+  Its `baseLength` has to equal the setting, or the next settings change reads
+  the difference as a length change and resizes it to full.
+- The popup's session card and rules card still describe cooldowns: sessions
+  per day and the maximum have no controls yet and run on their defaults.

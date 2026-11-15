@@ -1,6 +1,6 @@
 # WebTime features
 
-Updated 2026-10-26 22:22, at 2.10.0.
+Updated 2026-11-15 17:13, at 2.10.0.
 
 What a user can do with WebTime, how to reach it, and how to drive it. Read
 this before adding anything: if it's already here, extend it instead of
@@ -12,9 +12,9 @@ building it again.
 | On-page timer | [on-page-timer.md](on-page-timer.md) | Firefox, Chrome | Yes, Chrome (2026-10-06) |
 | All-sites overview | [all-sites-overview.md](all-sites-overview.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Site view | [site-view.md](site-view.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| Sessions and cooldowns | [sessions-and-cooldowns.md](sessions-and-cooldowns.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
-| End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
+| Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
+| Sessions and the gate | [sessions-and-cooldowns.md](sessions-and-cooldowns.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
+| End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
 | Nudges | [nudges.md](nudges.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Wind-down | [wind-down.md](wind-down.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | 7-day average popup | [average-popup.md](average-popup.md) | Firefox, Chrome | Yes, Chrome (2026-10-12) |
@@ -41,7 +41,7 @@ both, not that both have been driven.
   `global-settings`, `export`, or `all`. Each prints the page's overlays
   as they change, the clock verdicts, and a ✓ or a ✗ with a fix. `--headed`
   shows the window. `track` also takes `--seconds N`, `--limit M`,
-  `--cooldown M` and `--popup` for poking around by hand.
+  and `--popup` for poking around by hand.
 - **Every feature gets a scenario.** Popup-only features seed stored history,
   open the popup and read what it shows; they take a few seconds. A scenario
   that can't see some way the feature breaks says so in its comment.

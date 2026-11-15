@@ -130,26 +130,30 @@ function functionBody(name) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-test('fireCooldown records the ending session before replacing it', () => {
-  const body = functionBody('fireCooldown');
-  const record = body.indexOf('recordFinishedSession(');
-  const replace = body.search(/sessions\[domain\]\s*=\s*nextSession/);
-  assert.notEqual(record, -1, 'fireCooldown must call recordFinishedSession');
-  assert.notEqual(replace, -1, 'fireCooldown must still adopt the next session');
-  assert.ok(
-    record < replace,
-    'recordFinishedSession must run BEFORE sessions[domain] = nextSession, ' +
-    'or the session it records is already the new one',
-  );
+test('endSession keeps hold of the session it is about to delete', () => {
+  const body = functionBody('endSession').replace(/\/\/[^\n]*/g, '');
+  const hold = body.search(/const session = sessions\[domain\]/);
+  const del = body.indexOf('delete sessions[domain]');
+  const record = body.search(/recordFinishedSession\(domain, session,/);
+  assert.notEqual(hold, -1, 'endSession must take the session into a local first');
+  assert.notEqual(del, -1, 'endSession must still remove the session');
+  assert.notEqual(record, -1, 'endSession must record the session it held, not sessions[domain]');
+  assert.ok(hold < del, 'the session must be held BEFORE it is deleted, or there is nothing to record');
 });
 
-test('fireCooldown records after syncClock so the final seconds are banked', () => {
-  // Strip comments first: the line above the record call MENTIONS syncClock(),
-  // and matching that instead of the real call let an inverted ordering pass.
-  const body = functionBody('fireCooldown').replace(/\/\/[^\n]*/g, '');
+test('endSession stops the clock before recording, so the final seconds are banked', () => {
+  // Strip comments first: the prose above the calls mentions syncClock(), and
+  // matching that instead of the real call let an inverted ordering pass.
+  const body = functionBody('endSession').replace(/\/\/[^\n]*/g, '');
+  const del = body.indexOf('delete sessions[domain]');
   const sync = body.indexOf('syncClock()');
   const record = body.indexOf('recordFinishedSession(');
-  assert.notEqual(sync, -1, 'fireCooldown must still freeze the clock');
+  assert.notEqual(sync, -1, 'endSession must still stop the clock');
+  assert.ok(
+    del < sync,
+    'the session must be deleted BEFORE syncClock(): with it still there the ' +
+    'site is not at the gate and the clock keeps running',
+  );
   assert.ok(
     sync < record,
     'syncClock() must run BEFORE recordFinishedSession, or dailyTotal() is ' +
@@ -211,32 +215,26 @@ test('history is stored under its own key, not the wiped session state', () => {
   );
 });
 
-test('rollover records the cooldown the session would have served, not 0', () => {
-  // The rollover pre-empts the cooldown, but the session still had one due.
-  // Hardcoding 0 there would make every day's last card claim no cooldown was
-  // owed, and would be indistinguishable from a domain with cooldowns off.
-  const body = functionBody('rolloverIfNewDay');
-  assert.match(
-    body,
-    /cooldownLength\(/,
-    'rollover must compute the would-have-been cooldown via cooldownLength()',
-  );
+test('rollover returns what each session had left before discarding it', () => {
+  const body = functionBody('rolloverIfNewDay').replace(/\/\/[^\n]*/g, '');
+  const giveBack = body.indexOf('returnUnused(domain, session)');
+  const reset = body.indexOf('setDailyTotal(0)');
+  assert.notEqual(giveBack, -1, 'rollover must return the unused part of a running session');
   assert.ok(
-    !/recordFinishedSession\([^)]*,\s*0\s*,\s*'dayEnded'/.test(body),
-    'rollover must not hardcode a 0 cooldown for the day-ended session',
+    giveBack < reset,
+    'returnUnused must run BEFORE setDailyTotal(0): what is left is measured ' +
+    'against the day total, and after the reset every session looks unused',
   );
 });
 
-test('rollover reads the increment from cache, not an awaited settings load', () => {
-  // rolloverIfNewDay is sync and runs inside the tick path; awaiting a settings
-  // read here would either not compile or silently reorder the record after the
-  // deletes below it.
-  // Strip comments before the await check — the prose above the loop mentions
-  // awaiting, and matching that would fail on correct code.
+test('rollover stays synchronous', () => {
+  // rolloverIfNewDay runs inside the tick path; awaiting a settings read here
+  // would reorder the record after the deletes below it. returnUnused reads
+  // the rules from the cache for that reason.
   const body = functionBody('rolloverIfNewDay').replace(/\/\/[^\n]*/g, '');
-  assert.match(body, /cachedDomainSessionLimit\[domain\]/,
-    'the increment must come from the in-memory cache');
   assert.ok(!/\bawait\b/.test(body), 'rolloverIfNewDay must stay synchronous');
+  assert.match(functionBody('returnUnused'), /cachedDomainSessionLimit\[domain\]/,
+    'returnUnused must read the rules from the in-memory cache');
 });
 
 // ---------------------------------------------------------------------------
@@ -579,29 +577,24 @@ test('clockStart refuses to start unless the gates allow it', () => {
 // WHERE A SESSION BEGINS
 //
 // A session used to be started on demand by whichever function asked for it
-// first, six of them. With a gate in front of sessions, any such caller is a
-// way in behind the gate, and nothing would fail: the session would simply
-// exist. So the callers of ensureSessionStarted are a fixed list.
+// first, six of them. With the gate in front of sessions, any such caller is a
+// way in behind it, and nothing would fail: the session would simply exist.
 // ---------------------------------------------------------------------------
 
-test('only the tick and a settings change start a session', () => {
+test('only beginSession starts a session', () => {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   const callers = [];
-  const call = /ensureSessionStarted\(/g;
+  const call = /\bstartSession\(/g;
   let m;
   while ((m = call.exec(code)) !== null) {
-    const before = code.slice(0, m.index);
-    const fns = [...before.matchAll(/\n(?:async )?function (\w+)\(/g)];
-    const enclosing = fns.length ? fns[fns.length - 1][1] : '(top level)';
-    // The declaration itself matches the call pattern; skip it.
-    if (/function $/.test(before.slice(-9))) continue;
-    callers.push(enclosing);
+    const fns = [...code.slice(0, m.index).matchAll(/\n(?:async )?function (\w+)\(/g)];
+    callers.push(fns.length ? fns[fns.length - 1][1] : '(top level)');
   }
   assert.deepEqual(
-    callers.sort(),
-    ['applyUpdatedSettings', 'runInterventionPass', 'updateTimerDisplay'],
-    'ensureSessionStarted has a caller outside the fixed list. A function that ' +
-    'needs the session reads sessions[domain] and returns when it is empty; ' +
-    'only the three listed may start one.',
+    callers,
+    ['beginSession'],
+    'startSession() has a caller other than beginSession. A session begins when ' +
+    'the user presses OK on the gate and the countdown runs out; a function ' +
+    'that needs the session reads sessions[domain] and returns when it is empty.',
   );
 });

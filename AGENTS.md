@@ -34,6 +34,8 @@ tickers — live in `src/background.ts`.
 - `clock-gates.ts` — whether time should be accruing. **Ordering is
   load-bearing** and has broken three times; it is tested for that reason.
 - `session-model.ts` — session lifecycle arithmetic, nudge times, wake schedules.
+- `session-budget.ts` — how many sessions a site holds, how they regenerate,
+  and what a start uses or an early end returns.
 - `interventions.ts` — which intervention is due (limit reached, nudge).
 
 `background.ts` is the shell: listeners, dispatch, and the state the gates read.
@@ -60,12 +62,13 @@ Firefox's persistent background does not. **Test both.**
 is the on-page display and its once-a-second refresh (`startTimer`). The owner
 says "timer" for both; ask which one when it matters.
 
-`ensure*` means idempotent-with-effects (`ensureKeepAlive`, `ensureHeartbeat`,
-`ensureSessionStarted`). A plain `get*` must not persist or schedule.
+`ensure*` means idempotent-with-effects (`ensureKeepAlive`, `ensureHeartbeat`).
+A plain `get*` must not persist or schedule.
 
-`ensureSessionStarted` was once `getOrStartSession`, which read as a getter
+Sessions were once started by `getOrStartSession`, which read as a getter
 while it persisted state and re-armed the alarm schedule. That name caused a
-real reordering bug during refactoring.
+real reordering bug during refactoring. A session now begins only in
+`beginSession`, when the user starts one at the gate.
 
 ## Before renaming anything
 

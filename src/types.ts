@@ -1,4 +1,5 @@
 import { MSG } from './shared/protocol.js';
+import type { Budget, BudgetRules } from './shared/session-budget.js';
 // ============================================
 // WebTime Type Definitions
 // ============================================
@@ -45,7 +46,9 @@ export interface GlobalSettings {
 export interface DomainSettings {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number; // Minutes — continuous usage before cooldown triggers
-  cooldownIncrement?: number; // Minutes (may be fractional, e.g. 3.5 = 3m30s) — each successive cooldown grows by this amount
+  cooldownIncrement?: number; // Unused since sessions regenerate; still on disk for existing users, never read
+  sessionsPerDay?: number; // How many sessions regenerate per day (undefined = default)
+  maxSessions?: number; // The most sessions the site can hold (undefined = default)
   nudgeInterval?: number; // Minutes between nudges (0 = disabled, undefined = default)
 }
 
@@ -80,7 +83,6 @@ export interface InterventionSettings {
   daysWithData: number; // days with usage in last 7 days
   timeInSeconds: number;
   sessionLimitSeconds: number; // 0 = disabled
-  cooldownIncrementSeconds: number;
 }
 
 // ============================================
@@ -93,8 +95,6 @@ export interface TimeUpdateMessage {
   sessionTime?: number;       // seconds elapsed in current session (only when session limit is active)
   sessionLimitSeconds?: number; // the session limit in seconds (only when session limit is active)
   sessionNum?: number;         // which session number (1-based)
-  cooldownIncrementSeconds?: number; // per-session cooldown step, for quoting the cooldown in the end-session confirm
-  baseLengthSeconds?: number;  // the session's BASE length, before carryover/grace — lets the confirm state the next session's full length
 }
 
 export interface ContentScriptReadyMessage {
@@ -120,16 +120,30 @@ export interface ShowAveragePopupMessage {
   stats: SessionStartStats;
 }
 
-export interface ShowBlockerMessage {
-  type: typeof MSG.SHOW_BLOCKER;
-  cooldownRemainingSeconds: number;
-  totalCooldownSeconds: number;
-  cooldownCount: number; // how many cooldowns triggered today
-  cooldownIncrementSeconds: number; // the per-cooldown increment in seconds (may include a sub-minute part)
+/**
+ * Background → content: this site has rules on and no session running. The
+ * page draws the gate (or the wait, when nothing can start yet) from the
+ * budget itself, so the row regenerates on screen without a message a second.
+ */
+export interface ShowGateMessage {
+  type: typeof MSG.SHOW_GATE;
+  budget: Budget;
+  rules: BudgetRules;
+  /** The site's full session length. */
+  sessionLengthSeconds: number;
+  /** The smallest share of a session the gate will offer. */
+  minFraction: number;
+  /** Seconds between OK and the session starting. */
+  countdownSeconds: number;
 }
 
-export interface HideBlockerMessage {
-  type: typeof MSG.HIDE_BLOCKER;
+export interface HideGateMessage {
+  type: typeof MSG.HIDE_GATE;
+}
+
+/** Content → background: the countdown after OK ran out. */
+export interface StartSessionMessage {
+  type: typeof MSG.START_SESSION;
 }
 
 export interface EndSessionEarlyMessage {
@@ -159,8 +173,8 @@ export interface AveragePopupCloseMessage {
   type: typeof MSG.AVERAGE_POPUP_CLOSE;
 }
 
-export interface RequestBlockerStateMessage {
-  type: typeof MSG.REQUEST_BLOCKER_STATE;
+export interface RequestGateStateMessage {
+  type: typeof MSG.REQUEST_GATE_STATE;
 }
 
 export interface ShowWindDownMessage {
@@ -178,15 +192,16 @@ export type ExtensionMessage =
   | SettingsUpdatedMessage
   | NudgeMessage
   | ShowAveragePopupMessage
-  | ShowBlockerMessage
-  | HideBlockerMessage
+  | ShowGateMessage
+  | HideGateMessage
+  | StartSessionMessage
   | EndSessionEarlyMessage
   | ShowEndSessionConfirmMessage
   | EndSessionConfirmOpenMessage
   | EndSessionConfirmCloseMessage
   | AveragePopupOpenMessage
   | AveragePopupCloseMessage
-  | RequestBlockerStateMessage
+  | RequestGateStateMessage
   | ShowWindDownMessage
   | HideWindDownMessage;
 

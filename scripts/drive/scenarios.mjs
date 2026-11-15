@@ -3,7 +3,7 @@
 // show. Each returns true on success; failures go through fail() with a fix.
 
 import {
-  cardText, fail, localDate, openPage, openPopup, pass, readNudges, readTimer, stay, startRun,
+  cardText, fail, localDate, openPage, openPopup, pass, passGate, readNudges, readTimer, stay, startRun,
 } from './lib.mjs';
 import { readFile } from 'node:fs/promises';
 
@@ -15,18 +15,19 @@ const clockSeconds = (text) => {
 
 /** Time tracking + On-page timer, with knobs for poking around by hand. */
 async function track(opts) {
-  const { seconds = 15, limit = null, cooldown = 0, popup = false, doctor = false } = opts;
-  const storage = limit === null ? {} : rules({ sessionLimitEnabled: true, sessionLimit: limit, cooldownIncrement: cooldown });
+  const { seconds = 15, limit = null, popup = false, doctor = false } = opts;
+  const storage = limit === null ? {} : rules({ sessionLimitEnabled: true, sessionLimit: limit });
   const run = await startRun({ ...opts, storage });
   try {
     if (limit !== null) {
-      console.log(`  session rules on for localhost: ${limit}-minute sessions, ` +
-        `${cooldown ? `${cooldown}-minute cooldown step` : 'no cooldown'}`);
+      console.log(`  session rules on for localhost: ${limit}-minute sessions`);
     }
     const page = await openPage(run);
     await stay(page, seconds);
     const timer = await readTimer(page);
-    const blockerSeen = page.timeline.some((t) => t.overlays.includes('blocker'));
+    // The timeline starts once the first session is under way, so a gate in it
+    // is the one that follows a session ending.
+    const gateSeen = page.timeline.some((t) => t.overlays.includes('gate'));
 
     // The worker saves once a minute; a domain switch banks and saves.
     await page.goto('about:blank');
@@ -45,12 +46,12 @@ async function track(opts) {
         ? pass('doctor: stack up, clock runs on a tracked page')
         : fail(`doctor: clock never reached "running" (last verdict: ${run.lastVerdict()}).`,
           'run npm run drive with --headed and watch the page; check the worker console for errors.');
-    } else if (limit !== null && cooldown > 0 && seconds > limit * 60 + 5 && !blockerSeen) {
-      ok = fail(`The session was ${limit} min and the stay ${seconds}s, but no cooldown blocker appeared ` +
+    } else if (limit !== null && seconds > limit * 60 + 5 && !gateSeen) {
+      ok = fail(`The session was ${limit} min and the stay ${seconds}s, but the gate did not come back ` +
         `(last clock verdict: ${run.lastVerdict()}).`,
-        run.verdicts().includes('cooldown')
-          ? 'the background did start the cooldown, so the page never showed it: check SHOW_BLOCKER handling in content.ts.'
-          : 'check the stored seconds above reached the limit; if they did, the session-end path in background.ts did not fire.');
+        run.lastVerdict() === 'gate'
+          ? 'the background did end the session, so the page never showed the gate: check SHOW_GATE handling in content.ts.'
+          : 'check the stored seconds above reached the limit; if they did, checkSessionLimit in background.ts did not end the session.');
     } else if (!timer.visible || !timer.text) {
       ok = fail('The on-page timer never appeared.',
         'run with --headed and watch the page; check the worker console for errors.');
@@ -119,11 +120,12 @@ async function nudges(opts) {
   }
 }
 
-/** End session early with the shortcut: confirm, cooldown, then a longer next session. */
+/** End session early with the shortcut: confirm, the gate, and the unused
+ *  time back in what the site holds. */
 async function endEarly(opts) {
-  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 2, cooldownIncrement: 0.25 }) });
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 2 }) });
   try {
-    console.log('  2-minute session, 15s cooldown step');
+    console.log('  2-minute sessions; the site starts with 4 and the first is under way');
     const page = await openPage(run);
     await stay(page, 10);
     await page.keyboard.press('Control+e');
@@ -132,26 +134,36 @@ async function endEarly(opts) {
       return fail('Ctrl+E did not open the end-session confirm.',
         'check isEndSessionShortcutMatch and the keydown listener in content.ts; the default shortcut is Ctrl+E.');
     }
-    const promised = clockSeconds(/Next session will be ([\d:]+)/.exec(confirm)?.[1]);
     console.log(`  verdict while confirming: ${run.lastVerdict()}`);
 
     await page.click('.web-time-end-ok');
-    const blocked = await stay(page, 5, { until: (o) => o.includes('blocker') });
-    if (!blocked.includes('Session 1 Ended')) {
-      return fail('OK on the confirm did not bring up the "Session 1 Ended" blocker.',
-        'check END_SESSION_EARLY in background.ts and SHOW_BLOCKER in content.ts.');
+    const gated = await stay(page, 5, { until: (o) => o.includes('gate') });
+    if (!gated.includes('Start a Session?')) {
+      return fail('OK on the confirm did not bring the gate back.',
+        'check END_SESSION_EARLY and endSession in background.ts, and SHOW_GATE in content.ts.');
     }
-    await stay(page, 20, { until: (o) => !o.includes('blocker') });
+    console.log(`  verdict at the gate: ${run.lastVerdict()}`);
+    // 4 held, one used, and about 110 of its 120 seconds returned.
+    const held = (await run.storage('webTimeSessionBudget'))?.localhost?.sessions;
+    console.log(`  sessions held after ending ~10s into a 2-minute session: ${held?.toFixed(3)}`);
+    if (!(held > 3.85 && held < 3.95)) {
+      return fail(`Ending ~10s into a 2-minute session should leave about 3.9 sessions, storage holds ${held}.`,
+        'check returnUnused in background.ts and giveBack in session-budget.ts.');
+    }
+
+    if (!(await passGate(page))) {
+      return fail('The gate after an early end did not start the next session.',
+        'check START_SESSION and beginSession in background.ts.');
+    }
     await stay(page, 2);
     const timer = await readTimer(page);
     const left = clockSeconds(timer.text);
-    console.log(`  confirm promised a next session of ${promised}s; timer after the cooldown: "${timer.text}"`);
-
-    if (left === null || promised === null || Math.abs(promised - left) > 6) {
-      return fail(`The next session should start near ${promised}s, the timer shows "${timer.text}".`,
-        'check endSessionEarly carryover and grace in session-model.ts against nextLength in content.ts.');
+    console.log(`  timer two seconds into the next session: "${timer.text}"`);
+    if (left === null || Math.abs(120 - left) > 6) {
+      return fail(`The next session should be a full 2:00, the timer shows "${timer.text}".`,
+        'check the length beginSession gives a whole session in background.ts.');
     }
-    return pass(`ended early: confirm → blocker → session 2 of ~${promised}s (carryover + 10% grace)`);
+    return pass(`ended early: confirm → gate → ${held.toFixed(2)} sessions held → a full next session`);
   } finally {
     await run.close();
   }
@@ -218,15 +230,21 @@ async function sessionRules(opts) {
     await popup.close();
 
     await page.bringToFront();
+    // Turning rules on puts the page behind the gate.
+    const gated = await passGate(page);
     await stay(page, 3);
     const after = (await readTimer(page)).text;
-    console.log(`  timer before "${before}", after the toggle "${after}"`);
+    console.log(`  timer before "${before}", after the toggle and the gate "${after}"`);
     console.log(`  saved: ${JSON.stringify(saved)}`);
     console.log(`  session card: ${card}`);
 
     if (!saved?.sessionLimitEnabled) {
       return fail('The toggle did not save sessionLimitEnabled for localhost.',
         'check the toggle handler and writeDomainLimits in popup/session-card.ts.');
+    }
+    if (!gated) {
+      return fail('The toggle saved, but the page never showed a gate that starts a session.',
+        'check the sweep at the end of applyUpdatedSettings in background.ts and SHOW_GATE in content.ts.');
     }
     if (!after?.includes('⏱')) {
       return fail(`The toggle saved, but the page timer still shows "${after}" instead of a session countdown.`,
