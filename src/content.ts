@@ -11,7 +11,8 @@ let timerText: HTMLDivElement | null = null;
 let timerElement: HTMLDivElement | null = null;
 // The session timer is the resting/home state on any site with an active
 // session limit. Clicking the timer "peeks" at the daily total for a few
-// seconds, then it snaps back to the session view. peekingDaily is per-tab and
+// seconds, then it snaps back to the session view; clicking again during the
+// peek snaps back at once. peekingDaily is per-tab and
 // momentary (never persisted or synced); updateTimerText() still falls back to
 // daily on its own when no session exists for the current site.
 const DAILY_PEEK_MS = 5000;
@@ -163,7 +164,7 @@ function createTimerElement(): void {
   timer.appendChild(timerText);
 
   // Click to peek at the daily total; it reverts to the session view after a
-  // few seconds. Only meaningful where a session exists (otherwise daily is
+  // few seconds, or on the next click. Only meaningful where a session exists (otherwise daily is
   // already what's shown).
   timer.addEventListener('click', peekDaily);
   timer.style.cursor = 'pointer';
@@ -280,20 +281,23 @@ function updateTimerText(): void {
 }
 
 /**
- * Show the daily total for a moment, then snap back to the session view.
- * No-op where there's no session (daily is already shown). Each click restarts
- * the revert countdown so repeated clicks keep the peek open.
+ * A click toggles: show the daily total for a moment, or, while it shows,
+ * go back to the session view at once. No-op where there's no session (daily
+ * is already shown).
  */
 function peekDaily(): void {
   if (!hasSession()) return;
-  peekingDaily = true;
-  updateTimerText();
   if (peekRevertTimer) clearTimeout(peekRevertTimer);
-  peekRevertTimer = setTimeout(() => {
-    peekingDaily = false;
-    peekRevertTimer = null;
-    updateTimerText();
-  }, DAILY_PEEK_MS);
+  peekRevertTimer = null;
+  peekingDaily = !peekingDaily;
+  if (peekingDaily) {
+    peekRevertTimer = setTimeout(() => {
+      peekingDaily = false;
+      peekRevertTimer = null;
+      updateTimerText();
+    }, DAILY_PEEK_MS);
+  }
+  updateTimerText();
 }
 
 function createBlurOverlay(): void {

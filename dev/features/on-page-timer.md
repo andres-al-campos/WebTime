@@ -1,6 +1,6 @@
 # On-page timer
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-16 17:15, at 2.10.0.
 
 A small timer in the top-right corner of every tracked page. With a session
 running it counts down the session; otherwise it shows today's total on this
@@ -12,7 +12,7 @@ site.
 - Daily view: `12:34` (or `1:02:03` past an hour), today's total on the site.
   Shown when the site has no session rules.
 - Click the timer during a session to see today's total for 5 seconds; clicking
-  again restarts the 5 seconds.
+  again goes back to the session at once.
 - Hidden until the first update arrives, and hidden for good in a tab whose
   content script was orphaned by an extension reload (until the tab reloads).
 - Stays above fullscreen video and above WebTime's own blur.
