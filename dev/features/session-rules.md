@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-16 01:23, at 2.10.0.
+Updated 2026-11-16 01:41, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions-and-cooldowns.md).
@@ -13,8 +13,8 @@ each started at the [gate](sessions-and-cooldowns.md).
 - Sessions per day: 1–24 (default 3). One session returns every 24h ÷ this.
 - Max sessions: 1–10 (default 4). The most a site holds; a full row earns
   nothing more.
-- Two sums under the steppers, updated as they change: sessions per day ×
-  length (the average a day) and max sessions × length (the most saved up).
+- Under the steppers, sessions per day × length = the average a day,
+  updated as they change.
 - Every change saves immediately and applies to a running session: shrinking
   the length past the time already used ends the session on the spot.
 - Turning rules on puts the site's tabs behind the gate. Turning them off

@@ -373,16 +373,10 @@ export async function renderSessionSettingsCard(
       onChange: v => { cur.maxSessions = v; showMath(); persist(); },
     }).el
   );
-  // What the four numbers add up to: the average a day the rate allows, and
-  // the most that can be saved up for one sitting.
+  // What a day of sessions adds up to.
   const math = el('div', 'sc-math');
-  const perDay = el('div', '');
-  const atMost = el('div', '');
-  math.append(perDay, atMost);
   function showMath(): void {
-    const len = cur.sessionLimit * 60;
-    perDay.textContent = `${cur.sessionsPerDay} × ${cur.sessionLimit}m = ${formatDuration(cur.sessionsPerDay * len)} a day`;
-    atMost.textContent = `${cur.maxSessions} × ${cur.sessionLimit}m = ${formatDuration(cur.maxSessions * len)} at most saved up`;
+    math.textContent = `${cur.sessionsPerDay} × ${cur.sessionLimit}m = ${formatDuration(cur.sessionsPerDay * cur.sessionLimit * 60)} a day`;
   }
   showMath();
   body.append(rowOne, rowTwo, math);
