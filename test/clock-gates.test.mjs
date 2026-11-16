@@ -25,6 +25,7 @@ const { shouldClockRun, clockVerdict } = await import(pathToFileURL(outFile).hre
 /** Everything permitting the clock to run: focused, engaged, nothing blocking. */
 function base(overrides = {}) {
   return {
+    stateLoaded: true,
     browserIsFocused: true,
     trackedDomain: 'youtube.com',
     atGate: false,
@@ -36,6 +37,13 @@ function base(overrides = {}) {
     ...overrides,
   };
 }
+
+test('nothing counts until the stored state is loaded', () => {
+  // Even with audio playing: before the rules are read, a gated page and a
+  // free one look the same.
+  assert.equal(clockVerdict(base({ stateLoaded: false })), 'loading');
+  assert.equal(shouldClockRun(base({ stateLoaded: false, activeTabAudible: true })), false);
+});
 
 test('an ordinary engaged tab counts', () => {
   assert.equal(shouldClockRun(base()), true);

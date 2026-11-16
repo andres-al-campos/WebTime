@@ -598,3 +598,15 @@ test('only beginSession starts a session', () => {
     'that needs the session reads sessions[domain] and returns when it is empty.',
   );
 });
+
+test('the clock gate and syncGate both wait for the stored state', () => {
+  // A tab can report in before init has read sessions, budgets and rules.
+  assert.match(src, /gatesVerdict\(\{\s*stateLoaded,/,
+    'currentClockVerdict must pass stateLoaded, or the clock runs on a gated page until the rules load');
+  assert.match(src, /async function syncGate\([^)]*\): Promise<void> \{\s*await whenStateLoaded;/,
+    'syncGate must await whenStateLoaded first, or it decides the gate from empty state');
+  const init = src.slice(src.indexOf('async function init()'));
+  assert.ok(init.indexOf('await loadBudgets();') < init.indexOf('stateLoaded = true;')
+    && init.indexOf('await loadSessionState();') < init.indexOf('stateLoaded = true;'),
+    'init must set stateLoaded only after loadSessionState and loadBudgets');
+});

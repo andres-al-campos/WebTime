@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-15 17:13, at 2.10.0.
+Updated 2026-11-16 00:56, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -11,7 +11,8 @@ gate.
 - With rules on and no session running, every tab of the site is blurred
   behind the gate: "Start a Session?", a row of dots (one per session the site
   can hold, the one regenerating at half opacity), the session's length, and
-  when the next session arrives. Media pauses, fullscreen exits, keys are
+  when the next session arrives. Media pauses and anything that starts
+  playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a 10-second countdown inside the Cancel button ("Starting Session
   / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
@@ -49,6 +50,9 @@ gate and regeneration over hours were not driven. Not driven on Firefox.
 ## Gotchas
 
 - Time doesn't count at the gate.
+- Listeners are registered before the stored state is read. Until it is, the
+  clock verdict is `loading` and `syncGate` waits, so a tab reporting in early
+  is neither counted nor gated on empty state.
 - What a site holds is stored under `webTimeSessionBudget`, apart from the
   day's session state, because it has to survive the day reset.
 - A partial session is stored as the full length with a negative `carryover`.

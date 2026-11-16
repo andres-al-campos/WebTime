@@ -548,6 +548,14 @@ function handleAlarm(alarm: chrome.alarms.Alarm): void {
 }
 
 /** Where a domain stands: no rules, at the gate, or in a session. */
+// Listeners are registered before the stored state is read, so a tab can
+// report in while sessions, budgets and rules are still empty. The clock gate
+// reads the flag; syncGate waits on the promise, since a gate decided from
+// empty state would blur a running session or clear a gated page.
+let stateLoaded = false;
+let markStateLoaded!: () => void;
+const whenStateLoaded = new Promise<void>(resolve => { markStateLoaded = resolve; });
+
 function phaseOf(domain: Domain): SessionPhase {
   return sessionPhase({
     rulesOn: (cachedDomainSessionLimit[domain]?.sessionLimitSeconds || 0) > 0,
@@ -943,6 +951,7 @@ function currentClockVerdict(): ClockVerdict {
   // The gates and their ORDER live in shared/clock-gates.ts so they can be
   // tested.
   return gatesVerdict({
+    stateLoaded,
     browserIsFocused,
     trackedDomain: trackedTabDomain,
     atGate: trackedTabDomain ? atGate(trackedTabDomain) : false,
@@ -1765,6 +1774,7 @@ function checkWindDown(settings: InterventionSettings): void {
  * has not tracked since it started is answered correctly.
  */
 async function syncGate(domain: Domain, tabId?: number): Promise<void> {
+  await whenStateLoaded;
   const data = await browser.storage.local.get(STORAGE.SETTINGS);
   const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const sessionLengthSeconds = cacheRules(domain, settings.domains?.[domain]);
@@ -1967,6 +1977,8 @@ async function init(): Promise<void> {
   await loadAveragePopupShown();
   await loadSessionState(); // rehydrate today's sessions after a worker restart
   await loadBudgets();
+  stateLoaded = true;
+  markStateLoaded();
   await loadSessionHistory(); // finished sessions, for the past-day panel
 
   // Tabs are NOT seeded from tabs.query here. A matching URL says nothing about

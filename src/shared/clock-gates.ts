@@ -7,6 +7,8 @@
 // ~30s into every video because watching one looks exactly like an idle machine.
 
 export interface GateInput {
+  /** Stored sessions, budgets and rules have been read since the worker started. */
+  stateLoaded: boolean;
   /** The browser is the foreground OS application. */
   browserIsFocused: boolean;
   /** A trackable domain is active; null means nothing to count against. */
@@ -36,6 +38,7 @@ export interface GateInput {
 export type ClockVerdict =
   | 'running'
   | 'audible'
+  | 'loading'
   | 'unfocused'
   | 'untracked'
   | 'gate'
@@ -53,6 +56,10 @@ export type ClockVerdict =
  * is not time the user is spending.
  */
 export function clockVerdict(g: GateInput): ClockVerdict {
+  // Until the stored state is read, "no session rules" and "rules not loaded
+  // yet" look the same, and the second would count time on a page that is
+  // behind the gate. Nothing accrues on a guess.
+  if (!g.stateLoaded) return 'loading';
   if (!g.browserIsFocused) return 'unfocused';
   if (!g.trackedDomain) return 'untracked';
   if (g.atGate) return 'gate';
