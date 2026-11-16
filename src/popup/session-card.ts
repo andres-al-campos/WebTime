@@ -369,7 +369,7 @@ export async function renderSessionSettingsCard(
     }).el,
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
-      label: 'Bank up to', value: cur.bankSessions,
+      label: 'Max banked sessions', value: cur.bankSessions,
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
