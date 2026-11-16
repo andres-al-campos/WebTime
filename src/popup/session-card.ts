@@ -373,7 +373,7 @@ export async function renderSessionSettingsCard(
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
       label: 'Banked sessions', value: cur.bankSessions,
-      hint: "Sessions you don't use roll over into a bank that holds up to this many, and banked ones are used first.",
+      hint: "Sessions you don't use roll over into a bank that holds up to this many. Banked sessions don't expire.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
