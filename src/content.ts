@@ -394,9 +394,36 @@ function unblurPageVideos(): void {
   });
 }
 
+// Whatever starts playing while the blur is up is paused on the spot. Each
+// dialog pauses what is already playing when it opens, but a page behind the
+// gate at load starts its video a moment later, and a playlist moves on by
+// itself. Held here so the rule has one home for every dialog that blurs.
+const blurPausedMedia = new Set<HTMLMediaElement>();
+let blurPlayGuard: ((e: Event) => void) | null = null;
+
+function guardPlaybackWhileBlurred(): void {
+  if (blurPlayGuard) return;
+  blurPlayGuard = (e: Event) => {
+    const media = e.target;
+    if (!(media instanceof HTMLMediaElement)) return;
+    media.pause();
+    blurPausedMedia.add(media);
+  };
+  // 'play' doesn't bubble; capture is the only way to hear it from here.
+  document.addEventListener('play', blurPlayGuard, true);
+}
+
+function releasePlaybackGuard(resume: boolean): void {
+  if (blurPlayGuard) document.removeEventListener('play', blurPlayGuard, true);
+  blurPlayGuard = null;
+  if (resume) blurPausedMedia.forEach(m => m.play().catch(() => {}));
+  blurPausedMedia.clear();
+}
+
 function showBlurOverlay(): HTMLDivElement {
   if (!blurOverlay) createBlurOverlay();
   clearPendingBlurHide();
+  guardPlaybackWhileBlurred();
   // Enter the top layer so the blur paints above high-z-index site players.
   // Guard: showPopover throws if already open or unsupported; the fixed-position
   // fallback still covers most content in that case.
@@ -409,9 +436,10 @@ function showBlurOverlay(): HTMLDivElement {
   return blurOverlay!;
 }
 
-function hideBlurOverlay(): void {
+function hideBlurOverlay(resumeMedia: boolean = true): void {
   if (!blurOverlay) return;
   clearPendingBlurHide();
+  releasePlaybackGuard(resumeMedia);
   blurOverlay.style.pointerEvents = 'none';
   // Already faded out (or never shown): no opacity transition will fire, so flip
   // visibility now rather than waiting for a transitionend that won't come.
@@ -1218,7 +1246,7 @@ function showEndSessionConfirm(): void {
     if (!endSessionDialog) return;
     document.removeEventListener('keydown', keyHandler, true);
     endSessionDialog.style.opacity = '0';
-    hideBlurOverlay();
+    hideBlurOverlay(resumeMedia);
   
     blockKeyboard(false);
     if (resumeMedia) {
