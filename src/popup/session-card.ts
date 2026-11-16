@@ -12,8 +12,8 @@ import { formatClock, formatDuration, getLocalDateStr } from '../shared/utils.js
 import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 import {
-  budgetRules, fullBudget, sessionsAt, nextSessionAt, nextStartAt, startable, minFractionFor,
-  DEFAULT_SESSIONS_PER_DAY, bankOf, splitHeld, type Budget, type BudgetRules,
+  budgetRules, fullBudget, nextSessionAt, nextStartAt, startable, minFractionFor,
+  DEFAULT_SESSIONS_PER_DAY, bankOf, heldAt, type Budget, type BudgetRules,
 } from '../shared/session-budget.js';
 
 declare const browser: typeof chrome;
@@ -431,8 +431,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
 
   const update = () => {
     const now = Date.now();
-    const held = sessionsAt(h.budget, h.rules, now);
-    const { daily, banked } = splitHeld(held, h.rules.sessionsPerDay);
+    const { daily, banked } = heldAt(h.budget, h.rules, now);
     bank.textContent = banked > 0 ? `+${banked} banked` : '';
     for (let i = 0; i < count; i++) {
       const dot = dots.children[i] as HTMLElement;
@@ -471,6 +470,13 @@ function renderIdle(host: HTMLElement, h: Held): void {
   host.replaceChildren(card);
 }
 
+/** The time left with the next-session line beside it, to save the card a row. */
+function timeRow(time: HTMLElement, line: HTMLElement): HTMLElement {
+  const row = el('div', 'sc-time-row');
+  row.append(time, line);
+  return row;
+}
+
 /** Active session state. */
 function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, shortcut: string | null, h: Held): void {
   const { sessionTime, sessionLimitSeconds } = displayFor(s, dailyTotal);
@@ -481,6 +487,7 @@ function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, s
   const leftColor = pctLeft < 15 ? 'var(--warn)' : 'var(--good)';
 
   const card = cardShell();
+  const [dots, line] = heldBlock(h, true);
 
   const head = el('div', 'sc-head');
   const title = el('span', 'sc-title', 'Session');
@@ -495,9 +502,8 @@ function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, s
 
   card.append(
     head,
-    el('div', 'sc-time', formatClock(remaining)),
-    el('div', 'sc-sub', `left of ${formatClock(sessionLimitSeconds)}`),
-    ...heldBlock(h, true),
+    timeRow(el('div', 'sc-time', formatClock(remaining)), line),
+    dots,
     btn,
   );
   host.replaceChildren(card);

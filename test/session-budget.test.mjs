@@ -23,7 +23,7 @@ await build({
 });
 const {
   fullBudget, regenIntervalMs, sessionsAt, settle, spend,
-  nextSessionAt, startable, nextStartAt, budgetRules, splitHeld,
+  nextSessionAt, startable, nextStartAt, budgetRules, heldAt,
 } = await import(pathToFileURL(outFile).href);
 const canStart = (b, r, t, min) => startable(b, r, t, min) > 0;
 
@@ -57,7 +57,7 @@ test('a clock set back takes nothing away', () => {
 
 test('starting uses one whole session', () => {
   const after = spend(fullBudget(rules, T), rules, T);
-  assert.deepEqual(after, { budget: { sessions: 3, at: T }, fraction: 1 });
+  assert.deepEqual(after, { budget: { sessions: 3, at: T, bank: 1 }, fraction: 1 });
 });
 
 test('no whole session, no start', () => {
@@ -152,8 +152,40 @@ test('the most a site holds is a day plus the bank', () => {
   assert.deepEqual(budgetRules({ sessionsPerDay: 3, maxSessions: 5 }), { sessionsPerDay: 3, maxSessions: 5 });
 });
 
-test('the dots show up to a day; whole sessions past it are banked', () => {
-  assert.deepEqual(splitHeld(2.4, 3), { daily: 2.4, banked: 0 });
-  assert.deepEqual(splitHeld(3.4, 3), { daily: 3, banked: 0 });
-  assert.deepEqual(splitHeld(5, 3), { daily: 3, banked: 2 });
+const split = (b, r = rules, t = T) => {
+  const { daily, bank, banked } = heldAt(b, r, t);
+  return { daily: +daily.toFixed(6), bank: +bank.toFixed(6), banked };
+};
+
+test('a start uses the row first and the bank last', () => {
+  const started = spend(fullBudget(rules, T), rules, T).budget;
+  assert.deepEqual(split(started), { daily: 2, bank: 1, banked: 1 });
+});
+
+test('the bank is used once the row has no whole session', () => {
+  const b = { sessions: 1.4, at: T, bank: 1 };
+  assert.deepEqual(split(spend(b, rules, T).budget), { daily: 0.4, bank: 0, banked: 0 });
+});
+
+test('a refill goes to the row until it is full, then to the bank', () => {
+  const b = { sessions: 2.5, at: T, bank: 0 };
+  assert.deepEqual(split(b, rules, T + 4 * HOUR), { daily: 3, bank: 0, banked: 0 });
+  assert.deepEqual(split(b, rules, T + 8 * HOUR), { daily: 3, bank: 0.5, banked: 0 });
+  assert.deepEqual(split(b, rules, T + 12 * HOUR), { daily: 3, bank: 1, banked: 1 });
+  assert.deepEqual(split(b, rules, T + 48 * HOUR), { daily: 3, bank: 1, banked: 1 });
+});
+
+test('a budget stored before the bank was its own bucket banks what is over a day', () => {
+  assert.deepEqual(split({ sessions: 4, at: T }), { daily: 3, bank: 1, banked: 1 });
+  assert.deepEqual(split({ sessions: 2.4, at: T }), { daily: 2.4, bank: 0, banked: 0 });
+});
+
+test('a smaller bank setting caps what is banked', () => {
+  const small = { sessionsPerDay: 3, maxSessions: 3 };
+  assert.deepEqual(split({ sessions: 2, at: T, bank: 1 }, small), { daily: 1, bank: 0, banked: 0 });
+});
+
+test('settling keeps the buckets apart', () => {
+  const b = settle({ sessions: 3, at: T, bank: 1 }, rules, T + 4 * HOUR);
+  assert.deepEqual(split(b, rules, T + 4 * HOUR), { daily: 2.5, bank: 1, banked: 1 });
 });

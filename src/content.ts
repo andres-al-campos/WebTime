@@ -1,8 +1,8 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
-import { formatClock, formatTimeCompact, log } from './shared/utils.js';
+import { extractDomain, formatClock, formatTimeCompact, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { sessionsAt, startable, nextSessionAt, nextStartAt, splitHeld } from './shared/session-budget.js';
+import { sessionsAt, startable, nextSessionAt, nextStartAt, heldAt, spend, budgetRules, fullBudget, type Budget } from './shared/session-budget.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -862,7 +862,8 @@ function renderGate(): void {
 
   // While starting, the row already shows the session as used.
   // Only a day's worth: the bank is the popup's to show.
-  renderGateDots(q('dots'), splitHeld(starting ? Math.max(0, held - offer) : held, rules.sessionsPerDay).daily, rules.sessionsPerDay);
+  const after = starting ? spend(budget, rules, now, minFraction)?.budget ?? budget : budget;
+  renderGateDots(q('dots'), heldAt(after, rules, now).daily, rules.sessionsPerDay);
 
   const body = q('body');
   if (starting) {
@@ -899,7 +900,7 @@ function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number):
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(sessionsPerDay)));
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0); transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1), border-color .7s cubic-bezier(.2,.8,.2,1), opacity .3s;`,
+      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1), border-color .7s cubic-bezier(.2,.8,.2,1), opacity .3s;`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
@@ -1188,9 +1189,25 @@ function showEndSessionConfirm(): void {
   // Title, then what happens to the unused time. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 10px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 14px; line-height: 1.3;',
     text: `End Session ${lastSessionNum ?? ''}?`,
   });
+
+  // The day's sessions, as the gate shows them, so ending one is weighed
+  // against what's left. The row's height is held while storage is read, so
+  // the dialog doesn't grow under the cursor.
+  const dots = makeEl('div', {
+    className: 'web-time-end-dots',
+    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 12px;',
+  });
+  const domain = extractDomain(location.href);
+  if (domain) {
+    browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]).then((data) => {
+      const rules = budgetRules(data[STORAGE.SETTINGS]?.domains?.[domain]);
+      const budget: Budget = data[STORAGE.SESSION_BUDGET]?.[domain] ?? fullBudget(rules, Date.now());
+      renderGateDots(dots, heldAt(budget, rules, Date.now()).daily, rules.sessionsPerDay);
+    }).catch(() => {});
+  }
 
   // #ccc, same as the gate's body line: these two dialogs sit in the same flow
   // and their body copy should not step. Clock-style, same formatClock as the
@@ -1216,7 +1233,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(title, body, buttonRow);
+  el.replaceChildren(title, dots, body, buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);

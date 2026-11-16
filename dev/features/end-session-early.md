@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-16 15:36, at 2.10.0.
+Updated 2026-11-16 16:59, at 2.10.0.
 
 Stop a session before it runs out. The unused time is added to the site's next
 session, and the gate comes up.
@@ -11,7 +11,8 @@ session, and the gate comes up.
   while typing in a text field or while another WebTime dialog is up.
 - Popup button "End session (Ctrl+E)" on the live session card; it closes the
   popup and opens the same confirm on the page.
-- Confirm dialog: "End Session N?" and the time that is kept ("1:50 unused is
+- Confirm dialog: "End Session N?", the day's row of dots as the gate shows
+  them, and the time that is kept ("1:50 unused is
   added to your next session"). Enter confirms, Escape cancels. Media pauses while it's
   open and resumes on cancel; the clock is frozen while it's open and its tab
   is the one in front. Other tabs and sites keep counting.

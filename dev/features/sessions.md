@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 16:34, at 2.10.0.
+Updated 2026-11-16 16:59, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -27,8 +27,12 @@ gate.
 - With nothing to offer, the gate shows "Next Session In" over a clock, and
   becomes the gate again on its own.
 - When a session's time runs out the gate comes back.
-- The bank is what overflows a day, so it is used first: with one banked,
-  starting a session leaves the gate's row full and the popup's count drops.
+- The bank is the reserve for when the day runs out. A refill goes to the
+  row of dots first and only to the bank when the row is full; a start uses
+  the row first and the bank only when the row has no whole session left,
+  and then the row's partial dot keeps filling. The two are stored apart
+  (`bank` in `webTimeSessionBudget`); a budget stored before that banks
+  whatever is over a day's worth.
 - A session running when the day resets ends there and returns what it had
   left.
 - Each finished session is recorded for [past-day sessions](past-day-sessions.md).
@@ -61,7 +65,8 @@ and regeneration over hours were not driven. Not driven on Firefox.
 - A partial session is stored as the full length with a negative `carryover`.
   Its `baseLength` has to equal the setting, or the next settings change reads
   the difference as a length change and resizes it to full.
-- The popup's session card shows the same row of dots, "+1 banked" when the
-  site holds whole sessions past a day's worth, and "Next session in",
-  ticking while it is open. Only the row and that line tick: re-rendering the
+- The popup's session card shows the time left with "Next session in" beside
+  it, the same row of dots, and "+1 banked" when the bank holds a whole
+  session, ticking while it is open. The card fits the panel with no scroll:
+  the percent in its title is the share left, so there is no "left of" line. Only the row and that line tick: re-rendering the
   card each second would replace the End button under a click.

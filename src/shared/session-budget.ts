@@ -21,10 +21,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // far below anything the row of dots could show.
 const EPSILON = 1e-9;
 
-/** What a site holds: `sessions` was the amount at instant `at` (epoch ms). */
+/**
+ * What a site holds: `sessions` was the amount at instant `at` (epoch ms), and
+ * `bank` the part of it saved beyond a day's worth. A budget stored before the
+ * bank was its own bucket has no `bank`; everything over a day's worth was it.
+ */
 export interface Budget {
   sessions: number;
   at: number;
+  bank?: number;
 }
 
 export interface BudgetRules {
@@ -58,14 +63,23 @@ export function bankOf(cfg: { bankSessions?: number; maxSessions?: number } | un
 }
 
 /**
- * What is held, split for display: up to a day's worth shown as the row of
- * dots, and whole sessions beyond that counted as banked. The bank is what
- * overflows the day, so it is used before the dots: with one banked, starting
- * a session leaves the row full and the count at zero.
+ * What is held at `now`, in its two buckets. Sessions refill the day's row
+ * first and only what overflows a full row goes to the bank; a start uses the
+ * row first and the bank last, since the bank is the reserve for when the day
+ * runs out. `banked` is the whole sessions in the bank, for display.
  */
-export function splitHeld(held: number, sessionsPerDay: number): { daily: number; banked: number } {
-  const daily = Math.min(held, Math.max(0, sessionsPerDay));
-  return { daily, banked: Math.floor(Math.max(0, held - daily) + EPSILON) };
+export function heldAt(b: Budget, rules: BudgetRules, now: number): { daily: number; bank: number; banked: number } {
+  const perDay = Math.max(0, Math.min(rules.sessionsPerDay, rules.maxSessions));
+  const bankMax = Math.max(0, rules.maxSessions - Math.max(0, rules.sessionsPerDay));
+  const sessions = Math.max(0, b.sessions);
+  const storedBank = Math.min(sessions, Math.max(0, b.bank ?? sessions - perDay));
+  // A `now` before `at` (the clock was set back) refills nothing rather than
+  // taking sessions away.
+  const refilled = Math.max(0, now - b.at) / regenIntervalMs(rules);
+  const rowAndRefill = sessions - storedBank + refilled;
+  const daily = Math.min(perDay, rowAndRefill);
+  const bank = Math.min(bankMax, storedBank + Math.max(0, rowAndRefill - perDay));
+  return { daily, bank, banked: Math.floor(bank + EPSILON) };
 }
 
 /** The smallest share of a session worth starting, for a given full length. */
@@ -76,7 +90,8 @@ export function minFractionFor(sessionLengthSeconds: number): number {
 
 /** A site that has never spent anything: a full row. */
 export function fullBudget(rules: BudgetRules, now: number): Budget {
-  return { sessions: Math.max(0, rules.maxSessions), at: now };
+  const max = Math.max(0, rules.maxSessions);
+  return { sessions: max, at: now, bank: Math.max(0, max - Math.max(0, rules.sessionsPerDay)) };
 }
 
 /** Milliseconds for one session to regenerate; Infinity when the rate is 0. */
@@ -84,17 +99,10 @@ export function regenIntervalMs(rules: BudgetRules): number {
   return rules.sessionsPerDay > 0 ? DAY_MS / rules.sessionsPerDay : Infinity;
 }
 
-/**
- * Sessions held at `now`, fractional.
- *
- * A `now` before `at` (the system clock was set back) regenerates nothing
- * rather than taking sessions away.
- */
+/** Sessions held at `now`, fractional: both buckets together. */
 export function sessionsAt(b: Budget, rules: BudgetRules, now: number): number {
-  const max = Math.max(0, rules.maxSessions);
-  const elapsed = Math.max(0, now - b.at);
-  const regenerated = elapsed / regenIntervalMs(rules);
-  return Math.min(max, Math.max(0, b.sessions) + regenerated);
+  const { daily, bank } = heldAt(b, rules, now);
+  return daily + bank;
 }
 
 /**
@@ -104,7 +112,8 @@ export function sessionsAt(b: Budget, rules: BudgetRules, now: number): number {
  * the old rate, and reading it back at a new one would rewrite it.
  */
 export function settle(b: Budget, rules: BudgetRules, now: number): Budget {
-  return { sessions: sessionsAt(b, rules, now), at: now };
+  const { daily, bank } = heldAt(b, rules, now);
+  return { sessions: daily + bank, at: now, bank };
 }
 
 /**
@@ -135,8 +144,16 @@ export function spend(
 ): { budget: Budget; fraction: number } | null {
   const fraction = startable(b, rules, now, minFraction);
   if (fraction <= 0) return null;
+  const { daily, bank } = heldAt(b, rules, now);
+  // A row holding only part of a session keeps it filling, and a whole one
+  // comes from the bank; mixing the two would strand a fraction in the bank.
+  const fromBank = daily >= fraction - EPSILON ? 0
+    : bank >= fraction - EPSILON ? fraction
+    : fraction - daily;
+  const fromDaily = fraction - fromBank;
+  const leftInBank = Math.max(0, bank - fromBank);
   return {
-    budget: { sessions: Math.max(0, sessionsAt(b, rules, now) - fraction), at: now },
+    budget: { sessions: Math.max(0, daily - fromDaily) + leftInBank, at: now, bank: leftInBank },
     fraction,
   };
 }
