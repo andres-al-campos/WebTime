@@ -83,10 +83,16 @@ export function formatClock(totalSeconds: number): string {
  * Get current date as YYYY-MM-DD string in local timezone,
  * adjusted for custom day reset time
  */
-export function getLocalDateStr(resetHour: number = 0): string {
+/** The day reset as minutes after midnight. Stored as an hour plus a minute,
+ *  so settings saved when it was an hour alone still read the same. */
+export function dayResetMinutesOf(global?: { dayResetTime?: number; dayResetMinute?: number }): number {
+  return (global?.dayResetTime || 0) * 60 + (global?.dayResetMinute || 0);
+}
+
+export function getLocalDateStr(resetMinutes: number = 0): string {
   const now = new Date();
 
-  if (now.getHours() < resetHour) {
+  if (now.getHours() * 60 + now.getMinutes() < resetMinutes) {
     now.setDate(now.getDate() - 1);
   }
 

@@ -1,12 +1,13 @@
 # Global settings
 
-Updated 2026-11-16 16:27, at 2.10.0.
+Updated 2026-11-16 16:29, at 2.10.0.
 
 Settings that apply to every site.
 
 ## Sub-features
 
-- Day resets at: Midnight, 1 AM … 6 AM.
+- Day resets at: a time field, any hour and minute (default midnight). It
+  decides which day time is counted under; sessions held don't reset.
 - Inactivity: 5–600s in 5s steps (default 30). How long after your last input
   a silent tab stops counting.
 - Chart scale: 0.3–1.0 (default 1.0). Compresses tall bars so short days stay
@@ -45,4 +46,6 @@ countdown was not driven.
 
 - Nothing saves until Save; closing with the gear discards changes. Per-site
   session rules, by contrast, save on every click.
-- Changing the reset hour can move "today" immediately.
+- Changing the reset time can move "today" immediately.
+- Stored as `dayResetTime` (the hour) plus `dayResetMinute`, so settings saved
+  when it was an hour alone read the same.

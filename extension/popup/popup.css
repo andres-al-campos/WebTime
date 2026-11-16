@@ -411,38 +411,10 @@ body {
   border-color: var(--accent);
 }
 
-/* Custom dropdown (replaces the native <select> for "Day resets at"). The button
-   matches the input boxes exactly; the panel opens DOWNWARD, full field width. */
-.dd { position: relative; }
-.dd-button {
-  width: 100%; height: var(--control-h); padding: 0 12px;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  background: var(--bg-input); border: 1px solid var(--line-strong); border-radius: var(--radius-control);
-  color: var(--text); font: 500 13.5px 'IBM Plex Mono'; cursor: pointer; text-align: left;
-}
-/* Open state: just a slightly brighter border (no blue accent ring — overkill). */
-.dd.open .dd-button { border-color: var(--text-faint); }
-.dd-button:focus { outline: none; }
-.dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dd-caret { flex: none; color: var(--text-dim); font-size: 10px; transition: transform 0.15s var(--ease); }
-.dd.open .dd-caret { transform: rotate(180deg); }
-/* The list: absolutely positioned just below the button, opening downward. A
-   high z-index keeps it above the cards. The 7 fixed options always fit, so no
-   max-height / scroll — the panel sizes to its content. */
-.dd-panel {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
-  background: var(--bg-input); border: 1px solid var(--line-strong); border-radius: var(--radius-control);
-  padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
-  display: none;
-}
-.dd.open .dd-panel { display: block; }
-.dd-option {
-  display: block; width: 100%; text-align: left;
-  padding: 7px 9px; border: none; border-radius: 6px; background: transparent;
-  color: var(--text); font: 500 13px 'IBM Plex Mono'; cursor: pointer;
-}
-.dd-option:hover { background: rgba(255,255,255,0.06); }
-.dd-option.is-selected { background: rgba(79,134,247,0.16); color: var(--text); }
+/* The native time field takes the input box look above; the clock icon is
+   dimmed to the caption colour so it doesn't outshine the value. */
+.field input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+.field input[type="time"] { color-scheme: dark; }
 
 .shortcut-row { display: flex; gap: var(--gap); align-items: center; }
 .shortcut-row input { flex: 1; cursor: pointer; }

@@ -114,20 +114,7 @@
           <div class="settings-body wt-scroll">
             <div class="field">
               <label for="day-reset-time">Day resets at</label>
-              <!-- The <select> is hidden and kept as the data store (load/save
-                   read it); a custom dropdown mounted from ui-manager mirrors
-                   into it, so it opens DOWNWARD and matches the input width
-                   (the native list flipped up inside the transformed sheet). -->
-              <select id="day-reset-time" hidden>
-                <option value="0">Midnight</option>
-                <option value="1">1:00 AM</option>
-                <option value="2">2:00 AM</option>
-                <option value="3">3:00 AM</option>
-                <option value="4">4:00 AM</option>
-                <option value="5">5:00 AM</option>
-                <option value="6">6:00 AM</option>
-              </select>
-              <div id="day-reset-dropdown" class="settings-dropdown-mount"></div>
+              <input type="time" id="day-reset-time" value="00:00" required>
             </div>
 
             <!-- Inactivity + chart-scale: the <input>s are the data store that

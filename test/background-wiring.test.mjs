@@ -273,7 +273,7 @@ test('today is not treated as a past day', () => {
   // Locking today's bar must fall through to the live cards; rendering today as
   // a finished day would hide the running session behind a summary of itself.
   const body = uiBody('lockedDetailDate').replace(/\/\/[^\n]*/g, '');
-  assert.match(body, /getLocalDateStr\(AppState\.dayResetTime\)/,
+  assert.match(body, /getLocalDateStr\(AppState\.dayResetMinutes\)/,
     'lockedDetailDate must compare the locked day against today');
   assert.match(body, /return null/, 'today must resolve to null (the today branch)');
 });

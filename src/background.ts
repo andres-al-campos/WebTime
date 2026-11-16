@@ -1,6 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE, ALARM, PORT } from './shared/protocol.js';
-import { extractDomain, getLocalDateStr, log, compute7DayStats } from './shared/utils.js';
+import { extractDomain, getLocalDateStr, log, compute7DayStats, dayResetMinutesOf } from './shared/utils.js';
 import {
   type ActiveSession,
   startSession,
@@ -149,7 +149,7 @@ const ACTIVITY_CHECK_INTERVAL_MS = Constants.ACTIVITY_CHECK_INTERVAL_MS;
 
 let currentDateStr: DateString = getLocalDateStr();
 let timeHistory: TimeHistory = {};
-let dayResetTime = 0;
+let dayResetMinutes = 0;
 let isSaving = false;
 
 let interventionState: InterventionState = {
@@ -775,7 +775,7 @@ function recordFinishedSession(
 
 
 function getLocalDateStrWithReset(): DateString {
-  return getLocalDateStr(dayResetTime);
+  return getLocalDateStr(dayResetMinutes);
 }
 
 function initDefaultTimeData(): void {
@@ -1364,10 +1364,10 @@ function applyUpdatedSettings(): void {
     applyIdleDetectionInterval();
     log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 
-    const newResetTime = settings.global?.dayResetTime || 0;
-    if (newResetTime !== dayResetTime) {
-      dayResetTime = newResetTime;
-      log(`Day reset time updated to: ${dayResetTime}:00`);
+    const newReset = dayResetMinutesOf(settings.global);
+    if (newReset !== dayResetMinutes) {
+      dayResetMinutes = newReset;
+      log(`Day reset time updated to: ${dayResetMinutes} minutes past midnight`);
       const newDateStr = getLocalDateStrWithReset();
       if (newDateStr !== currentDateStr) {
         saveTimeData();
@@ -1961,9 +1961,9 @@ async function init(): Promise<void> {
 
   const settingsData = await browser.storage.local.get(STORAGE.SETTINGS);
   const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
-  dayResetTime = settings.global?.dayResetTime || 0;
+  dayResetMinutes = dayResetMinutesOf(settings.global);
   inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
-  log(`Day reset time loaded: ${dayResetTime}:00`);
+  log(`Day reset time loaded: ${dayResetMinutes} minutes past midnight`);
   log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 
   currentDateStr = getLocalDateStrWithReset();

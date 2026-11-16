@@ -38,6 +38,7 @@ export interface TrackedTimeData {
 
 export interface GlobalSettings {
   dayResetTime?: number; // Hour when day resets (0-23)
+  dayResetMinute?: number; // Minute past that hour (0-59); absent = on the hour
   inactivityTimeoutS?: number; // Seconds before tab considered inactive (default: 30)
   scalingPower?: number; // Chart bar scaling power (default: 0.8, range 0.3-1.0)
   endSessionShortcut?: string | null; // Keyboard shortcut to end session early; null = disabled, undefined = default (Ctrl+E)

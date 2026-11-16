@@ -297,7 +297,7 @@ export async function renderSessionSettingsCard(
   domain: string | null,
   // Reset time no longer needed here — the live card re-renders reactively via
   // the storage listener rather than being re-rendered from persist().
-  _dayResetTime = 0,
+  _dayResetMinutes = 0,
 ): Promise<void> {
   const host = document.getElementById('session-settings-card');
   if (!host) return;
@@ -515,9 +515,9 @@ function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, s
  * Render the session card for the currently selected domain.
  * Reads live session state + settings + daily total from storage.
  */
-export async function renderSessionCard(domain: string | null, dayResetTime: number): Promise<void> {
+export async function renderSessionCard(domain: string | null, dayResetMinutes: number): Promise<void> {
   liveDomain = domain;
-  liveDayReset = dayResetTime;
+  liveDayReset = dayResetMinutes;
   ensureStorageListener();
 
   if (heldTicker) { clearInterval(heldTicker); heldTicker = null; }
@@ -536,7 +536,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   if (!domainSettings.sessionLimitEnabled) { renderOff(host); return; }
 
   const state = data[STORAGE.SESSION_STATE] as SessionState | undefined;
-  const today = getLocalDateStr(dayResetTime);
+  const today = getLocalDateStr(dayResetMinutes);
   const rules = budgetRules(domainSettings);
   const held: Held = {
     // A site that has never started a session has nothing stored: a full row,

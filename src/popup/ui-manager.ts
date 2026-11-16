@@ -15,7 +15,7 @@ import {
   highlightBar,
   type DomainPieData
 } from './chart-builder.js';
-import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek } from '../shared/utils.js';
+import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek, dayResetMinutesOf } from '../shared/utils.js';
 import { renderSessionCard, renderSessionSettingsCard, stepper } from './session-card.js';
 import { renderPastDayCards, backToTodayButton } from './past-day-cards.js';
 import { sessionsFor } from '../shared/session-history.js';
@@ -209,7 +209,7 @@ function updateDetailUsageCard(selectedDate?: string): void {
   }
   host.hidden = false;
 
-  const today = getLocalDateStr(AppState.dayResetTime);
+  const today = getLocalDateStr(AppState.dayResetMinutes);
   const day = selectedDate || today;
   const domain = AppState.selectedDomain;
   const totals = calculateTodaysTotals(AppState.allTimeHistory, day, domain);
@@ -250,7 +250,7 @@ function updateGeneralUsageHead(selectedDate?: string): void {
   const host = document.getElementById('usage-breakdown-head');
   if (!host || !AppState.allTimeHistory) return;
 
-  const today = getLocalDateStr(AppState.dayResetTime);
+  const today = getLocalDateStr(AppState.dayResetMinutes);
   const day = selectedDate || today;
   const stats = dayVsAverage(day);
   const totals = calculateTodaysTotals(AppState.allTimeHistory, day, '');
@@ -363,87 +363,17 @@ function mountSettingsStepper(
   settingsSteppers[mountId] = s;
 }
 
-// Live handles for the custom settings dropdowns, so repeated loadSettings calls
-// just re-sync the selection instead of stacking duplicate controls.
-const settingsDropdowns: Record<string, { setValue: (v: string) => void }> = {};
-
-/** Mount (once) a custom dropdown into `mountId` mirroring the hidden `select`
- *  (the save/load data store). Built ourselves so it opens DOWNWARD and spans
- *  the full field width — the native <select> list flipped upward inside the
- *  transformed settings sheet. On later calls it just re-syncs the value. */
-function mountSettingsDropdown(mountId: string, select: HTMLSelectElement | null): void {
-  const mount = document.getElementById(mountId);
-  if (!mount || !select) return;
-
-  const opts = Array.from(select.options).map(o => ({ value: o.value, label: o.text }));
-  const labelFor = (v: string) => opts.find(o => o.value === v)?.label ?? '';
-
-  const existing = settingsDropdowns[mountId];
-  if (existing) { existing.setValue(select.value); return; }
-
-  const root = document.createElement('div');
-  root.className = 'dd';
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'dd-button';
-  const labelEl = document.createElement('span');
-  labelEl.className = 'dd-label';
-  const caret = document.createElement('span');
-  caret.className = 'dd-caret';
-  caret.textContent = '▾';
-  button.append(labelEl, caret);
-  const panel = document.createElement('div');
-  panel.className = 'dd-panel';
-
-  const setValue = (v: string) => {
-    select.value = v;
-    labelEl.textContent = labelFor(v);
-    panel.querySelectorAll('.dd-option').forEach(el => {
-      el.classList.toggle('is-selected', (el as HTMLElement).dataset.value === v);
-    });
-  };
-
-  for (const o of opts) {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'dd-option';
-    item.dataset.value = o.value;
-    item.textContent = o.label;
-    item.addEventListener('click', () => {
-      setValue(o.value);
-      select.dispatchEvent(new Event('change', { bubbles: true })); // keep any listeners live
-      close();
-    });
-    panel.append(item);
-  }
-
-  const open = () => { root.classList.add('open'); button.setAttribute('aria-expanded', 'true'); };
-  const close = () => { root.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); };
-  button.setAttribute('aria-expanded', 'false');
-  button.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (root.classList.contains('open')) close(); else open();
-  });
-  // Click anywhere else closes it.
-  document.addEventListener('click', () => close());
-
-  root.append(button, panel);
-  mount.replaceChildren(root);
-  setValue(select.value);
-  settingsDropdowns[mountId] = { setValue };
-}
-
 export async function loadSettings(): Promise<void> {
   try {
     const data = await browser.storage.local.get(STORAGE.SETTINGS);
     const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     const global = settings.global || {};
-    const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLSelectElement | null;
-
-    if (dayResetTimeEl) dayResetTimeEl.value = String(global.dayResetTime || 0);
-    // Mount (or re-sync) the custom dropdown that mirrors the hidden select.
-    mountSettingsDropdown('day-reset-dropdown', dayResetTimeEl);
+    const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLInputElement | null;
+    if (dayResetTimeEl) {
+      const m = dayResetMinutesOf(global);
+      dayResetTimeEl.value = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    }
 
     const inactivityEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
@@ -529,7 +459,9 @@ export async function saveSettings(): Promise<void> {
 
     const clampedScaling = Math.max(0.3, Math.min(1.0, scalingPower));
     settings.global = {
-      dayResetTime: parseInt(dayResetTimeEl?.value || '0'),
+      // "HH:MM" from the time field; cleared reads as midnight.
+      dayResetTime: parseInt((dayResetTimeEl?.value || '00:00').split(':')[0], 10) || 0,
+      dayResetMinute: parseInt((dayResetTimeEl?.value || '00:00').split(':')[1], 10) || 0,
       inactivityTimeoutS: parseInt(inactivityTimeoutEl?.value || '30') || 30,
       scalingPower: clampedScaling,
       endSessionShortcut,
@@ -616,7 +548,7 @@ function lockedDetailDate(domain: string): string | null {
   const days = processDetailViewData(AppState.allTimeHistory, domain).dailyData;
   const day = days[idx];
   if (!day) return null;
-  return day.date === getLocalDateStr(AppState.dayResetTime) ? null : day.date;
+  return day.date === getLocalDateStr(AppState.dayResetMinutes) ? null : day.date;
 }
 
 /** The live detail chart. AppState.chartInstance is the general view's; keeping
@@ -673,9 +605,9 @@ export function updateDetailPanel(domain: string): void {
     pastHost?.replaceChildren();
     // Render the per-site limits card + the live session card in the detail
     // right panel (fire-and-forget; both read their own state from storage).
-    renderSessionSettingsCard(domain, AppState.dayResetTime).catch(err =>
+    renderSessionSettingsCard(domain, AppState.dayResetMinutes).catch(err =>
       console.error('Error rendering session settings card:', err));
-    renderSessionCard(domain, AppState.dayResetTime).catch(err =>
+    renderSessionCard(domain, AppState.dayResetMinutes).catch(err =>
       console.error('Error rendering session card:', err));
   }
 }
@@ -686,8 +618,8 @@ export function renderDetailView(domain: string | null): void {
       "No site to show here. Open a website (any http or https page), then reopen this popup to see its stats.");
     // Also clear the right-panel cards so nothing bogus lingers beside the message.
     updateDetailUsageCard();
-    renderSessionSettingsCard(null, AppState.dayResetTime).catch(() => {});
-    renderSessionCard(null, AppState.dayResetTime).catch(() => {});
+    renderSessionSettingsCard(null, AppState.dayResetMinutes).catch(() => {});
+    renderSessionCard(null, AppState.dayResetMinutes).catch(() => {});
     return;
   }
 
@@ -738,7 +670,7 @@ export function updateDetailHeader(_domain: string, selectedDate?: string | null
   // topbar; refresh those instead of the old per-page .header-text/.time-summary.
   if (AppState.currentView === ViewState.DETAIL) {
     updateTopbar();
-    const day = selectedDate || getLocalDateStr(AppState.dayResetTime);
+    const day = selectedDate || getLocalDateStr(AppState.dayResetMinutes);
     updateDetailUsageCard(selectedDate || undefined);
     // setTopbarDate labels today as "<date> · Today" and a past day as its date.
     setTopbarDate(day);
@@ -830,7 +762,7 @@ export function updateGeneralViewHeader(dateString: string): void {
 function setTopbarDate(dateString: string): void {
   const dateLabel = document.getElementById('topbar-date-label');
   if (!dateLabel) return;
-  const today = getLocalDateStr(AppState.dayResetTime);
+  const today = getLocalDateStr(AppState.dayResetMinutes);
   const formattedDate = formatDateWithDayOfWeek(dateString);
   dateLabel.textContent = dateString === today ? `${formattedDate} · Today` : formattedDate;
 }

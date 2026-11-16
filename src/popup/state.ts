@@ -15,7 +15,7 @@ export interface AppStateInterface {
   lockedDayIndex: number | null;
   /** Hour (0-23) the day rolls over, from settings. Matches the background's
    *  day-reset so the popup's notion of "today" agrees with tracked time. */
-  dayResetTime: number;
+  dayResetMinutes: number;
   /** Finished sessions per day per domain, for the past-day panel. */
   sessionHistory: SessionHistory;
   /** Either store was saved by a newer build. The histories above are empty
@@ -46,7 +46,7 @@ export const AppState: AppStateInterface = {
   chartInstance: null,
   pieChartInstance: null,
   lockedDayIndex: null,
-  dayResetTime: 0,
+  dayResetMinutes: 0,
   sessionHistory: {},
   storedByNewerVersion: false,
 

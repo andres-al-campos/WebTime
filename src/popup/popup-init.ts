@@ -1,4 +1,4 @@
-import { extractDomain } from '../shared/utils.js';
+import { extractDomain, dayResetMinutesOf } from '../shared/utils.js';
 import { readStored } from '../shared/session-history.js';
 import { readTrackedTime } from '../shared/time-history.js';
 import { AppState } from './state.js';
@@ -92,7 +92,7 @@ export const App = {
 
     // Mirror the background's day-reset hour so the popup's "today" agrees with
     // tracked time between midnight and the reset hour.
-    AppState.dayResetTime = settings.global?.dayResetTime || 0;
+    AppState.dayResetMinutes = dayResetMinutesOf(settings.global);
 
     AppState.setCurrentDomain(currentDomain);
     AppState.setTimeHistory(tracked.history);
