@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 02:59, at 2.10.0.
+Updated 2026-11-16 14:39, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -14,7 +14,8 @@ gate.
   when the next session arrives. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
-- OK starts a 10-second countdown inside the Cancel button ("Starting Session
+- OK starts a countdown inside the Cancel button (10 seconds unless changed
+  in [global settings](global-settings.md)) ("Starting Session
   / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
 - The gate has OK and nothing else: a site with rules on is either in a

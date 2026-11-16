@@ -412,6 +412,7 @@ function globalSettings(opts) {
     await popup.click('#settings-toggle-btn');
     await popup.waitForTimeout(400);
     await popup.click('#chart-scaling-stepper .sc-stepper-btn:has-text("▼")');
+    await popup.click('#start-countdown-stepper .sc-stepper-btn:has-text("▼")');
     await popup.click('#save-settings-btn');
     await popup.waitForTimeout(500);
     const saved = (await run.storage('webTimeSettings'))?.global;
@@ -424,7 +425,11 @@ function globalSettings(opts) {
       return fail(`Saving changed Inactivity to ${saved.inactivityTimeoutS} though it was not touched.`,
         'saveSettings writes every global from the form: check loadSettings fills #inactivity-timeout from storage.');
     }
-    return pass(`Chart scale saved as ${saved.scalingPower}; untouched settings kept`);
+    if (saved.startCountdownS !== 5) {
+      return fail(`Stepped Start countdown down from 10 and saved; storage holds ${saved.startCountdownS}.`,
+        'check #start-countdown-stepper mirrors into #start-countdown and saveSettings writes startCountdownS (popup/ui-manager.ts).');
+    }
+    return pass(`Chart scale saved as ${saved.scalingPower}, start countdown as 5s; untouched settings kept`);
   });
 }
 

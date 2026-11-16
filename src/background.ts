@@ -182,8 +182,8 @@ const budgets: Record<Domain, Budget> = {};
 // How many sessions each site has started today, for the session number.
 const sessionsStartedToday: Record<Domain, number> = {};
 
-/** Seconds between OK on the gate and the session starting. */
-const GATE_COUNTDOWN_SECONDS = 10;
+/** Seconds between OK on the gate and the session starting, unless set. */
+const DEFAULT_START_COUNTDOWN_SECONDS = 10;
 
 // The session rules as last read, per domain. The clock gate and the wake
 // scheduler are synchronous and must not await a settings read, so they ask
@@ -1800,7 +1800,7 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
       rules,
       sessionLengthSeconds,
       minFraction: minFractionFor(sessionLengthSeconds),
-      countdownSeconds: GATE_COUNTDOWN_SECONDS,
+      countdownSeconds: Math.max(0, settings.global?.startCountdownS ?? DEFAULT_START_COUNTDOWN_SECONDS),
       extraSeconds: extraSeconds[domain] || 0,
     };
   }

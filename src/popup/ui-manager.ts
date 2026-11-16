@@ -463,6 +463,11 @@ export async function loadSettings(): Promise<void> {
       { value: inactivityVal, min: 5, max: 600, step: 5 });
     mountSettingsStepper('chart-scaling-stepper', chartScalingEl, 'Chart scale', '',
       { value: scalingVal, min: 0.3, max: 1.0, step: 0.05 });
+    const countdownEl = document.getElementById('start-countdown') as HTMLInputElement | null;
+    const countdownVal = global.startCountdownS ?? 10;
+    if (countdownEl) countdownEl.value = String(countdownVal);
+    mountSettingsStepper('start-countdown-stepper', countdownEl, 'Start countdown', 's',
+      { value: countdownVal, min: 0, max: 60, step: 5 });
 
     // End-session shortcut: undefined = default Ctrl+E, null = disabled, string = custom
     const endSessionShortcutEl = document.getElementById('end-session-shortcut') as HTMLInputElement | null;
@@ -508,6 +513,7 @@ export async function saveSettings(): Promise<void> {
     const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLInputElement | null;
     const inactivityTimeoutEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
+    const countdownEl = document.getElementById('start-countdown') as HTMLInputElement | null;
 
     const scalingPower = parseFloat(chartScalingEl?.value || '1.0') || 1.0;
 
@@ -526,7 +532,9 @@ export async function saveSettings(): Promise<void> {
       dayResetTime: parseInt(dayResetTimeEl?.value || '0'),
       inactivityTimeoutS: parseInt(inactivityTimeoutEl?.value || '30') || 30,
       scalingPower: clampedScaling,
-      endSessionShortcut
+      endSessionShortcut,
+      // 0 is a real choice (start at once), so no `|| 10` here.
+      startCountdownS: Math.max(0, parseInt(countdownEl?.value ?? '10', 10) || 0),
     };
     // Apply the new scale to the live chart config so the currently open chart
     // reflects it immediately — otherwise it only took effect on the NEXT popup
