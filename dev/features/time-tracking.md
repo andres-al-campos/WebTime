@@ -1,6 +1,6 @@
 # Time tracking
 
-Updated 2026-11-16 14:56, at 2.10.0.
+Updated 2026-11-16 16:34, at 2.10.0.
 
 WebTime counts the seconds you spend on each site per day, in the background,
 on any http or https page. Nothing to turn on.
@@ -15,7 +15,7 @@ on any http or https page. Nothing to turn on.
 - On top of that it needs either audio playing in the tab, or recent input
   (scroll, key, mouse move within the inactivity timeout, default 30s) while
   the machine isn't idle. A locked screen stops it even with audio playing.
-- The day rolls over at the "Day resets at" hour (midnight to 6 AM), not at
+- The day rolls over at the "Day resets at" time (any hour and minute), not at
   midnight, so late-night use counts toward the previous day.
 - Time is saved once a minute and on every site switch. After a Chrome worker
   restart the unsaved gap is credited back to the site it belonged to, unless

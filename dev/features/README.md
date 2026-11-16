@@ -1,6 +1,6 @@
 # WebTime features
 
-Updated 2026-11-15 17:13, at 2.10.0.
+Updated 2026-11-16 16:34, at 2.10.0.
 
 What a user can do with WebTime, how to reach it, and how to drive it. Read
 this before adding anything: if it's already here, extend it instead of
@@ -13,7 +13,7 @@ building it again.
 | All-sites overview | [all-sites-overview.md](all-sites-overview.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Site view | [site-view.md](site-view.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Session rules | [session-rules.md](session-rules.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
-| Sessions and the gate | [sessions-and-cooldowns.md](sessions-and-cooldowns.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
+| Sessions and the gate | [sessions.md](sessions.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
 | End session early | [end-session-early.md](end-session-early.md) | Firefox, Chrome | Yes, Chrome (2026-11-15) |
 | Nudges | [nudges.md](nudges.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |
 | Wind-down | [wind-down.md](wind-down.md) | Firefox, Chrome | Yes, Chrome (2026-10-07) |

@@ -1,9 +1,9 @@
 # Session rules
 
-Updated 2026-11-16 15:57, at 2.10.0.
+Updated 2026-11-16 16:34, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
-each started at the [gate](sessions-and-cooldowns.md).
+each started at the [gate](sessions.md).
 
 ## Sub-features
 

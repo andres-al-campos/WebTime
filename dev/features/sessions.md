@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 14:39, at 2.10.0.
+Updated 2026-11-16 16:34, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a

@@ -1,6 +1,6 @@
 # Site view
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-16 16:34, at 2.10.0.
 
 The popup's default page: your history on one site, today's usage, and that
 site's session controls.
@@ -14,7 +14,7 @@ site's session controls.
 - Click a past bar to see that day ([past-day sessions](past-day-sessions.md));
   "Today →" or clicking the bar again returns.
 - Holds the [Session rules](session-rules.md) card and the live session card
-  ([Sessions and cooldowns](sessions-and-cooldowns.md)) for today.
+  ([Sessions and the gate](sessions.md)) for today.
 
 ## How to get to it
 
