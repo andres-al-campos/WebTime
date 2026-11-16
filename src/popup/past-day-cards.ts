@@ -73,7 +73,9 @@ function sessionCard(record: SessionRecord, index: number, runningTotal: number)
 
   const foot = el('div', 'cfoot');
   foot.append(
-    el('span', '', cooldownPhrase(cooldownSec, index + 1)),
+    // Sessions recorded since they began regenerating carry no cooldown; an
+    // older one keeps the cooldown it cost.
+    el('span', '', cooldownSec > 0 ? cooldownPhrase(cooldownSec, index + 1) : ''),
     el('span', 'run', `${formatDuration(runningTotal)} total`),
   );
 

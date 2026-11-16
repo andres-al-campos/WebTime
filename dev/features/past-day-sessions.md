@@ -1,14 +1,15 @@
 # Past-day sessions
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-16 01:12, at 2.10.0.
 
 Look back at how a past day's sessions went on a site.
 
 ## Sub-features
 
 - One card per finished session, oldest first: time used / session length, a
-  "completed", "ended early" or "day ended" tag, a fill bar, the cooldown it cost
-  (`1:30 × 3 = 4:30`) and the running total.
+  "completed", "ended early" or "day ended" tag, a fill bar and the running total. A
+  session recorded while cooldowns existed also shows the cooldown it cost
+  (`1:30 × 3 = 4:30`).
 - "No sessions recorded on this day." for days with time but no sessions,
   including every day before session history was recorded.
 - The usage card above shows that day's numbers and a "Today →" button.

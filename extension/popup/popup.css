@@ -483,31 +483,25 @@ body {
 }
 .sc-card.sc-off { background: var(--bg-raise); border: 1px dashed var(--line-strong); padding: 15px; }
 
-/* Title sits alone now — the Active/Cooldown badge was dropped as noise. */
 .sc-head { display: flex; align-items: center; margin-bottom: var(--title-gap); }
 
-/* The live "· NN% left" now rides on the session title (the elapsed/limit line
-   was dropped as redundant with the ledger's "time left"). */
 /* Rides on the (uppercase) title; match its size, keep the live-accent color. */
 .sc-title-pct { font: 700 10.5px 'IBM Plex Mono'; letter-spacing: 0.05em; }
-/* Cooldown card: the big total-cooldown number with its label beside it on the
-   same baseline (the label used to sit small below — too quiet). */
-/* Cooldown card: the big total-duration number with its label on the line below.
-   Not a live countdown — the fixed total can't go stale on this non-ticking panel. */
+/* The time left in the running session, with its label on the line below. */
 .sc-time { font: 600 20px 'IBM Plex Mono'; color: var(--text); margin-bottom: 4px; }
 .sc-sub { font: 400 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: 11px; }
 
-/* End-early breakdown: a ledger — quiet label left, value right-aligned, so the
-   figures stack into a column that adds up. A rule sits before the total; the
-   total's value is the green "what you keep". */
-.sc-breakdown { margin: 11px 0; display: flex; flex-direction: column; gap: 6px; }
-.sc-breakdown-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.sc-breakdown-label { font: 400 12px 'IBM Plex Sans'; color: var(--text-dim); }
-.sc-breakdown-val { font: 600 14px 'IBM Plex Mono'; color: var(--text); white-space: nowrap; }
-.sc-breakdown-op { color: var(--text-faint); }
-.sc-breakdown-rule { height: 1px; background: var(--line); margin: 1px 0; }
-.sc-breakdown-row.is-total .sc-breakdown-label { color: var(--text); }
-.sc-breakdown-row.is-total .sc-breakdown-val { color: var(--good); }
+/* The sessions a site holds: a full dot per whole session, a pie at half
+   opacity for the one regenerating, an empty ring for each one used. */
+.sc-dots { display: flex; gap: 7px; margin: 0 0 10px; }
+.sc-dot {
+  width: 15px; height: 15px; border-radius: 50%; box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  background: conic-gradient(var(--accent) var(--sc-fill, 0%), transparent 0);
+}
+/* Solid, not a 100% conic: the gradient leaves a hairline seam at the top. */
+.sc-dot.is-full { border-color: var(--accent); background: var(--accent); }
+.sc-dot.is-part { opacity: 0.5; }
 .sc-good { color: var(--good); font-weight: 600; }
 
 .sc-btn {
@@ -546,10 +540,6 @@ body {
 .sc-stepper-group { margin-bottom: 13px; }
 .sc-settings-twoup .sc-stepper-group { margin-bottom: 0; }
 
-/* Cooldown: one heading over a side-by-side [minutes][seconds] box pair, so the
-   two read as a single setting (units m/s carry their roles, no "secs" label). */
-.sc-cooldown-boxes { display: flex; gap: var(--gap); }
-.sc-cooldown-boxes > .sc-stepper-group { flex: 1; margin-bottom: 0; }
 .sc-stepper-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: var(--label-gap); }
 .sc-stepper-label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); }
 /* isolation gives the arrows' ::before (z-index -1) a floor to sit on, so the

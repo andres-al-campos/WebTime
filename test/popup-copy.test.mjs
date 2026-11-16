@@ -87,23 +87,6 @@ test('the zero label is accepted back when typed', () => {
 
 const uiMgr = readFileSync('src/popup/ui-manager.ts', 'utf8');
 
-test('the cooldown pair cannot be set to 0m0s', () => {
-  // A zero cooldown makes the session limit inert — hit it, wait nothing, keep
-  // going. If sessions are on, the cooldown is part of the deal. The floor sits
-  // on the pair (0s is fine above a minute), so it reads the minutes box.
-  assert.match(card, /min: \(\) => \(coolMin === 0 \? 5 : 0\)/,
-    'the seconds box must floor at 5s while the minutes box is 0');
-
-  // The seconds floor cannot see a change made in the minutes box, so dropping
-  // to 0m with the seconds already at 0 needs its own push.
-  const onMin = /coolMin = v;([\s\S]*?)persistCooldown\(\);/.exec(card);
-  assert.ok(onMin, "the minutes stepper's onChange must be findable");
-  assert.match(onMin[1], /coolMin === 0 && coolSec === 0/,
-    'dropping to 0m at 0s must lift the seconds off zero');
-  assert.match(onMin[1], /secStepper\.setValue/,
-    'the seconds box must be told, or its display desyncs from the stored value');
-});
-
 test('inactivity floors above zero, because zero stops the clock forever', () => {
   // isActive() is `now - lastActivity < threshold`. At 0 that is false the
   // instant activity is recorded, so the tab never counts as active and time
@@ -111,7 +94,7 @@ test('inactivity floors above zero, because zero stops the clock forever', () =>
   const call = /'inactivity-stepper'[\s\S]*?\}\);/.exec(uiMgr);
   assert.ok(call, 'the inactivity stepper must be findable');
   assert.match(call[0], /min: 5\b/, 'inactivity must not be settable to 0');
-  assert.match(call[0], /step: 5\b/, 'inactivity steps in 5s, like the cooldown seconds');
+  assert.match(call[0], /step: 5\b/, 'inactivity steps in 5s');
   assert.doesNotMatch(call[0], /zeroLabel/, 'zero is unreachable here, so a zero label would be dead code');
 });
 

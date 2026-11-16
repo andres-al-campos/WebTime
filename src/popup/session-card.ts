@@ -1,16 +1,20 @@
 // Live session card for the detail ("This site") view's right panel. NEW in the
 // redesign — the old popup only edited session *settings*, never rendered a live
 // session. Reads the background's persisted session state from storage and uses
-// the pure session-model functions to derive elapsed / remaining / cooldown.
+// the pure session-model and session-budget functions to derive what is left.
 //
-// Three states, mirroring the design:
-//   Active   — a session is running: elapsed / limit, progress, "End early".
-//   Cooldown — session ended, counting down until the next unlocks.
-//   Off      — limits disabled for this domain (or no session yet).
+// Three states:
+//   Active — a session is running: time left, the sessions held, "End session".
+//   Idle   — rules on, no session: the sessions held and when the next arrives.
+//   Off    — rules off for this domain.
 
 import { formatClock, getLocalDateStr } from '../shared/utils.js';
 import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
+import {
+  budgetRules, fullBudget, sessionsAt, nextSessionAt, nextStartAt, startable, minFractionFor,
+  DEFAULT_SESSIONS_PER_DAY, DEFAULT_MAX_SESSIONS, type Budget, type BudgetRules,
+} from '../shared/session-budget.js';
 
 declare const browser: typeof chrome;
 
@@ -32,7 +36,8 @@ function ensureStorageListener(): void {
   storageListenerWired = true;
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!(STORAGE.SESSION_STATE in changes) && !(STORAGE.SETTINGS in changes)) return;
+    if (!(STORAGE.SESSION_STATE in changes) && !(STORAGE.SETTINGS in changes)
+      && !(STORAGE.SESSION_BUDGET in changes)) return;
     if (liveDomain === null) return;
     renderSessionCard(liveDomain, liveDayReset).catch(err =>
       console.error('Error re-rendering session card on storage change:', err));
@@ -42,8 +47,6 @@ function ensureStorageListener(): void {
 interface SessionState {
   date: string;
   sessions: Record<string, ActiveSession>;
-  cooldownEndTime: Record<string, number>;
-  cooldownTotalSec: Record<string, number>;
 }
 
 /**
@@ -69,8 +72,9 @@ function el(tag: string, cls: string, text?: string): HTMLElement {
 interface DomainLimits {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number;          // minutes
-  cooldownIncrement?: number;     // minutes (may be fractional)
   nudgeInterval?: number;
+  sessionsPerDay?: number;
+  maxSessions?: number;
 }
 
 // Serialize writes: rapid stepper clicks each do read-modify-write on the same
@@ -91,13 +95,14 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
   const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   if (!settings.domains) settings.domains = {};
 
-  const hasAny = next.sessionLimitEnabled || (next.sessionLimit || 0) > 0 || (next.cooldownIncrement || 0) > 0;
+  const hasAny = next.sessionLimitEnabled || (next.sessionLimit || 0) > 0;
   if (hasAny) {
     settings.domains[domain] = {
       sessionLimitEnabled: next.sessionLimitEnabled || false,
       sessionLimit: (next.sessionLimit || 0) > 0 ? next.sessionLimit : undefined,
-      cooldownIncrement: (next.cooldownIncrement || 0) > 0 ? next.cooldownIncrement : undefined,
       nudgeInterval: next.nudgeInterval,
+      sessionsPerDay: next.sessionsPerDay,
+      maxSessions: next.maxSessions,
     };
   } else {
     delete settings.domains[domain];
@@ -122,8 +127,7 @@ interface Stepper {
 export function stepper(opts: {
   label: string; value: number; unit?: string;
   /** Lower bound. A function is re-read on every step and every typed commit,
-   *  for a floor that depends on a sibling — the cooldown's seconds box may not
-   *  go below 5s while its minutes box is 0, but is free to reach 0 above that. */
+   *  for a floor that depends on a sibling control. */
   min: number | (() => number);
   max: number; step: number;
   onChange: (v: number) => void;
@@ -131,7 +135,7 @@ export function stepper(opts: {
    *  value stays pinned at the edge it tried to cross). */
   onCarry?: (dir: number) => boolean;
   /** Omit the label row — used when several boxes share one external heading
-   *  (e.g. the cooldown's minutes+seconds pair sit under a single "Cooldown"). */
+   *  (a pair of boxes under a single label). */
   noHead?: boolean;
   /** Word to show instead of "0" — for settings where zero is a STATE, not a
    *  quantity ("Off"), so the box doesn't read as a real interval of zero. The
@@ -284,7 +288,7 @@ function cardShell(): HTMLElement {
 
 /**
  * Per-site "Session rules" card (top of the detail right panel). Toggle +
- * limit / cooldown / nudge steppers. Persists per-domain on every change.
+ * length / nudge / sessions-per-day / max-sessions steppers. Persists per-domain on every change.
  */
 export async function renderSessionSettingsCard(
   domain: string | null,
@@ -304,8 +308,9 @@ export async function renderSessionSettingsCard(
   const cur: Required<DomainLimits> = {
     sessionLimitEnabled: d.sessionLimitEnabled || false,
     sessionLimit: d.sessionLimit || 40,
-    cooldownIncrement: d.cooldownIncrement || 5,
     nudgeInterval: d.nudgeInterval ?? DEFAULT_NUDGE_INTERVAL_MIN,
+    sessionsPerDay: d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
+    maxSessions: d.maxSessions ?? DEFAULT_MAX_SESSIONS,
   };
   // Just persist. The live session card re-renders REACTIVELY via the storage
   // listener (on both our settings write and the background's session-state
@@ -333,15 +338,9 @@ export async function renderSessionSettingsCard(
   });
   head.append(toggle);
 
-  // body: two two-up rows — [session length | nudges], then the cooldown
-  // increment split into [minutes | seconds] steppers.
+  // body: two two-up rows — [session length | nudges], then
+  // [sessions per day | max sessions].
   const body = el('div', 'sc-settings-body');
-
-  // Cooldown is stored as one fractional-minutes number; the two steppers each
-  // own a part and recombine on change. Read once so they share a baseline.
-  let coolMin = Math.floor(cur.cooldownIncrement);
-  let coolSec = Math.round((cur.cooldownIncrement - coolMin) * 60);
-  const persistCooldown = () => { cur.cooldownIncrement = coolMin + coolSec / 60; persist(); };
 
   const rowOne = el('div', 'sc-settings-twoup');
   rowOne.append(
@@ -359,52 +358,21 @@ export async function renderSessionSettingsCard(
     }).el
   );
 
-  // Minutes + seconds steppers. Seconds runs 0/15/30/45 and rolls into minutes
-  // when it crosses an edge — ▲ at 45s bumps a minute, ▼ at 0s borrows one
-  // (vetoed when already at 0m so the cooldown can't go negative). Both boxes
-  // sit under ONE "Cooldown" heading (the units m/s carry their roles), so the
-  // pair reads as a single setting without a separate "Cooldown secs" label.
-  const minStepper = stepper({
-    label: 'Cooldown', value: coolMin, unit: 'm', noHead: true,
-    min: 0, max: 120, step: 1,
-    onChange: v => {
-      coolMin = v;
-      // Falling to 0m while the seconds sit at 0 would land on 0m0s by the back
-      // door — the seconds box enforces its own floor but cannot act on a change
-      // made over here, so push it up to the minimum as we pass.
-      if (coolMin === 0 && coolSec === 0) { coolSec = 5; secStepper.setValue(coolSec); }
-      persistCooldown();
-    },
-  });
-  const secStepper = stepper({
-    // max is one step below a minute, so the seconds run 0..55 and then carry
-    // into the minutes box rather than showing a 60 that means the same as 1m.
-    //
-    // The floor is on the PAIR, not this box: a zero cooldown makes the session
-    // limit do nothing (hit it, wait nothing, carry on), so if sessions are on
-    // both halves are part of the deal. 0s is fine above a minute, and only the
-    // combination 0m0s is refused — hence a floor that reads the minutes box.
-    label: 'Cooldown', value: coolSec, unit: 's', noHead: true,
-    min: () => (coolMin === 0 ? 5 : 0), max: 55, step: 5,
-    onChange: v => { coolSec = v; persistCooldown(); },
-    onCarry: dir => {
-      if (dir < 0 && coolMin <= 0) return false; // can't borrow below 0m
-      coolMin = Math.min(120, Math.max(0, coolMin + dir));
-      minStepper.setValue(coolMin);
-      return true; // persisted by the seconds onChange that follows
-    },
-  });
-
-  // One labelled group: "Cooldown" heading over the [m][s] box pair.
-  const coolGroup = el('div', 'sc-stepper-group sc-cooldown-group');
-  const coolHead = el('div', 'sc-stepper-head');
-  coolHead.append(el('span', 'sc-stepper-label', 'Base cooldown'));
-  const coolBoxes = el('div', 'sc-cooldown-boxes');
-  coolBoxes.append(minStepper.el, secStepper.el);
-  coolGroup.append(coolHead, coolBoxes);
-
   const rowTwo = el('div', 'sc-settings-twoup');
-  rowTwo.append(coolGroup);
+  rowTwo.append(
+    stepper({
+      // How fast sessions come back: one every 24h / this.
+      label: 'Sessions per day', value: cur.sessionsPerDay,
+      min: 1, max: 24, step: 1,
+      onChange: v => { cur.sessionsPerDay = v; persist(); },
+    }).el,
+    stepper({
+      // 10 is as many dots as the on-page gate's row can hold.
+      label: 'Max sessions', value: cur.maxSessions,
+      min: 1, max: 10, step: 1,
+      onChange: v => { cur.maxSessions = v; persist(); },
+    }).el
+  );
   body.append(rowOne, rowTwo);
 
   card.append(head, body);
@@ -422,69 +390,99 @@ function renderOff(host: HTMLElement): void {
   host.replaceChildren(card);
 }
 
-/** Idle — limits ON but no session running yet (e.g. not the active tab today). */
-function renderIdle(host: HTMLElement, limitMinutes: number): void {
-  const card = el('div', 'sc-card sc-off');
-  card.append(
-    el('div', 'sc-off-title', 'No active session'),
-    el('div', 'sc-off-sub',
-      `A ${limitMinutes}-minute session starts when you browse this site.`)
-  );
+/** What the card needs to draw the sessions a site holds. */
+interface Held {
+  budget: Budget;
+  rules: BudgetRules;
+  /** The site's full session length, seconds. */
+  lengthSec: number;
+}
+
+// The row and its "Next session in" count regenerate while the popup is open,
+// so they tick on their own. Only their text and fill change: re-rendering the
+// whole card each second would replace the End button under a click.
+let heldTicker: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * The row of sessions held (the one regenerating at half opacity) and the line
+ * under it. With `running` the line is when the next whole session arrives;
+ * without, it also says what the gate would offer right now.
+ */
+function heldBlock(h: Held, running: boolean): HTMLElement[] {
+  const dots = el('div', 'sc-dots');
+  const count = Math.max(1, Math.min(10, Math.ceil(h.rules.maxSessions)));
+  for (let i = 0; i < count; i++) dots.append(el('span', 'sc-dot'));
+  const line = el('div', 'sc-sub');
+
+  const update = () => {
+    const now = Date.now();
+    const held = sessionsAt(h.budget, h.rules, now);
+    for (let i = 0; i < count; i++) {
+      const dot = dots.children[i] as HTMLElement;
+      const fill = Math.min(1, Math.max(0, held - i));
+      const whole = fill > 0.999;
+      dot.style.setProperty('--sc-fill', `${(whole ? 1 : fill) * 100}%`);
+      dot.classList.toggle('is-full', whole);
+      dot.classList.toggle('is-part', fill > 0 && !whole);
+    }
+    const inClock = (at: number) => formatClock(Math.max(0, Math.ceil((at - now) / 1000)));
+    const next = nextSessionAt(h.budget, h.rules, now);
+    const nextText = next === null ? '' : `Next session in ${inClock(next)}`;
+    if (running) {
+      line.textContent = nextText;
+    } else {
+      const minFraction = minFractionFor(h.lengthSec);
+      const offer = startable(h.budget, h.rules, now, minFraction);
+      const startAt = nextStartAt(h.budget, h.rules, now, minFraction);
+      line.textContent = offer > 0
+        ? [`A ${formatClock(Math.round(offer * h.lengthSec))} session is ready on the site.`, nextText].filter(Boolean).join(' ')
+        : startAt === null ? 'No sessions regenerate.' : `Next session in ${inClock(startAt)}`;
+    }
+    line.style.display = line.textContent ? '' : 'none';
+  };
+  update();
+  heldTicker = setInterval(update, 1000);
+  return [dots, line];
+}
+
+/** Idle — rules on, no session running: the site is behind the gate. */
+function renderIdle(host: HTMLElement, h: Held): void {
+  const card = cardShell();
+  const head = el('div', 'sc-head');
+  head.append(el('span', 'sc-title', 'No active session'));
+  card.append(head, ...heldBlock(h, false));
   host.replaceChildren(card);
 }
 
 /** Active session state. */
-function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, shortcut: string | null): void {
+function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, shortcut: string | null, h: Held): void {
   const { sessionTime, sessionLimitSeconds } = displayFor(s, dailyTotal);
   const remaining = Math.max(0, sessionLimitSeconds - sessionTime);
-  // Percent LEFT (not spent) so the bar's gone-but-not-forgotten job — proportion
-  // at a glance — is carried by a number that moves the SAME direction as the
-  // countdown timer (down), instead of a bar that filled up against it.
+  // Percent LEFT (not spent), so the number moves the same direction as the
+  // countdown timer on the page.
   const pctLeft = sessionLimitSeconds > 0 ? Math.round((remaining / sessionLimitSeconds) * 100) : 0;
-  // endEarly() rolls the FULL remaining into the next session as carryover, plus
-  // a 10% grace bonus on top of it (computeGraceSeconds) — always, tracking time
-  // left rather than the session's pedigree.
-  const grace = Math.floor(remaining * 0.1);
-  const rollover = remaining + grace;
-  // Near-the-end warmth lives on the percent now that the bar is gone.
   const leftColor = pctLeft < 15 ? 'var(--warn)' : 'var(--good)';
 
   const card = cardShell();
 
-  // Title carries the live "· NN% left" — the old elapsed/limit line was
-  // redundant with the ledger's "time left" below, so it's gone.
   const head = el('div', 'sc-head');
-  const title = el('span', 'sc-title', `Session ${s.sessionNum}`);
+  const title = el('span', 'sc-title', 'Session');
   const pctEl = el('span', 'sc-title-pct', ` · ${pctLeft}% left`);
   pctEl.style.color = leftColor;
   title.append(pctEl);
   head.append(title);
 
-  // What "End early" does, as a ledger: quiet label on the left, value
-  // right-aligned so the figures stack into a column that visibly adds up.
-  // A divider sits before the total, whose value is the green "what you keep".
-  const breakdown = el('div', 'sc-breakdown');
-  const row = (label: string, value: string, opts: { op?: string; total?: boolean } = {}): HTMLElement => {
-    const r = el('div', `sc-breakdown-row${opts.total ? ' is-total' : ''}`);
-    r.append(el('span', 'sc-breakdown-label', label));
-    const val = el('span', 'sc-breakdown-val');
-    if (opts.op) val.append(el('span', 'sc-breakdown-op', `${opts.op} `));
-    val.append(document.createTextNode(value));
-    r.append(val);
-    return r;
-  };
-  breakdown.append(row('Time left', formatClock(remaining)));
-  // Always show the bonus row so the ledger reads as a complete sum, even when
-  // this session was already grace-extended (grace can't compound → +0:00).
-  breakdown.append(row('10% bonus', formatClock(grace), { op: '+' }));
-  breakdown.append(el('div', 'sc-breakdown-rule'));
-  breakdown.append(row(`Time added to Session ${s.sessionNum + 1}`, formatClock(rollover), { total: true }));
-
   const btn = el('button', 'sc-btn');
   btn.id = 'session-end-early-btn';
   btn.textContent = shortcut ? `End session (${shortcut})` : 'End session early';
 
-  card.append(head, breakdown, btn);
+  card.append(
+    head,
+    el('div', 'sc-time', formatClock(remaining)),
+    el('div', 'sc-sub', `left of ${formatClock(sessionLimitSeconds)}`),
+    ...heldBlock(h, true),
+    btn,
+  );
   host.replaceChildren(card);
 
   btn.addEventListener('click', () => {
@@ -496,28 +494,6 @@ function renderActive(host: HTMLElement, s: ActiveSession, dailyTotal: number, s
   });
 }
 
-/** Cooldown state. */
-function renderCooldown(host: HTMLElement, s: ActiveSession, endTime: number, totalSec: number): void {
-  // The session cooling down is the one before the (next) stored session.
-  const endedNum = Math.max(1, s.sessionNum - 1);
-
-  const card = cardShell();
-
-  const head = el('div', 'sc-head');
-  head.append(el('span', 'sc-title', `Session ${endedNum} ended`));
-
-  // Show the TOTAL cooldown length, not a live countdown — this panel doesn't
-  // tick in real time, so a frozen remaining figure would read as wrong the
-  // moment it's stale. The fixed duration is always accurate.
-  void endTime;
-  card.append(
-    head,
-    el('div', 'sc-time', formatClock(totalSec)),
-    el('div', 'sc-sub', `cooldown before Session ${s.sessionNum} unlocks`)
-  );
-  host.replaceChildren(card);
-}
-
 /**
  * Render the session card for the currently selected domain.
  * Reads live session state + settings + daily total from storage.
@@ -527,6 +503,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   liveDayReset = dayResetTime;
   ensureStorageListener();
 
+  if (heldTicker) { clearInterval(heldTicker); heldTicker = null; }
   const host = document.getElementById('session-card');
   if (!host) return;
   // No real domain (new-tab / settings / extension page) → render nothing. The
@@ -534,7 +511,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   // being tracked; here there's no site at all.
   if (!domain) { host.replaceChildren(); return; }
 
-  const data = await browser.storage.local.get([STORAGE.SESSION_STATE, STORAGE.SETTINGS, STORAGE.TRACKED_TIME]);
+  const data = await browser.storage.local.get([STORAGE.SESSION_STATE, STORAGE.SETTINGS, STORAGE.TRACKED_TIME, STORAGE.SESSION_BUDGET]);
   const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const domainSettings = settings.domains?.[domain] || {};
 
@@ -543,35 +520,29 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
 
   const state = data[STORAGE.SESSION_STATE] as SessionState | undefined;
   const today = getLocalDateStr(dayResetTime);
-  const limitMinutes = domainSettings.sessionLimit || 40;
+  const rules = budgetRules(domainSettings);
+  const held: Held = {
+    // A site that has never started a session has nothing stored: a full row,
+    // as the background reads it.
+    budget: (data[STORAGE.SESSION_BUDGET]?.[domain] as Budget | undefined) ?? fullBudget(rules, Date.now()),
+    rules,
+    lengthSec: (domainSettings.sessionLimit || 40) * 60,
+  };
 
-  // Stale (different day) state shouldn't drive the card. Limits are on, so
-  // this is Idle, not Off.
-  if (!state || state.date !== today) { renderIdle(host, limitMinutes); return; }
-
-  const session = state.sessions?.[domain];
-
-  // Cooldown takes precedence — there's a future cooldown end for this domain.
-  const cooldownEnd = state.cooldownEndTime?.[domain] || 0;
-  if (session && cooldownEnd > Date.now()) {
-    renderCooldown(host, session, cooldownEnd, state.cooldownTotalSec?.[domain] || 0);
-    return;
-  }
-
+  // State from another day doesn't drive the card: rules are on, so it's Idle.
+  const session = state && state.date === today ? state.sessions?.[domain] : undefined;
   if (session) {
     const timeHistory = data[STORAGE.TRACKED_TIME]?.timeHistory || {};
     const dailyTotal = domainDailySeconds(timeHistory, today, domain);
     const { remaining } = displayFor(session, dailyTotal);
-    // Genuinely running only while time remains; otherwise the background has
-    // moved on (cooldown just ended or a new session is pending) — show Idle.
+    // Running only while time remains; otherwise the background has moved on.
     if (remaining > 0) {
       const sc = settings.global?.endSessionShortcut;
       const shortcut = sc === null ? null : (sc || 'Ctrl+E');
-      renderActive(host, session, dailyTotal, shortcut);
+      renderActive(host, session, dailyTotal, shortcut, held);
       return;
     }
   }
 
-  // Limits on, but nothing active for this domain right now.
-  renderIdle(host, limitMinutes);
+  renderIdle(host, held);
 }

@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-15 17:13, at 2.10.0.
+Updated 2026-11-16 01:12, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions-and-cooldowns.md).
@@ -10,8 +10,9 @@ each started at the [gate](sessions-and-cooldowns.md).
 - On/off toggle per site. Off means tracking only.
 - Session length: 1–240 min (default 40).
 - Nudge every: 0–120 min (default 20; 0 shows "Disabled").
-- Base cooldown: still shown, no longer used. Sessions per day (3) and the
-  most a site can hold (4) run on their defaults and have no controls yet.
+- Sessions per day: 1–24 (default 3). One session returns every 24h ÷ this.
+- Max sessions: 1–10 (default 4). The most a site holds; a full row earns
+  nothing more.
 - Every change saves immediately and applies to a running session: shrinking
   the length past the time already used ends the session on the spot.
 - Turning rules on puts the site's tabs behind the gate. Turning them off
@@ -36,8 +37,8 @@ Last driven: 2026-11-15, Chrome headless. Saved 40-minute sessions and
 
 - These are per-site settings stored with the globals; the gear's Settings
   sheet is global-only and doesn't show them.
-- The cooldown is stored as fractional minutes and rounded to whole seconds on
-  read; without the rounding some values displayed a second short.
+- Changing sessions per day or the maximum keeps what was already waited:
+  the background settles what the site holds at the old rules first.
 - A length change is applied by comparing the running session's length with
   the settings, not with the previous settings. Remembering the previous ones
   lost the first change after every worker start. The wind-down drive raises

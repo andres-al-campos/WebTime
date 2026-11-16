@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 01:06, at 2.10.0.
+Updated 2026-11-16 01:12, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -58,5 +58,6 @@ and regeneration over hours were not driven. Not driven on Firefox.
 - A partial session is stored as the full length with a negative `carryover`.
   Its `baseLength` has to equal the setting, or the next settings change reads
   the difference as a length change and resizes it to full.
-- The popup's session card and rules card still describe cooldowns: sessions
-  per day and the maximum have no controls yet and run on their defaults.
+- The popup's session card shows the same row of dots and "Next session in",
+  ticking while it is open. Only the row and that line tick: re-rendering the
+  card each second would replace the End button under a click.

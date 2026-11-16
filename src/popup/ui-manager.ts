@@ -453,7 +453,7 @@ export async function loadSettings(): Promise<void> {
     if (chartScalingEl) chartScalingEl.value = String(scalingVal);
     // Mount (or refresh) the styled steppers that mirror the hidden inputs, so
     // the global settings use the same control as the per-site Session rules.
-    // 5s steps to match the cooldown's seconds box. The floor is 5, not 0:
+    // 5s steps. The floor is 5, not 0:
     // isActive() tests `now - lastActivity < threshold`, so a 0 threshold is
     // false the moment activity is recorded — the tab reads as permanently
     // inactive and the clock never runs. There is no "instant" to express here
