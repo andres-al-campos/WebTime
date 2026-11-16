@@ -141,8 +141,11 @@ export function stepper(opts: {
    *  quantity ("Off"), so the box doesn't read as a real interval of zero. The
    *  unit suffix is hidden alongside it. */
   zeroLabel?: string;
+  /** One sentence shown on hover, for a setting its label can't explain. */
+  hint?: string;
 }): Stepper {
   const group = el('div', 'sc-stepper-group');
+  if (opts.hint) group.title = opts.hint;
   if (!opts.noHead) {
     const head = el('div', 'sc-stepper-head');
     head.append(el('span', 'sc-stepper-label', opts.label));
@@ -369,7 +372,8 @@ export async function renderSessionSettingsCard(
     }).el,
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
-      label: 'Max banked sessions', value: cur.bankSessions,
+      label: 'Banked sessions', value: cur.bankSessions,
+      hint: "Sessions you don't use roll over into a bank that holds up to this many, and banked ones are used first.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
