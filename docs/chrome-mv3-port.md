@@ -429,6 +429,12 @@ Since the bar is driven by a local `endsAt` after this change, it stays correct
 exactly when the countdown does. If the deadline can't be verified, hide the bar
 rather than animate an unverified one — same detection, same slide-out.
 
+Later (2026-11-10): a local deadline keeps running while the clock is paused,
+so the bar drained while the timer beside it stood still. The bar now renders
+from the timer's own numbers, through `windDownProgress`, and moves only when
+the timer does. It still keeps the "stays correct exactly when the countdown
+does" property, because it is the countdown. See `dev/features/wind-down.md`.
+
 ### Step 4 — Heartbeat (backstop)
 
 `chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 })` — 30s is the
