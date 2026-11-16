@@ -373,7 +373,7 @@ export async function renderSessionSettingsCard(
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
       label: 'Banked sessions', value: cur.bankSessions,
-      hint: "If a session recharges when you have all your daily sessions, it's added to the bank, up to this many. Banked sessions don't expire.",
+      hint: "If a session refills when you have all your daily sessions, it's added to the bank, up to this many. Banked sessions don't expire.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
