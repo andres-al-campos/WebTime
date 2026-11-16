@@ -523,6 +523,8 @@ body {
 .sc-settings-twoup { display: flex; gap: var(--gap); }
 .sc-settings-twoup + .sc-settings-twoup { margin-top: 13px; }
 .sc-settings-twoup > .sc-stepper-group { flex: 1; }
+/* The sums under the steppers: quiet, figures in the mono face. */
+.sc-math { margin-top: 13px; font: 400 11px 'IBM Plex Mono'; color: var(--text-dim); line-height: 1.6; }
 
 /* toggle switch */
 .sc-toggle {

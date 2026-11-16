@@ -8,7 +8,7 @@
 //   Idle   — rules on, no session: the sessions held and when the next arrives.
 //   Off    — rules off for this domain.
 
-import { formatClock, getLocalDateStr } from '../shared/utils.js';
+import { formatClock, formatDuration, getLocalDateStr } from '../shared/utils.js';
 import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 import {
@@ -347,7 +347,7 @@ export async function renderSessionSettingsCard(
     stepper({
       label: 'Session length', value: cur.sessionLimit, unit: 'min',
       min: 1, max: 240, step: 1,
-      onChange: v => { cur.sessionLimit = v; persist(); },
+      onChange: v => { cur.sessionLimit = v; showMath(); persist(); },
     }).el,
     stepper({
       // Minutes between nudges, not a count: session length varies per session
@@ -364,16 +364,28 @@ export async function renderSessionSettingsCard(
       // How fast sessions come back: one every 24h / this.
       label: 'Sessions per day', value: cur.sessionsPerDay,
       min: 1, max: 24, step: 1,
-      onChange: v => { cur.sessionsPerDay = v; persist(); },
+      onChange: v => { cur.sessionsPerDay = v; showMath(); persist(); },
     }).el,
     stepper({
       // 10 is as many dots as the on-page gate's row can hold.
       label: 'Max sessions', value: cur.maxSessions,
       min: 1, max: 10, step: 1,
-      onChange: v => { cur.maxSessions = v; persist(); },
+      onChange: v => { cur.maxSessions = v; showMath(); persist(); },
     }).el
   );
-  body.append(rowOne, rowTwo);
+  // What the four numbers add up to: the average a day the rate allows, and
+  // the most that can be saved up for one sitting.
+  const math = el('div', 'sc-math');
+  const perDay = el('div', '');
+  const atMost = el('div', '');
+  math.append(perDay, atMost);
+  function showMath(): void {
+    const len = cur.sessionLimit * 60;
+    perDay.textContent = `${cur.sessionsPerDay} × ${cur.sessionLimit}m = ${formatDuration(cur.sessionsPerDay * len)} a day`;
+    atMost.textContent = `${cur.maxSessions} × ${cur.sessionLimit}m = ${formatDuration(cur.maxSessions * len)} at most saved up`;
+  }
+  showMath();
+  body.append(rowOne, rowTwo, math);
 
   card.append(head, body);
   host.replaceChildren(card);
