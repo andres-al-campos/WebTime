@@ -162,9 +162,18 @@ test('a start uses the row first and the bank last', () => {
   assert.deepEqual(split(started), { daily: 2, bank: 1, banked: 1 });
 });
 
-test('the bank is used once the row has no whole session', () => {
+test('the last partial daily session is used before the bank', () => {
   const b = { sessions: 1.4, at: T, bank: 1 };
-  assert.deepEqual(split(spend(b, rules, T).budget), { daily: 0.4, bank: 0, banked: 0 });
+  const started = spend(b, rules, T, 0.25);
+  near(started.fraction, 0.4);
+  assert.deepEqual(split(started.budget), { daily: 0, bank: 1, banked: 1 });
+});
+
+test('the bank is used once the row holds too little to start', () => {
+  const b = { sessions: 1.1, at: T, bank: 1 };
+  const started = spend(b, rules, T, 0.25);
+  assert.equal(started.fraction, 1);
+  assert.deepEqual(split(started.budget), { daily: 0.1, bank: 0, banked: 0 });
 });
 
 test('a refill goes to the row until it is full, then to the bank', () => {

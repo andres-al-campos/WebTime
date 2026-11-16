@@ -111,6 +111,54 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
   browser.runtime.sendMessage({ type: MSG.SETTINGS_UPDATED });
 }
 
+// One hint open at a time, closed by a click anywhere else or Escape.
+let openHint: { el: HTMLElement; close: () => void } | null = null;
+
+/**
+ * An ⓘ that opens its sentence in a box just above it. On click, not hover:
+ * something that only answers a hover reads as decoration, and nobody finds it.
+ * The box lives on <body> with fixed position, so a card's scroll or clipping
+ * can't cut it off, and it is kept inside the popup's edges.
+ */
+function hintButton(text: string): HTMLElement {
+  const btn = el('button', 'sc-stepper-info', 'i');
+  btn.setAttribute('aria-label', 'What is this?');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasThis = openHint?.el === btn;
+    openHint?.close();
+    if (wasThis) return;
+
+    const pop = el('div', 'sc-hint-pop', text);
+    document.body.append(pop);
+    const r = btn.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(
+      Math.max(margin, r.left + r.width / 2 - pop.offsetWidth / 2),
+      document.documentElement.clientWidth - pop.offsetWidth - margin,
+    );
+    pop.style.left = `${left}px`;
+    pop.style.top = `${Math.max(margin, r.top - pop.offsetHeight - 6)}px`;
+    requestAnimationFrame(() => pop.classList.add('is-open'));
+
+    const onAway = (ev: Event) => {
+      if (ev instanceof KeyboardEvent && ev.key !== 'Escape') return;
+      if (ev.type === 'click' && pop.contains(ev.target as Node)) return;
+      close();
+    };
+    const close = () => {
+      document.removeEventListener('click', onAway, true);
+      document.removeEventListener('keydown', onAway, true);
+      pop.remove();
+      if (openHint?.el === btn) openHint = null;
+    };
+    document.addEventListener('click', onAway, true);
+    document.addEventListener('keydown', onAway, true);
+    openHint = { el: btn, close };
+  });
+  return btn;
+}
+
 /** A stepper handle: its element plus a setter to drive it from outside (e.g. a
  *  sibling stepper carrying into it) without re-firing onChange. */
 interface Stepper {
@@ -156,11 +204,7 @@ export function stepper(opts: {
   if (!opts.noHead) {
     const head = el('div', 'sc-stepper-head');
     head.append(el('span', 'sc-stepper-label', opts.label));
-    if (opts.hint) {
-      const info = el('span', 'sc-stepper-info', 'i');
-      info.title = opts.hint;
-      head.append(info);
-    }
+    if (opts.hint) head.append(hintButton(opts.hint));
     group.append(head);
   }
 

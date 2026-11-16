@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 17:12, at 2.10.0.
+Updated 2026-11-16 17:31, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -32,8 +32,9 @@ gate.
 - When a session's time runs out the gate comes back.
 - The bank is the reserve for when the day runs out. A refill goes to the
   row of dots first and only to the bank when the row is full; a start uses
-  the row first and the bank only when the row has no whole session left,
-  and then the row's partial dot keeps filling. The two are stored apart
+  the row first, including its last partial session (a shorter session) when
+  that is 5 minutes or more. Only when the row holds less than that does a
+  whole session come from the bank, and the row's partial dot keeps filling. The two are stored apart
   (`bank` in `webTimeSessionBudget`); a budget stored before that banks
   whatever is over a day's worth.
 - A session running when the day resets ends there and returns what it had

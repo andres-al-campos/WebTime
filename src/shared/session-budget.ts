@@ -139,8 +139,10 @@ export function settle(b: Budget, rules: BudgetRules, now: number): Budget {
 }
 
 /**
- * How much of a session a start would use right now: 1 when a whole one is
- * held, what is held when that is at least `minFraction`, otherwise 0.
+ * How much of a session a start would use right now. The row is used before
+ * the bank: a whole session from the row, else the row's last partial session
+ * when it is at least `minFraction`, else a whole one from the bank, else
+ * whatever is held when that is at least `minFraction`; otherwise 0.
  *
  * A partial start exists so that ending early loses nothing all the way down:
  * seven eighths left over from a short visit is a 35-minute session, not an
@@ -148,10 +150,14 @@ export function settle(b: Budget, rules: BudgetRules, now: number): Budget {
  * offering a session too short to be one.
  */
 export function startable(b: Budget, rules: BudgetRules, now: number, minFraction = 1): number {
-  const held = sessionsAt(b, rules, now);
-  if (held >= 1 - EPSILON) return 1;
+  const { daily, bank } = heldAt(b, rules, now);
   const floor = Math.min(1, Math.max(0, minFraction));
-  return held > EPSILON && held >= floor - EPSILON ? held : 0;
+  const enough = (x: number) => x > EPSILON && x >= floor - EPSILON;
+  if (daily >= 1 - EPSILON) return 1;
+  if (enough(daily)) return daily;
+  if (bank >= 1 - EPSILON) return 1;
+  const held = daily + bank;
+  return held >= 1 - EPSILON ? 1 : enough(held) ? held : 0;
 }
 
 /**
@@ -167,8 +173,8 @@ export function spend(
   const fraction = startable(b, rules, now, minFraction);
   if (fraction <= 0) return null;
   const { daily, bank } = heldAt(b, rules, now);
-  // A row holding only part of a session keeps it filling, and a whole one
-  // comes from the bank; mixing the two would strand a fraction in the bank.
+  // A row too short to start keeps filling, and a whole session comes from
+  // the bank; mixing the two would strand a fraction in the bank.
   const fromBank = daily >= fraction - EPSILON ? 0
     : bank >= fraction - EPSILON ? fraction
     : fraction - daily;

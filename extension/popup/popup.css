@@ -521,13 +521,22 @@ body {
 .sc-stepper-label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); }
 /* Labels are read, not edited: no text cursor, no stray selection on a click. */
 .sc-stepper-head, .field label { cursor: default; user-select: none; }
-/* The hint behind a label, on hover. Sized to the label's cap height. */
+/* The hint behind a label, opened by a click. Sized to the label's cap height. */
 .sc-stepper-info {
   align-self: center; display: inline-flex; align-items: center; justify-content: center;
-  width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--text-faint);
-  font: 600 8px 'IBM Plex Sans'; color: var(--text-faint); cursor: default;
+  width: 11px; height: 11px; padding: 0; border-radius: 50%; border: 1px solid var(--text-faint);
+  background: none; font: 600 8px 'IBM Plex Sans'; color: var(--text-faint); cursor: pointer;
 }
 .sc-stepper-info:hover { color: var(--text); border-color: var(--text); }
+.sc-hint-pop {
+  position: fixed; z-index: 1000; width: 220px; padding: 9px 11px;
+  background: var(--bg-input); border: 1px solid var(--line-strong); border-radius: var(--radius-control-sm);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  font: 400 11.5px/1.45 'IBM Plex Sans'; color: var(--text);
+  opacity: 0; transform: translateY(3px);
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+.sc-hint-pop.is-open { opacity: 1; transform: none; }
 /* isolation gives the arrows' ::before (z-index -1) a floor to sit on, so the
    shape paints above this box's ground and below the glyph. */
 .sc-stepper-box {
