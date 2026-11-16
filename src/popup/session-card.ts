@@ -37,7 +37,7 @@ function ensureStorageListener(): void {
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (!(STORAGE.SESSION_STATE in changes) && !(STORAGE.SETTINGS in changes)
-      && !(STORAGE.SESSION_BUDGET in changes)) return;
+      && !(STORAGE.SESSION_BUDGET in changes) && !(STORAGE.SESSION_EXTRA in changes)) return;
     if (liveDomain === null) return;
     renderSessionCard(liveDomain, liveDayReset).catch(err =>
       console.error('Error re-rendering session card on storage change:', err));
@@ -402,6 +402,8 @@ interface Held {
   rules: BudgetRules;
   /** The site's full session length, seconds. */
   lengthSec: number;
+  /** Unused time from the last session, added to the next. */
+  extraSec: number;
 }
 
 // The row and its "Next session in" count regenerate while the popup is open,
@@ -441,7 +443,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
       const offer = startable(h.budget, h.rules, now, minFraction);
       const startAt = nextStartAt(h.budget, h.rules, now, minFraction);
       line.textContent = offer > 0
-        ? [`A ${formatClock(Math.round(offer * h.lengthSec))} session is ready on the site.`, nextText].filter(Boolean).join(' ')
+        ? [`A ${formatClock(Math.round(offer * h.lengthSec) + h.extraSec)} session is ready on the site.`, nextText].filter(Boolean).join(' ')
         : startAt === null ? 'No sessions regenerate.' : `Next session in ${inClock(startAt)}`;
     }
     line.style.display = line.textContent ? '' : 'none';
@@ -517,7 +519,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
   // being tracked; here there's no site at all.
   if (!domain) { host.replaceChildren(); return; }
 
-  const data = await browser.storage.local.get([STORAGE.SESSION_STATE, STORAGE.SETTINGS, STORAGE.TRACKED_TIME, STORAGE.SESSION_BUDGET]);
+  const data = await browser.storage.local.get([STORAGE.SESSION_STATE, STORAGE.SETTINGS, STORAGE.TRACKED_TIME, STORAGE.SESSION_BUDGET, STORAGE.SESSION_EXTRA]);
   const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const domainSettings = settings.domains?.[domain] || {};
 
@@ -533,6 +535,7 @@ export async function renderSessionCard(domain: string | null, dayResetTime: num
     budget: (data[STORAGE.SESSION_BUDGET]?.[domain] as Budget | undefined) ?? fullBudget(rules, Date.now()),
     rules,
     lengthSec: (domainSettings.sessionLimit || 40) * 60,
+    extraSec: data[STORAGE.SESSION_EXTRA]?.[domain] || 0,
   };
 
   // State from another day doesn't drive the card: rules are on, so it's Idle.

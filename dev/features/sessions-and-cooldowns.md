@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 01:12, at 2.10.0.
+Updated 2026-11-16 01:46, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -21,7 +21,7 @@ gate.
   session or behind the gate, so there is nothing to cancel there.
 - Sessions regenerate continuously: 3 a day by default (one every 8 hours), up
   to 4 held. There is no daily reset of what a site holds, and no cooldown.
-- A session that ends with time left returns the unused share. With less than
+- A session that ends with time left adds it to the next session. With less than
   a whole session held, the gate offers a shorter one, down to 5 minutes.
 - With nothing to offer, the gate shows "Next Session In" over a clock, and
   becomes the gate again on its own.

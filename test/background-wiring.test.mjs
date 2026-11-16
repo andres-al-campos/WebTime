@@ -229,12 +229,11 @@ test('rollover returns what each session had left before discarding it', () => {
 
 test('rollover stays synchronous', () => {
   // rolloverIfNewDay runs inside the tick path; awaiting a settings read here
-  // would reorder the record after the deletes below it. returnUnused reads
-  // the rules from the cache for that reason.
+  // would reorder the record after the deletes below it, and returnUnused runs
+  // there too.
   const body = functionBody('rolloverIfNewDay').replace(/\/\/[^\n]*/g, '');
   assert.ok(!/\bawait\b/.test(body), 'rolloverIfNewDay must stay synchronous');
-  assert.match(functionBody('returnUnused'), /cachedDomainSessionLimit\[domain\]/,
-    'returnUnused must read the rules from the in-memory cache');
+  assert.ok(!/\bawait\b/.test(functionBody('returnUnused')), 'returnUnused must stay synchronous');
 });
 
 // ---------------------------------------------------------------------------

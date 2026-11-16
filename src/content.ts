@@ -840,7 +840,7 @@ function gateCancel(): void {
 
 function renderGate(): void {
   if (!gateDialog || !gateState) return;
-  const { budget, rules, sessionLengthSeconds, minFraction } = gateState;
+  const { budget, rules, sessionLengthSeconds, minFraction, extraSeconds } = gateState;
   const now = Date.now();
   const held = sessionsAt(budget, rules, now);
   const offer = startable(budget, rules, now, minFraction);
@@ -876,7 +876,7 @@ function renderGate(): void {
     body.style.color = '#eee';
   } else {
     const next = nextSessionAt(budget, rules, now);
-    const lines = [`${formatClock(Math.round(offer * sessionLengthSeconds))} session`];
+    const lines = [`${formatClock(Math.round(offer * sessionLengthSeconds) + (extraSeconds || 0))} session`];
     if (next !== null) lines.push(`Next session in ${formatClock(Math.ceil((next - now) / 1000))}`);
     body.replaceChildren(...lines.map((text) => makeEl('div', { text })));
     body.style.fontSize = '14px';
@@ -1197,7 +1197,7 @@ function showEndSessionConfirm(): void {
   // timer the number is read against.
   const body = makeEl('div', {
     style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
-    text: `${formatClock(remaining)} unused is kept for later`,
+    text: `${formatClock(remaining)} unused is added to your next session`,
   });
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';

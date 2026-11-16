@@ -42,6 +42,8 @@ export const STORAGE = {
   SESSION_STATE: 'webTimeSessionState',
   SESSION_HISTORY: 'webTimeSessionHistory',
   SESSION_BUDGET: 'webTimeSessionBudget',
+  /** Seconds an early end left unused, per site, added to its next session. */
+  SESSION_EXTRA: 'webTimeSessionExtra',
   AVERAGE_POPUP_SHOWN: 'webTimeAveragePopupShown',
 } as const;
 

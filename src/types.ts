@@ -131,6 +131,8 @@ export interface ShowGateMessage {
   rules: BudgetRules;
   /** The site's full session length. */
   sessionLengthSeconds: number;
+  /** Unused time from the last session, added to the next one. */
+  extraSeconds: number;
   /** The smallest share of a session the gate will offer. */
   minFraction: number;
   /** Seconds between OK and the session starting. */

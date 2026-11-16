@@ -143,12 +143,12 @@ async function endEarly(opts) {
         'check END_SESSION_EARLY and endSession in background.ts, and SHOW_GATE in content.ts.');
     }
     console.log(`  verdict at the gate: ${run.lastVerdict()}`);
-    // 4 held, one used, and about 110 of its 120 seconds returned.
-    const held = (await run.storage('webTimeSessionBudget'))?.localhost?.sessions;
-    console.log(`  sessions held after ending ~10s into a 2-minute session: ${held?.toFixed(3)}`);
-    if (!(held > 3.85 && held < 3.95)) {
-      return fail(`Ending ~10s into a 2-minute session should leave about 3.9 sessions, storage holds ${held}.`,
-        'check returnUnused in background.ts and giveBack in session-budget.ts.');
+    // About 110 of the 120 seconds wait to be added to the next session.
+    const extra = (await run.storage('webTimeSessionExtra'))?.localhost;
+    console.log(`  extra kept after ending ~10s into a 2-minute session: ${extra}s`);
+    if (!(extra > 100 && extra < 115)) {
+      return fail(`Ending ~10s into a 2-minute session should keep about 110s for the next one, storage holds ${extra}.`,
+        'check returnUnused in background.ts.');
     }
 
     if (!(await passGate(page))) {
@@ -159,11 +159,17 @@ async function endEarly(opts) {
     const timer = await readTimer(page);
     const left = clockSeconds(timer.text);
     console.log(`  timer two seconds into the next session: "${timer.text}"`);
-    if (left === null || Math.abs(120 - left) > 6) {
-      return fail(`The next session should be a full 2:00, the timer shows "${timer.text}".`,
-        'check the length beginSession gives a whole session in background.ts.');
+    const expected = 120 + extra - 2;
+    if (left === null || Math.abs(expected - left) > 6) {
+      return fail(`The next session should be 2:00 plus the ${extra}s kept, the timer shows "${timer.text}".`,
+        'check that beginSession adds extraSeconds to the length in background.ts.');
     }
-    return pass(`ended early: confirm → gate → ${held.toFixed(2)} sessions held → a full next session`);
+    const after = (await run.storage('webTimeSessionExtra'))?.localhost;
+    if (after) {
+      return fail(`The kept time should be used up by the next session, ${after}s is still stored.`,
+        'check that beginSession clears extraSeconds in background.ts.');
+    }
+    return pass(`ended early: confirm → gate → ${extra}s kept → next session "${timer.text}"`);
   } finally {
     await run.close();
   }

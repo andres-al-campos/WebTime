@@ -21,11 +21,9 @@ import {
   type BudgetRules,
   budgetRules,
   fullBudget,
-  giveBack,
   minFractionFor,
   settle,
   spend,
-  unusedFraction,
 } from './shared/session-budget.js';
 import {
   type ClockState,
@@ -635,6 +633,15 @@ function clearSessionState(): void {
   browser.storage.local.remove(STORAGE.SESSION_STATE).catch(() => {});
 }
 
+// Unused time from an early end, per site, waiting to be added to the next
+// session. Stored apart from the day's session state so it survives the reset.
+const extraSeconds: Record<Domain, number> = {};
+
+function saveExtra(): void {
+  browser.storage.local.set({ [STORAGE.SESSION_EXTRA]: extraSeconds })
+    .catch(err => console.warn('Failed to persist session extra time:', err));
+}
+
 function saveBudgets(): void {
   browser.storage.local.set({ [STORAGE.SESSION_BUDGET]: budgets })
     .catch(err => console.warn('Failed to persist session budgets:', err));
@@ -647,7 +654,10 @@ function saveBudgets(): void {
  */
 async function loadBudgets(): Promise<void> {
   try {
-    const data = await browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]);
+    const data = await browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS, STORAGE.SESSION_EXTRA]);
+    for (const [domain, n] of Object.entries(data[STORAGE.SESSION_EXTRA] || {})) {
+      if (typeof n === 'number' && n > 0) extraSeconds[domain] = n;
+    }
     for (const [domain, b] of Object.entries(data[STORAGE.SESSION_BUDGET] || {})) {
       const budget = b as Budget;
       if (typeof budget?.sessions === 'number' && typeof budget?.at === 'number') budgets[domain] = budget;
@@ -1791,6 +1801,7 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
       sessionLengthSeconds,
       minFraction: minFractionFor(sessionLengthSeconds),
       countdownSeconds: GATE_COUNTDOWN_SECONDS,
+      extraSeconds: extraSeconds[domain] || 0,
     };
   }
   // The cache may have just learned this site has rules on.
@@ -1825,10 +1836,15 @@ async function beginSession(domain: Domain): Promise<void> {
   budgets[domain] = started.budget;
   saveBudgets();
   sessionsStartedToday[domain] = (sessionsStartedToday[domain] || 0) + 1;
-  // A partial session is the full length with a negative carryover. baseLength
-  // has to equal the setting, or the next settings change reads the difference
-  // as a length change and resizes the session to full.
-  const length = Math.round(started.fraction * sessionLengthSeconds);
+  // What the last session left unused rides on this one, so ending early pays
+  // off at the very next gate. A partial or extended session is the full
+  // length plus a carryover (negative or positive). baseLength has to equal
+  // the setting, or the next settings change reads the difference as a length
+  // change and resizes the session to full.
+  const extra = extraSeconds[domain] || 0;
+  delete extraSeconds[domain];
+  saveExtra();
+  const length = Math.round(started.fraction * sessionLengthSeconds) + extra;
   sessions[domain] = startSession({
     dailyTotal: dailyTotal(),
     baseLength: sessionLengthSeconds,
@@ -1842,16 +1858,12 @@ async function beginSession(domain: Domain): Promise<void> {
   log(`Session ${sessionsStartedToday[domain]} started for ${domain}: ${length}s, ${started.budget.sessions.toFixed(3)} held after.`);
 }
 
-/** Give a session's unused time back to its site, as a share of a full one. */
+/** Keep a session's unused time for the site's next session. */
 function returnUnused(domain: Domain, session: ActiveSession): void {
   const remaining = displayFor(session, dailyTotal()).remaining;
   if (remaining <= 0) return;
-  const cached = cachedDomainSessionLimit[domain];
-  const rules = cached?.budgetRules ?? budgetRules();
-  const fullLength = cached?.sessionLimitSeconds || session.baseLength;
-  const now = Date.now();
-  budgets[domain] = giveBack(budgetOf(domain, rules, now), rules, now, unusedFraction(remaining, fullLength));
-  saveBudgets();
+  extraSeconds[domain] = (extraSeconds[domain] || 0) + remaining;
+  saveExtra();
 }
 
 /**
