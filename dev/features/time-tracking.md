@@ -1,6 +1,6 @@
 # Time tracking
 
-Updated 2026-11-15 17:13, at 2.10.0.
+Updated 2026-11-16 14:56, at 2.10.0.
 
 WebTime counts the seconds you spend on each site per day, in the background,
 on any http or https page. Nothing to turn on.
@@ -39,6 +39,14 @@ check that the harness can fail.
 Last driven: 2026-10-06, Chrome (Playwright Chromium 1228, headless). Output:
 `stored localhost seconds on 2026-10-06: 15`.
 
+The other drives raise the inactivity timeout to an hour, so they never see
+it. `npm run drive -- sit-still` (~65s) keeps it at 30s, starts a session at
+the gate and then gives no input. Last driven 2026-11-16, Chrome headless: the
+timer froze at `⏱ 39:42`, 18s into the session and about 30s after the click
+on OK, with verdicts `running → os-idle`. The OS idle gate reads the real
+machine, so a mouse move restarting it is checked only when someone is using
+the Mac during the run.
+
 ## Gotchas
 
 - Whether the clock runs is decided in one place, the ordered gates
@@ -52,5 +60,8 @@ Last driven: 2026-10-06, Chrome (Playwright Chromium 1228, headless). Output:
   shows. Test clock changes on both.
 - The background logs every verdict change as `Clock verdict: a -> b` in debug
   builds; that's the first thing to read when time "stops".
+- A timer that freezes just after a session starts is usually this rule: the
+  gate's countdown runs while the hand is still, so on a silent page the
+  window since the last input can close within seconds of the start.
 - If the stored history was written by a newer build, this build refuses to
   read it and stops saving, so the newer data isn't overwritten.

@@ -175,6 +175,58 @@ async function endEarly(opts) {
   }
 }
 
+/** Sitting still after the gate on a silent page, with the default 30s
+ *  inactivity: the clock stops once the window since the last input passes,
+ *  and a mouse move starts it again. The OS idle gate asks this machine, so
+ *  whether it or the tab's own check stops the clock depends on whether
+ *  someone is using the Mac; the verdicts say which. */
+async function sitStill(opts) {
+  const run = await startRun({ ...opts, inactivityS: 30, storage: rules({ sessionLimitEnabled: true, sessionLimit: 40 }) });
+  try {
+    console.log('  40-minute sessions, inactivity 30s; OK is the last input');
+    const page = await openPage(run);
+    const verdictsBefore = run.verdicts().length;
+    let last = null;
+    let frozeAt = null;
+    for (let s = 1; s <= 50; s++) {
+      await page.waitForTimeout(1000);
+      const { text } = await readTimer(page);
+      if (text !== last) {
+        frozeAt = null;
+      } else if (frozeAt === null) {
+        frozeAt = s - 1;
+      }
+      if (s % 5 === 0 || (frozeAt === s - 1)) console.log(`    ${s}s after the gate: "${text}"`);
+      last = text;
+    }
+    const sinceStart = run.verdicts().slice(verdictsBefore - 1);
+    console.log(`  verdicts since the session started: ${sinceStart.join(' → ')}`);
+    if (frozeAt === null) {
+      return fail('The timer kept counting through 50s with no input on a silent page.',
+        'that means neither the tab check nor the OS idle gate stopped the clock; check activeTabIsEngaged and clockVerdict.');
+    }
+    console.log(`  timer stopped about ${frozeAt}s after the session started`);
+
+    const stoppedBy = run.lastVerdict();
+    // Synthetic moves are not OS input, so once the OS gate has stopped the
+    // clock only a person at this Mac can start it again.
+    if (stoppedBy === 'os-idle') {
+      return pass(`sat still: stopped ~${frozeAt}s into the session (os-idle); restarting on input needs a person at this Mac, not checked`);
+    }
+    await page.mouse.move(300, 300);
+    await page.waitForTimeout(2500);
+    const after = (await readTimer(page)).text;
+    console.log(`  after moving the mouse: "${last}" → "${after}" (verdict ${run.lastVerdict()})`);
+    if (after === last) {
+      return fail(`Moving the mouse did not start the clock again; it stayed at "${after}" with verdict ${run.lastVerdict()}.`,
+        'check USER_ACTIVE in background.ts and updateActivityState in content.ts.');
+    }
+    return pass(`sat still: stopped ~${frozeAt}s into the session (${stoppedBy}), a mouse move restarted it`);
+  } finally {
+    await run.close();
+  }
+}
+
 /** The 7-day average popup: a week at 60s/day puts it at 48s today. It pauses
  *  the clock until Continue. */
 async function averagePopup(opts) {
@@ -465,6 +517,7 @@ function exportData(opts) {
 export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
   nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
+  'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },

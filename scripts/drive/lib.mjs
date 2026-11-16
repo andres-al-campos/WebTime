@@ -33,7 +33,8 @@ export function localDate(daysAgo = 0) {
  * extension. `storage` (storage.local keys → values) is written and the
  * browser relaunched so the worker boots with it.
  *
- * The inactivity timeout is always raised to an hour. The os-idle gate asks the
+ * The inactivity timeout is raised to an hour unless `inactivityS` says
+ * otherwise. The os-idle gate asks the
  * OS, synthetic mouse moves don't count as input there, and with the default
  * 30s the clock stops whenever nobody has touched this machine for 30s.
  * Settings are applied by relaunching rather than SETTINGS_UPDATED, which
@@ -41,7 +42,7 @@ export function localDate(daysAgo = 0) {
  * settings is active; the harness is not). chrome.runtime.reload() is no
  * alternative: it disables a command-line-loaded extension.
  */
-export async function startRun({ extDir, headed = false, storage = {} }) {
+export async function startRun({ extDir, headed = false, storage = {}, inactivityS = 3600 }) {
   const server = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<!doctype html><title>WebTime drive</title><p>WebTime drive page</p>');
@@ -76,7 +77,7 @@ export async function startRun({ extDir, headed = false, storage = {} }) {
     const settings = storage.webTimeSettings ?? { global: {}, domains: {} };
     const seeded = {
       ...storage,
-      webTimeSettings: { ...settings, global: { ...settings.global, inactivityTimeoutS: 3600 } },
+      webTimeSettings: { ...settings, global: { ...settings.global, inactivityTimeoutS: inactivityS } },
     };
     await worker.evaluate((v) => chrome.storage.local.set(v), seeded);
     await context.close();
