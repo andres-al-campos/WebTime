@@ -23,7 +23,7 @@ await build({
 });
 const {
   fullBudget, regenIntervalMs, sessionsAt, settle, canStart, spend, giveBack,
-  unusedFraction, nextSessionAt, startable, nextStartAt,
+  unusedFraction, nextSessionAt, startable, nextStartAt, budgetRules, splitHeld,
 } = await import(pathToFileURL(outFile).href);
 
 const T = 1_700_000_000_000;
@@ -185,4 +185,17 @@ test('a session can start at the instant nextSessionAt names', () => {
   const at = nextSessionAt(b, rules, T);
   assert.equal(canStart(b, rules, at), true);
   assert.equal(canStart(b, rules, at - 1000), false);
+});
+
+test('the most a site holds is a day plus the bank', () => {
+  assert.deepEqual(budgetRules({}), { sessionsPerDay: 3, maxSessions: 4 });
+  assert.deepEqual(budgetRules({ sessionsPerDay: 2, bankSessions: 0 }), { sessionsPerDay: 2, maxSessions: 2 });
+  // A total stored before the bank existed becomes the bank above the day.
+  assert.deepEqual(budgetRules({ sessionsPerDay: 3, maxSessions: 5 }), { sessionsPerDay: 3, maxSessions: 5 });
+});
+
+test('the dots show up to a day; whole sessions past it are banked', () => {
+  assert.deepEqual(splitHeld(2.4, 3), { daily: 2.4, banked: 0 });
+  assert.deepEqual(splitHeld(3.4, 3), { daily: 3, banked: 0 });
+  assert.deepEqual(splitHeld(5, 3), { daily: 3, banked: 2 });
 });

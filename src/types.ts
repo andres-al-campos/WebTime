@@ -48,7 +48,8 @@ export interface DomainSettings {
   sessionLimit?: number; // Minutes — continuous usage before cooldown triggers
   cooldownIncrement?: number; // Unused since sessions regenerate; still on disk for existing users, never read
   sessionsPerDay?: number; // How many sessions regenerate per day (undefined = default)
-  maxSessions?: number; // The most sessions the site can hold (undefined = default)
+  bankSessions?: number; // Sessions that can be saved up beyond a day's worth (undefined = default)
+  maxSessions?: number; // Before bankSessions: the most held in all. Read only to derive the bank
   nudgeInterval?: number; // Minutes between nudges (0 = disabled, undefined = default)
 }
 

@@ -2,7 +2,7 @@ import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { formatClock, formatTimeCompact, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { sessionsAt, startable, nextSessionAt, nextStartAt } from './shared/session-budget.js';
+import { sessionsAt, startable, nextSessionAt, nextStartAt, splitHeld } from './shared/session-budget.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -862,7 +862,8 @@ function renderGate(): void {
   q('title').textContent = starting ? 'Starting Session' : waiting ? 'Next Session In' : 'Start a Session?';
 
   // While starting, the row already shows the session as used.
-  renderGateDots(q('dots'), starting ? Math.max(0, held - offer) : held, rules.maxSessions);
+  // Only a day's worth: the bank is the popup's to show.
+  renderGateDots(q('dots'), splitHeld(starting ? Math.max(0, held - offer) : held, rules.sessionsPerDay).daily, rules.sessionsPerDay);
 
   const body = q('body');
   if (starting) {
@@ -895,8 +896,8 @@ function renderGate(): void {
 }
 
 /** One dot per session the site can hold; `held` of them filled, the last in part. */
-function renderGateDots(row: HTMLElement, held: number, maxSessions: number): void {
-  const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(maxSessions)));
+function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number): void {
+  const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(sessionsPerDay)));
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
       style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0); transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1), border-color .7s cubic-bezier(.2,.8,.2,1), opacity .3s;`,

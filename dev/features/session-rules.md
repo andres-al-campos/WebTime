@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-16 01:41, at 2.10.0.
+Updated 2026-11-16 02:59, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions-and-cooldowns.md).
@@ -10,9 +10,10 @@ each started at the [gate](sessions-and-cooldowns.md).
 - On/off toggle per site. Off means tracking only.
 - Session length: 1–240 min (default 40).
 - Nudge every: 0–120 min (default 20; 0 shows "Disabled").
-- Sessions per day: 1–24 (default 3). One session returns every 24h ÷ this.
-- Max sessions: 1–10 (default 4). The most a site holds; a full row earns
-  nothing more.
+- Sessions per day: 1–10 (default 3), also the dots on the gate. One session returns every 24h ÷ this.
+- Bank up to: 0–10 (default 1). Sessions saved up past a day's worth; a full
+  bank earns nothing more. Stored as `bankSessions`; a `maxSessions` stored
+  before it is read as the bank above the day.
 - Under the steppers, sessions per day × length = the average a day,
   updated as they change.
 - Every change saves immediately and applies to a running session: shrinking
@@ -39,7 +40,7 @@ Last driven: 2026-11-15, Chrome headless. Saved 40-minute sessions and
 
 - These are per-site settings stored with the globals; the gear's Settings
   sheet is global-only and doesn't show them.
-- Changing sessions per day or the maximum keeps what was already waited:
+- Changing sessions per day or the bank keeps what was already waited:
   the background settles what the site holds at the old rules first.
 - A length change is applied by comparing the running session's length with
   the settings, not with the previous settings. Remembering the previous ones

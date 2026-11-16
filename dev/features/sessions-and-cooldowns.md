@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 01:46, at 2.10.0.
+Updated 2026-11-16 02:59, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -9,8 +9,8 @@ gate.
 ## Sub-features
 
 - With rules on and no session running, every tab of the site is blurred
-  behind the gate: "Start a Session?", a row of dots (one per session the site
-  can hold, the one regenerating at half opacity), the session's length, and
+  behind the gate: "Start a Session?", a row of dots (one per session a day,
+  the one regenerating at half opacity; banked sessions aren't shown), the session's length, and
   when the next session arrives. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
@@ -20,12 +20,14 @@ gate.
 - The gate has OK and nothing else: a site with rules on is either in a
   session or behind the gate, so there is nothing to cancel there.
 - Sessions regenerate continuously: 3 a day by default (one every 8 hours), up
-  to 4 held. There is no daily reset of what a site holds, and no cooldown.
+  to a day's worth plus the bank (1 by default), so 4 held. There is no daily reset of what a site holds, and no cooldown.
 - A session that ends with time left adds it to the next session. With less than
   a whole session held, the gate offers a shorter one, down to 5 minutes.
 - With nothing to offer, the gate shows "Next Session In" over a clock, and
   becomes the gate again on its own.
 - When a session's time runs out the gate comes back.
+- The bank is what overflows a day, so it is used first: with one banked,
+  starting a session leaves the gate's row full and the popup's count drops.
 - A session running when the day resets ends there and returns what it had
   left.
 - Each finished session is recorded for [past-day sessions](past-day-sessions.md).
@@ -58,6 +60,7 @@ and regeneration over hours were not driven. Not driven on Firefox.
 - A partial session is stored as the full length with a negative `carryover`.
   Its `baseLength` has to equal the setting, or the next settings change reads
   the difference as a length change and resizes it to full.
-- The popup's session card shows the same row of dots and "Next session in",
+- The popup's session card shows the same row of dots, "+1 banked" when the
+  site holds whole sessions past a day's worth, and "Next session in",
   ticking while it is open. Only the row and that line tick: re-rendering the
   card each second would replace the End button under a click.

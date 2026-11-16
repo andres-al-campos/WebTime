@@ -35,17 +35,37 @@ export interface BudgetRules {
 }
 
 export const DEFAULT_SESSIONS_PER_DAY = 3;
-export const DEFAULT_MAX_SESSIONS = 4;
+/** Sessions that can be saved up beyond a day's worth. */
+export const DEFAULT_BANK_SESSIONS = 1;
 
 /** A session shorter than this isn't offered; the gate waits for more. */
 export const MIN_SESSION_SECONDS = 5 * 60;
 
-/** A site's rules from its settings, with the defaults filled in. */
-export function budgetRules(cfg?: { sessionsPerDay?: number; maxSessions?: number }): BudgetRules {
-  return {
-    sessionsPerDay: cfg?.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
-    maxSessions: cfg?.maxSessions ?? DEFAULT_MAX_SESSIONS,
-  };
+/**
+ * A site's rules from its settings, with the defaults filled in. The most a
+ * site holds is a day's sessions plus its bank.
+ */
+export function budgetRules(cfg?: { sessionsPerDay?: number; bankSessions?: number; maxSessions?: number }): BudgetRules {
+  const sessionsPerDay = cfg?.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY;
+  return { sessionsPerDay, maxSessions: sessionsPerDay + bankOf(cfg, sessionsPerDay) };
+}
+
+/** The bank setting, or one derived from a total stored before the bank existed. */
+export function bankOf(cfg: { bankSessions?: number; maxSessions?: number } | undefined, sessionsPerDay: number): number {
+  if (cfg?.bankSessions !== undefined) return Math.max(0, cfg.bankSessions);
+  if (cfg?.maxSessions !== undefined) return Math.max(0, cfg.maxSessions - sessionsPerDay);
+  return DEFAULT_BANK_SESSIONS;
+}
+
+/**
+ * What is held, split for display: up to a day's worth shown as the row of
+ * dots, and whole sessions beyond that counted as banked. The bank is what
+ * overflows the day, so it is used before the dots: with one banked, starting
+ * a session leaves the row full and the count at zero.
+ */
+export function splitHeld(held: number, sessionsPerDay: number): { daily: number; banked: number } {
+  const daily = Math.min(held, Math.max(0, sessionsPerDay));
+  return { daily, banked: Math.floor(Math.max(0, held - daily) + EPSILON) };
 }
 
 /** The smallest share of a session worth starting, for a given full length. */

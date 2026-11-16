@@ -13,7 +13,7 @@ import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 import {
   budgetRules, fullBudget, sessionsAt, nextSessionAt, nextStartAt, startable, minFractionFor,
-  DEFAULT_SESSIONS_PER_DAY, DEFAULT_MAX_SESSIONS, type Budget, type BudgetRules,
+  DEFAULT_SESSIONS_PER_DAY, bankOf, splitHeld, type Budget, type BudgetRules,
 } from '../shared/session-budget.js';
 
 declare const browser: typeof chrome;
@@ -74,7 +74,7 @@ interface DomainLimits {
   sessionLimit?: number;          // minutes
   nudgeInterval?: number;
   sessionsPerDay?: number;
-  maxSessions?: number;
+  bankSessions?: number;
 }
 
 // Serialize writes: rapid stepper clicks each do read-modify-write on the same
@@ -102,7 +102,7 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
       sessionLimit: (next.sessionLimit || 0) > 0 ? next.sessionLimit : undefined,
       nudgeInterval: next.nudgeInterval,
       sessionsPerDay: next.sessionsPerDay,
-      maxSessions: next.maxSessions,
+      bankSessions: next.bankSessions,
     };
   } else {
     delete settings.domains[domain];
@@ -288,7 +288,7 @@ function cardShell(): HTMLElement {
 
 /**
  * Per-site "Session rules" card (top of the detail right panel). Toggle +
- * length / nudge / sessions-per-day / max-sessions steppers. Persists per-domain on every change.
+ * length / nudge / sessions-per-day / bank steppers. Persists per-domain on every change.
  */
 export async function renderSessionSettingsCard(
   domain: string | null,
@@ -310,7 +310,7 @@ export async function renderSessionSettingsCard(
     sessionLimit: d.sessionLimit || 40,
     nudgeInterval: d.nudgeInterval ?? DEFAULT_NUDGE_INTERVAL_MIN,
     sessionsPerDay: d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
-    maxSessions: d.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    bankSessions: bankOf(d as DomainLimits & { maxSessions?: number }, d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY),
   };
   // Just persist. The live session card re-renders REACTIVELY via the storage
   // listener (on both our settings write and the background's session-state
@@ -361,16 +361,17 @@ export async function renderSessionSettingsCard(
   const rowTwo = el('div', 'sc-settings-twoup');
   rowTwo.append(
     stepper({
-      // How fast sessions come back: one every 24h / this.
+      // How fast sessions come back: one every 24h / this. Also the dots on
+      // the gate, so 10 is as many as its row can hold.
       label: 'Sessions per day', value: cur.sessionsPerDay,
-      min: 1, max: 24, step: 1,
+      min: 1, max: 10, step: 1,
       onChange: v => { cur.sessionsPerDay = v; showMath(); persist(); },
     }).el,
     stepper({
-      // 10 is as many dots as the on-page gate's row can hold.
-      label: 'Max sessions', value: cur.maxSessions,
-      min: 1, max: 10, step: 1,
-      onChange: v => { cur.maxSessions = v; showMath(); persist(); },
+      // Sessions left over from quiet days, kept past a day's worth.
+      label: 'Bank up to', value: cur.bankSessions,
+      min: 0, max: 10, step: 1,
+      onChange: v => { cur.bankSessions = v; persist(); },
     }).el
   );
   // What a day of sessions adds up to.
@@ -412,22 +413,26 @@ interface Held {
 let heldTicker: ReturnType<typeof setInterval> | null = null;
 
 /**
- * The row of sessions held (the one regenerating at half opacity) and the line
- * under it. With `running` the line is when the next whole session arrives;
+ * The row of a day's sessions (the one regenerating at half opacity), the
+ * count banked beyond it, and the line under them. With `running` the line is when the next whole session arrives;
  * without, it also says what the gate would offer right now.
  */
 function heldBlock(h: Held, running: boolean): HTMLElement[] {
   const dots = el('div', 'sc-dots');
-  const count = Math.max(1, Math.min(10, Math.ceil(h.rules.maxSessions)));
+  const count = Math.max(1, Math.min(10, Math.ceil(h.rules.sessionsPerDay)));
   for (let i = 0; i < count; i++) dots.append(el('span', 'sc-dot'));
+  const bank = el('span', 'sc-bank');
+  dots.append(bank);
   const line = el('div', 'sc-sub');
 
   const update = () => {
     const now = Date.now();
     const held = sessionsAt(h.budget, h.rules, now);
+    const { daily, banked } = splitHeld(held, h.rules.sessionsPerDay);
+    bank.textContent = banked > 0 ? `+${banked} banked` : '';
     for (let i = 0; i < count; i++) {
       const dot = dots.children[i] as HTMLElement;
-      const fill = Math.min(1, Math.max(0, held - i));
+      const fill = Math.min(1, Math.max(0, daily - i));
       const whole = fill > 0.999;
       dot.style.setProperty('--sc-fill', `${(whole ? 1 : fill) * 100}%`);
       dot.classList.toggle('is-full', whole);

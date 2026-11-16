@@ -493,7 +493,8 @@ body {
 
 /* The sessions a site holds: a full dot per whole session, a pie at half
    opacity for the one regenerating, an empty ring for each one used. */
-.sc-dots { display: flex; gap: 7px; margin: 0 0 10px; }
+.sc-dots { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; }
+.sc-bank { margin-left: 4px; font: 500 11px 'IBM Plex Mono'; color: var(--text); }
 .sc-dot {
   width: 15px; height: 15px; border-radius: 50%; box-sizing: border-box;
   border: 1.5px solid var(--line-strong);
@@ -524,7 +525,7 @@ body {
 .sc-settings-twoup + .sc-settings-twoup { margin-top: 13px; }
 .sc-settings-twoup > .sc-stepper-group { flex: 1; }
 /* The sums under the steppers: quiet, figures in the mono face. */
-.sc-math { margin-top: 13px; font: 400 11px 'IBM Plex Mono'; color: var(--text-dim); line-height: 1.6; }
+.sc-math { margin-top: 13px; font: 400 11px 'IBM Plex Mono'; color: var(--text); line-height: 1.6; }
 
 /* toggle switch */
 .sc-toggle {
