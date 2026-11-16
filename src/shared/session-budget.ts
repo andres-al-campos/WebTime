@@ -69,17 +69,39 @@ export function bankOf(cfg: { bankSessions?: number; maxSessions?: number } | un
  * runs out. `banked` is the whole sessions in the bank, for display.
  */
 export function heldAt(b: Budget, rules: BudgetRules, now: number): { daily: number; bank: number; banked: number } {
-  const perDay = Math.max(0, Math.min(rules.sessionsPerDay, rules.maxSessions));
-  const bankMax = Math.max(0, rules.maxSessions - Math.max(0, rules.sessionsPerDay));
+  const { perDay, bankMax } = capsOf(rules);
+  const kept = keptAt(b, rules, now);
+  const daily = Math.min(perDay, kept.daily);
+  const bank = Math.min(bankMax, kept.bank);
+  return { daily, bank, banked: Math.floor(bank + EPSILON) };
+}
+
+function capsOf(rules: BudgetRules): { perDay: number; bankMax: number } {
+  return {
+    perDay: Math.max(0, Math.min(rules.sessionsPerDay, rules.maxSessions)),
+    bankMax: Math.max(0, rules.maxSessions - Math.max(0, rules.sessionsPerDay)),
+  };
+}
+
+/**
+ * Both buckets at `now`, refilled, but not cut down to the current caps. A
+ * bucket already over its cap (the setting was lowered) keeps what it had and
+ * takes no refill, so lowering a setting and raising it again loses nothing.
+ * Only a start commits the lower caps, so the row drops when one is used.
+ */
+function keptAt(b: Budget, rules: BudgetRules, now: number): { daily: number; bank: number } {
+  const { perDay, bankMax } = capsOf(rules);
   const sessions = Math.max(0, b.sessions);
   const storedBank = Math.min(sessions, Math.max(0, b.bank ?? sessions - perDay));
+  const storedDaily = sessions - storedBank;
   // A `now` before `at` (the clock was set back) refills nothing rather than
   // taking sessions away.
   const refilled = Math.max(0, now - b.at) / regenIntervalMs(rules);
-  const rowAndRefill = sessions - storedBank + refilled;
-  const daily = Math.min(perDay, rowAndRefill);
-  const bank = Math.min(bankMax, storedBank + Math.max(0, rowAndRefill - perDay));
-  return { daily, bank, banked: Math.floor(bank + EPSILON) };
+  const room = Math.max(0, perDay - storedDaily);
+  const daily = storedDaily + Math.min(room, refilled);
+  const overflow = Math.max(0, refilled - room);
+  const bank = storedBank >= bankMax ? storedBank : Math.min(bankMax, storedBank + overflow);
+  return { daily, bank };
 }
 
 /** The smallest share of a session worth starting, for a given full length. */
@@ -112,7 +134,7 @@ export function sessionsAt(b: Budget, rules: BudgetRules, now: number): number {
  * the old rate, and reading it back at a new one would rewrite it.
  */
 export function settle(b: Budget, rules: BudgetRules, now: number): Budget {
-  const { daily, bank } = heldAt(b, rules, now);
+  const { daily, bank } = keptAt(b, rules, now);
   return { sessions: daily + bank, at: now, bank };
 }
 

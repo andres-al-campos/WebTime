@@ -189,3 +189,20 @@ test('settling keeps the buckets apart', () => {
   const b = settle({ sessions: 3, at: T, bank: 1 }, rules, T + 4 * HOUR);
   assert.deepEqual(split(b, rules, T + 4 * HOUR), { daily: 2.5, bank: 1, banked: 1 });
 });
+
+test('lowering a setting and raising it again keeps what was held', () => {
+  const seven = { sessionsPerDay: 7, maxSessions: 9 };
+  const three = { sessionsPerDay: 3, maxSessions: 4 };
+  // 5 in the row and 2 banked; lower to 3 a day with 1 banked, then back.
+  let b = { sessions: 7, at: T, bank: 2 };
+  b = settle(b, seven, T);
+  assert.deepEqual(split(b, three), { daily: 3, bank: 1, banked: 1 });
+  b = settle(b, three, T);
+  assert.deepEqual(split(b, seven), { daily: 5, bank: 2, banked: 2 });
+});
+
+test('a start under a lowered setting uses what is shown', () => {
+  const three = { sessionsPerDay: 3, maxSessions: 4 };
+  const started = spend({ sessions: 7, at: T, bank: 2 }, three, T).budget;
+  assert.deepEqual(split(started, three), { daily: 2, bank: 1, banked: 1 });
+});
