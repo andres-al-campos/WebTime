@@ -524,15 +524,15 @@ function globalSettings(opts) {
       return fail(`Saving changed Inactivity to ${saved.inactivityTimeoutS} though it was not touched.`,
         'saveSettings writes every global from the form: check loadSettings fills #inactivity-timeout from storage.');
     }
-    if (saved.dayResetTime !== 23 || saved.dayResetMinute !== 45) {
-      return fail(`Stepped Day resets at down from 00:00 and saved; storage holds ${saved.dayResetTime}:${saved.dayResetMinute}, not 23:45.`,
+    if (saved.dayResetTime !== 23 || saved.dayResetMinute !== 55) {
+      return fail(`Stepped Day resets at down from 00:00 and saved; storage holds ${saved.dayResetTime}:${saved.dayResetMinute}, not 23:55.`,
         'stepping past midnight should come round the clock: check the cycle option in stepper (popup/session-card.ts) and #day-reset-stepper in ui-manager.ts.');
     }
     if (saved.startCountdownS !== 9) {
       return fail(`Stepped Start countdown down from 10 and saved; storage holds ${saved.startCountdownS}.`,
         'check #start-countdown-stepper mirrors into #start-countdown and saveSettings writes startCountdownS (popup/ui-manager.ts).');
     }
-    return pass(`Chart scale saved as ${saved.scalingPower}, start countdown as 9s, day reset wrapped to 23:45; untouched settings kept`);
+    return pass(`Chart scale saved as ${saved.scalingPower}, start countdown as 9s, day reset wrapped to 23:55; untouched settings kept`);
   });
 }
 

@@ -369,12 +369,12 @@ export async function loadSettings(): Promise<void> {
     const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     const global = settings.global || {};
-    // Arrows step a quarter hour, round the clock; any minute can be typed.
+    // Arrows step 5 minutes, round the clock; any minute can be typed.
     const dayResetEl = document.getElementById('day-reset-minutes') as HTMLInputElement | null;
     const dayResetVal = dayResetMinutesOf(global);
     if (dayResetEl) dayResetEl.value = String(dayResetVal);
     mountSettingsStepper('day-reset-stepper', dayResetEl, 'Day resets at', '', {
-      value: dayResetVal, min: 0, max: 1439, step: 15, quantum: 1, cycle: true,
+      value: dayResetVal, min: 0, max: 1439, step: 5, quantum: 1, cycle: true,
       format: formatTimeOfDay, parse: parseTimeOfDay,
     });
 
