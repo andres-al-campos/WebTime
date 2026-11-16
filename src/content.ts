@@ -701,6 +701,7 @@ let gatePausedMedia: HTMLMediaElement[] = [];
 let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
+const GATE_BLUE_HALF = 'rgba(69, 113, 231, 0.5)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -900,7 +901,7 @@ function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number):
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(sessionsPerDay)));
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1), border-color .7s cubic-bezier(.2,.8,.2,1), opacity .3s;`,
+      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(var(--wt-gate-pie) var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
@@ -909,9 +910,9 @@ function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number):
     const fill = Math.min(1, Math.max(0, held - i));
     const whole = fill > 0.999;
     dot.style.setProperty('--wt-gate-fill', `${(whole ? 1 : fill) * 100}%`);
-    dot.style.borderColor = whole ? GATE_BLUE : 'rgba(255,255,255,.22)';
-    // The one regenerating reads as not yet there.
-    dot.style.opacity = fill > 0 && !whole ? '0.5' : '1';
+    // Every dot keeps the same ring; the one regenerating fills at half
+    // strength so it reads as not yet there.
+    dot.style.setProperty('--wt-gate-pie', fill > 0 && !whole ? GATE_BLUE_HALF : GATE_BLUE);
   }
 }
 

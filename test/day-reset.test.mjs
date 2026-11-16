@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 
 const out = join(mkdtempSync(join(tmpdir(), 'webtime-reset-test-')), 'utils.mjs');
 await build({ entryPoints: ['src/shared/utils.ts'], bundle: true, format: 'esm', outfile: out, platform: 'node' });
-const { dayResetMinutesOf, getLocalDateStr } = await import(pathToFileURL(out).href);
+const { dayResetMinutesOf, getLocalDateStr, formatTimeOfDay, parseTimeOfDay } = await import(pathToFileURL(out).href);
 
 test('an hour saved alone reads as that hour', () => {
   assert.equal(dayResetMinutesOf({ dayResetTime: 4 }), 240);
@@ -29,4 +29,16 @@ test('before the reset minute it is still yesterday', () => {
   const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   assert.equal(getLocalDateStr(minutes + 1), key(yesterday), 'a reset one minute from now has not happened yet');
   assert.equal(getLocalDateStr(minutes), key(now), 'a reset this minute has happened');
+});
+
+test('the reset time reads back as it was typed', () => {
+  assert.equal(formatTimeOfDay(0), '00:00');
+  assert.equal(formatTimeOfDay(270), '04:30');
+  for (const [typed, minutes] of [['7', 420], ['7:30', 450], ['07:30', 450], ['730', 450], ['0005', 5], ['23:59', 1439]]) {
+    assert.equal(parseTimeOfDay(typed), minutes, typed);
+  }
+});
+
+test("what isn't a time is refused, not read as midnight", () => {
+  for (const typed of ['', '24:00', '7:60', 'noon', '12345']) assert.equal(parseTimeOfDay(typed), null, typed);
 });

@@ -15,7 +15,7 @@ import {
   highlightBar,
   type DomainPieData
 } from './chart-builder.js';
-import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek, dayResetMinutesOf } from '../shared/utils.js';
+import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek, dayResetMinutesOf, formatTimeOfDay, parseTimeOfDay } from '../shared/utils.js';
 import { renderSessionCard, renderSessionSettingsCard, stepper } from './session-card.js';
 import { renderPastDayCards, backToTodayButton } from './past-day-cards.js';
 import { sessionsFor } from '../shared/session-history.js';
@@ -349,14 +349,14 @@ function mountSettingsStepper(
   input: HTMLInputElement | null,
   label: string,
   unit: string,
-  opts: { value: number; min: number; max: number; step: number },
+  opts: { value: number; min: number; max: number; step: number } & Partial<Parameters<typeof stepper>[0]>,
 ): void {
   const mount = document.getElementById(mountId);
   if (!mount || !input) return;
   const existing = settingsSteppers[mountId];
   if (existing) { existing.setValue(opts.value); return; }
   const s = stepper({
-    label, unit, value: opts.value, min: opts.min, max: opts.max, step: opts.step,
+    ...opts, label, unit,
     onChange: v => { input.value = String(v); },
   });
   mount.replaceChildren(s.el);
@@ -369,11 +369,14 @@ export async function loadSettings(): Promise<void> {
     const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     const global = settings.global || {};
-    const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLInputElement | null;
-    if (dayResetTimeEl) {
-      const m = dayResetMinutesOf(global);
-      dayResetTimeEl.value = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    }
+    // Arrows step a quarter hour, round the clock; any minute can be typed.
+    const dayResetEl = document.getElementById('day-reset-minutes') as HTMLInputElement | null;
+    const dayResetVal = dayResetMinutesOf(global);
+    if (dayResetEl) dayResetEl.value = String(dayResetVal);
+    mountSettingsStepper('day-reset-stepper', dayResetEl, 'Day resets at', '', {
+      value: dayResetVal, min: 0, max: 1439, step: 15, quantum: 1, cycle: true,
+      format: formatTimeOfDay, parse: parseTimeOfDay,
+    });
 
     const inactivityEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
@@ -440,7 +443,8 @@ export async function saveSettings(): Promise<void> {
     const data = await browser.storage.local.get(STORAGE.SETTINGS);
     const settings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
-    const dayResetTimeEl = document.getElementById('day-reset-time') as HTMLInputElement | null;
+    const dayResetEl = document.getElementById('day-reset-minutes') as HTMLInputElement | null;
+    const dayResetMinutes = Math.max(0, Math.min(1439, parseInt(dayResetEl?.value || '0', 10) || 0));
     const inactivityTimeoutEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
     const countdownEl = document.getElementById('start-countdown') as HTMLInputElement | null;
@@ -459,9 +463,8 @@ export async function saveSettings(): Promise<void> {
 
     const clampedScaling = Math.max(0.3, Math.min(1.0, scalingPower));
     settings.global = {
-      // "HH:MM" from the time field; cleared reads as midnight.
-      dayResetTime: parseInt((dayResetTimeEl?.value || '00:00').split(':')[0], 10) || 0,
-      dayResetMinute: parseInt((dayResetTimeEl?.value || '00:00').split(':')[1], 10) || 0,
+      dayResetTime: Math.floor(dayResetMinutes / 60),
+      dayResetMinute: dayResetMinutes % 60,
       inactivityTimeoutS: parseInt(inactivityTimeoutEl?.value || '30') || 30,
       scalingPower: clampedScaling,
       endSessionShortcut,

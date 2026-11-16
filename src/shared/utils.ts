@@ -89,6 +89,25 @@ export function dayResetMinutesOf(global?: { dayResetTime?: number; dayResetMinu
   return (global?.dayResetTime || 0) * 60 + (global?.dayResetMinute || 0);
 }
 
+/** Minutes past midnight as "HH:MM". */
+export function formatTimeOfDay(minutes: number): string {
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * A typed time of day as minutes past midnight: "7", "7:30", "07:30", "730".
+ * Null for anything that isn't a time, so the field can put back what it had.
+ */
+export function parseTimeOfDay(text: string): number | null {
+  const t = text.trim();
+  const match = /^(\d{1,2})(?:[:.h]?(\d{2}))?$/.exec(t);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = match[2] === undefined ? 0 : Number(match[2]);
+  return h < 24 && m < 60 ? h * 60 + m : null;
+}
+
 export function getLocalDateStr(resetMinutes: number = 0): string {
   const now = new Date();
 

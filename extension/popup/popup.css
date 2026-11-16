@@ -411,10 +411,6 @@ body {
   border-color: var(--accent);
 }
 
-/* The native time field takes the input box look above; the clock icon is
-   dimmed to the caption colour so it doesn't outshine the value. */
-.field input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
-.field input[type="time"] { color-scheme: dark; }
 
 .shortcut-row { display: flex; gap: var(--gap); align-items: center; }
 .shortcut-row input { flex: 1; cursor: pointer; }
@@ -465,20 +461,22 @@ body {
 .sc-time-row .sc-sub { margin-bottom: 0; }
 .sc-sub { font: 400 11px 'IBM Plex Sans'; color: var(--text-dim); margin-bottom: 11px; }
 
-/* The sessions a site holds: a full dot per whole session, a pie at half
-   opacity for the one regenerating, an empty ring for each one used. The pie
-   stays inside the ring: a background repeats into the border by default, so
-   the ring showed slivers from the far side of the pie. */
+/* The sessions a site holds: a full dot per whole session, a half-strength
+   pie for the one regenerating, an empty ring for each one used. Every dot
+   has the same ring; only the fill inside it changes. The fill stays inside
+   the ring: a background repeats into the border by default, so the ring
+   showed slivers from the far side of the pie. */
 .sc-dots { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; }
 .sc-bank { margin-left: 4px; font: 500 11px 'IBM Plex Mono'; color: var(--text); }
 .sc-dot {
   width: 15px; height: 15px; border-radius: 50%; box-sizing: border-box;
-  border: 1.5px solid var(--line-strong);
-  background: conic-gradient(var(--accent) var(--sc-fill, 0%), transparent 0) padding-box no-repeat;
+  border: 1px solid var(--line-strong);
+  --sc-pie: var(--accent);
+  background: conic-gradient(var(--sc-pie) var(--sc-fill, 0%), transparent 0) padding-box no-repeat;
 }
 /* Solid, not a 100% conic: the gradient leaves a hairline seam at the top. */
-.sc-dot.is-full { border-color: var(--accent); background: var(--accent); }
-.sc-dot.is-part { opacity: 0.5; }
+.sc-dot.is-full { background: var(--accent) padding-box; }
+.sc-dot.is-part { --sc-pie: color-mix(in srgb, var(--accent) 50%, transparent); }
 .sc-good { color: var(--good); font-weight: 600; }
 
 .sc-btn {
@@ -521,6 +519,15 @@ body {
 
 .sc-stepper-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: var(--label-gap); }
 .sc-stepper-label { font: 600 11px 'IBM Plex Sans'; color: var(--text-dim); }
+/* Labels are read, not edited: no text cursor, no stray selection on a click. */
+.sc-stepper-head, .field label { cursor: default; user-select: none; }
+/* The hint behind a label, on hover. Sized to the label's cap height. */
+.sc-stepper-info {
+  align-self: center; display: inline-flex; align-items: center; justify-content: center;
+  width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--text-faint);
+  font: 600 8px 'IBM Plex Sans'; color: var(--text-faint); cursor: default;
+}
+.sc-stepper-info:hover { color: var(--text); border-color: var(--text); }
 /* isolation gives the arrows' ::before (z-index -1) a floor to sit on, so the
    shape paints above this box's ground and below the glyph. */
 .sc-stepper-box {

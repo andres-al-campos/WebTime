@@ -1,12 +1,14 @@
 # Global settings
 
-Updated 2026-11-16 16:29, at 2.10.0.
+Updated 2026-11-16 17:10, at 2.10.0.
 
 Settings that apply to every site.
 
 ## Sub-features
 
-- Day resets at: a time field, any hour and minute (default midnight). It
+- Day resets at: a stepper like the others, showing HH:MM. The arrows step a
+  quarter hour and come round past midnight; any minute can be typed ("7",
+  "7:30", "730"). Default midnight. It
   decides which day time is counted under; sessions held don't reset.
 - Inactivity: 5–600s in 5s steps (default 30). How long after your last input
   a silent tab stops counting.

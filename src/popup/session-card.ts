@@ -141,14 +141,26 @@ export function stepper(opts: {
    *  quantity ("Off"), so the box doesn't read as a real interval of zero. The
    *  unit suffix is hidden alongside it. */
   zeroLabel?: string;
-  /** One sentence shown on hover, for a setting its label can't explain. */
+  /** One sentence shown on hovering an ⓘ beside the label, for a setting its
+   *  label can't explain. */
   hint?: string;
+  /** The grid typed values snap to, when finer than the arrows' step. */
+  quantum?: number;
+  /** Stepping past either end comes round to the other, as a clock does. */
+  cycle?: boolean;
+  /** Show and read the value as text other than a plain number (a time). */
+  format?: (v: number) => string;
+  parse?: (text: string) => number | null;
 }): Stepper {
   const group = el('div', 'sc-stepper-group');
-  if (opts.hint) group.title = opts.hint;
   if (!opts.noHead) {
     const head = el('div', 'sc-stepper-head');
     head.append(el('span', 'sc-stepper-label', opts.label));
+    if (opts.hint) {
+      const info = el('span', 'sc-stepper-info', 'i');
+      info.title = opts.hint;
+      head.append(info);
+    }
     group.append(head);
   }
 
@@ -169,9 +181,10 @@ export function stepper(opts: {
   // neither the display nor the persisted value carries it. 2 decimals covers the
   // finest step (0.05); trailing zeros are dropped so integers read "40" not
   // "40.00".
+  const quantum = opts.quantum ?? opts.step;
   const quantize = (v: number) => {
     const m = minOf();
-    return parseFloat((m + Math.round((v - m) / opts.step) * opts.step).toFixed(2));
+    return parseFloat((m + Math.round((v - m) / quantum) * quantum).toFixed(2));
   };
   const unitEl = opts.unit
     ? Object.assign(document.createElement('span'), {
@@ -183,7 +196,7 @@ export function stepper(opts: {
   // field stays editable either way; typing a number restores the normal render.
   const setNum = (v: number) => {
     const off = opts.zeroLabel !== undefined && v === 0;
-    valEl.textContent = off ? opts.zeroLabel! : String(v);
+    valEl.textContent = off ? opts.zeroLabel! : opts.format ? opts.format(v) : String(v);
     valWrap.classList.toggle('is-zero', off);
     if (unitEl) unitEl.style.display = off ? 'none' : '';
   };
@@ -198,7 +211,10 @@ export function stepper(opts: {
     const min = minOf();
     const span = opts.max - min + opts.step; // wrap modulus, in step units
     const raw = cur + dir * opts.step;
-    if (opts.onCarry && (raw > opts.max || raw < min)) {
+    if (opts.cycle) {
+      const cycleSpan = opts.max - min + quantum;
+      cur = ((((raw - min) % cycleSpan) + cycleSpan) % cycleSpan) + min;
+    } else if (opts.onCarry && (raw > opts.max || raw < min)) {
       // Past an edge: let the neighbour absorb the carry. If it accepts, wrap
       // within [min,max]; if it vetoes (e.g. minutes already 0), stay put.
       if (opts.onCarry(dir)) {
@@ -224,7 +240,7 @@ export function stepper(opts: {
       setNum(cur);
       return;
     }
-    const parsed = parseFloat(raw);
+    const parsed = opts.parse ? opts.parse(raw) ?? NaN : parseFloat(raw);
     if (Number.isFinite(parsed)) {
       cur = quantize(Math.max(minOf(), Math.min(opts.max, parsed)));
       opts.onChange(cur);

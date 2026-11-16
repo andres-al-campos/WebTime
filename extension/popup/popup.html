@@ -113,8 +113,8 @@
 
           <div class="settings-body wt-scroll">
             <div class="field">
-              <label for="day-reset-time">Day resets at</label>
-              <input type="time" id="day-reset-time" value="00:00" required>
+              <input type="number" id="day-reset-minutes" value="0" min="0" max="1439" hidden>
+              <div id="day-reset-stepper" class="settings-stepper-mount"></div>
             </div>
 
             <!-- Inactivity + chart-scale: the <input>s are the data store that
