@@ -1,6 +1,6 @@
 # Global settings
 
-Updated 2026-11-16 14:39, at 2.10.0.
+Updated 2026-11-16 14:43, at 2.10.0.
 
 Settings that apply to every site.
 
@@ -32,12 +32,14 @@ Preconditions: `./build.sh`.
 2. Expected: `webTimeSettings.global.inactivityTimeoutS` in storage holds the
    new value.
 
-`npm run drive -- global-settings` (~5s): steps Chart scale down, saves, and
-checks storage holds the new scale and the untouched Inactivity value. It
+`npm run drive -- global-settings` (~5s): steps Chart scale and Start
+countdown down, saves, and checks storage holds both and the untouched
+Inactivity value. It
 doesn't check the background picks the settings up.
 
-Last driven: 2026-10-07, Chrome. Saved `scalingPower: 0.95`,
-`inactivityTimeoutS` kept.
+Last driven: 2026-11-16, Chrome headless. Saved `scalingPower: 0.95` and
+`startCountdownS: 5`, `inactivityTimeoutS` kept. A gate using a changed
+countdown was not driven.
 
 ## Gotchas
 
