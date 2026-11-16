@@ -123,11 +123,6 @@ export function startable(b: Budget, rules: BudgetRules, now: number, minFractio
   return held > EPSILON && held >= floor - EPSILON ? held : 0;
 }
 
-/** Whether a session can start. */
-export function canStart(b: Budget, rules: BudgetRules, now: number, minFraction = 1): boolean {
-  return startable(b, rules, now, minFraction) > 0;
-}
-
 /**
  * Start a session: use what `startable` offers. `fraction` is how much of a
  * full-length session was bought. Null when nothing can start.
@@ -151,7 +146,7 @@ export function spend(
  * nothing regenerates. This is the wait the out-of-sessions screen counts.
  */
 export function nextStartAt(b: Budget, rules: BudgetRules, now: number, minFraction = 1): number | null {
-  if (canStart(b, rules, now, minFraction)) return null;
+  if (startable(b, rules, now, minFraction) > 0) return null;
   const interval = regenIntervalMs(rules);
   if (!Number.isFinite(interval)) return null;
   const floor = Math.min(1, Math.max(0, minFraction));
@@ -159,26 +154,6 @@ export function nextStartAt(b: Budget, rules: BudgetRules, now: number, minFract
   const missing = target - sessionsAt(b, rules, now);
   if (missing <= 0) return null;
   return now + missing * interval;
-}
-
-/**
- * Return part of a session, as a share of a full-length one: what an early
- * end left unused. Never past the maximum.
- */
-export function giveBack(b: Budget, rules: BudgetRules, now: number, fraction: number): Budget {
-  const part = Math.min(1, Math.max(0, fraction));
-  const max = Math.max(0, rules.maxSessions);
-  return { sessions: Math.min(max, sessionsAt(b, rules, now) + part), at: now };
-}
-
-/**
- * The share of a FULL-LENGTH session left unused, for giveBack. Pass the
- * site's session length, not this session's: a 35-minute partial session
- * ended with 10 minutes left returns 10/40, not 10/35.
- */
-export function unusedFraction(remainingSeconds: number, lengthSeconds: number): number {
-  if (lengthSeconds <= 0) return 0;
-  return Math.min(1, Math.max(0, remainingSeconds / lengthSeconds));
 }
 
 /**

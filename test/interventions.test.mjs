@@ -42,52 +42,19 @@ test('a session with time left continues', () => {
     session: session(600),
     dailyTotal: 300,
     sessionLimitSeconds: 600,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 0,
-    now: 1000,
   });
   assert.equal(outcome.kind, 'continue');
 });
 
-test('a session that reached its limit fires a cooldown', () => {
+test('a session that reached its limit ends', () => {
   const s = session(600);
   const outcome = checkSessionLimit({
     session: s,
     dailyTotal: 600,
     sessionLimitSeconds: 600,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 0,
-    now: 1000,
   });
   assert.equal(outcome.kind, 'limit-reached');
   assert.equal(outcome.endedSessionNum, s.sessionNum);
-  assert.ok(outcome.result.cooldownSeconds > 0);
-  assert.equal(outcome.result.nextSession.sessionNum, s.sessionNum + 1);
-});
-
-test('an active cooldown short-circuits before the limit is considered', () => {
-  // Distinct from 'continue': the caller must stop running other interventions.
-  const outcome = checkSessionLimit({
-    session: session(600),
-    dailyTotal: 600,
-    sessionLimitSeconds: 600,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 5000,
-    now: 1000,
-  });
-  assert.equal(outcome.kind, 'in-cooldown');
-});
-
-test('a cooldown that has expired no longer short-circuits', () => {
-  const outcome = checkSessionLimit({
-    session: session(600),
-    dailyTotal: 300,
-    sessionLimitSeconds: 600,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 900,
-    now: 1000,
-  });
-  assert.equal(outcome.kind, 'continue');
 });
 
 test('no session limit configured means nothing to enforce', () => {
@@ -95,24 +62,18 @@ test('no session limit configured means nothing to enforce', () => {
     session: session(600),
     dailyTotal: 99999,
     sessionLimitSeconds: 0,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 0,
-    now: 1000,
   });
   assert.equal(outcome.kind, 'continue');
 });
 
-test('grace and carryover push the limit out', () => {
-  // Both are baked into effectiveLength, so a session at its base length but
+test('carryover pushes the limit out', () => {
+  // It is part of effectiveLength, so a session at its base length but
   // holding carryover has not actually ended.
   const s = session(600, { carryover: 120 });
   const outcome = checkSessionLimit({
     session: s,
     dailyTotal: 600,
     sessionLimitSeconds: 600,
-    cooldownIncrementSeconds: 60,
-    cooldownEndsAt: 0,
-    now: 1000,
   });
   assert.equal(outcome.kind, 'continue');
 });
@@ -182,7 +143,7 @@ function nudgeBurst(coalesce) {
   const M = 60;
   const session = {
     sessionNum: 1, startDaily: 0, baseLength: 30 * M,
-    carryover: 0, graceSeconds: 0, nudgeSeed: 42, firedNudges: [],
+    carryover: 0, nudgeSeed: 42, firedNudges: [],
   };
   let state = session;
   let sent = 0;

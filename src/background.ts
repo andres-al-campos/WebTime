@@ -366,7 +366,6 @@ async function rescheduleWakes(): Promise<void> {
   const ok = shouldScheduleWakes({
     clockRunning: isRunning(dailyClock),
     hasSession: Boolean(session),
-    inCooldown: false,
   });
   if (!ok || !session) return;
 
@@ -751,7 +750,6 @@ async function loadSessionHistory(): Promise<void> {
 function recordFinishedSession(
   domain: Domain,
   session: ActiveSession | undefined,
-  cooldownSeconds: number,
   endState: SessionEndState,
   dateStr: DateString = currentDateStr
 ): void {
@@ -760,7 +758,7 @@ function recordFinishedSession(
     log(`Session not recorded for ${domain}: stored history is read-only this run.`);
     return;
   }
-  const record = toRecord(session, dailyTotal(), cooldownSeconds, endState);
+  const record = toRecord(session, dailyTotal(), endState);
   sessionHistory = pruneHistory(
     appendRecord(sessionHistory, dateStr, domain, record),
     SESSION_HISTORY_KEEP_DAYS
@@ -769,7 +767,7 @@ function recordFinishedSession(
     .catch(err => console.warn('Failed to persist session history:', err));
   log(
     `Recorded ${domain} session ${session.sessionNum} on ${dateStr}: ` +
-    `${record[0]}s/${record[1]}s, ${record[2]}s cooldown, ${endState}`
+    `${record[0]}s/${record[1]}s, ${endState}`
   );
 }
 
@@ -928,7 +926,7 @@ function rolloverIfNewDay(): boolean {
     const session = sessions[domain];
     if (!session) continue;
     returnUnused(domain, session);
-    recordFinishedSession(domain, session, 0, 'dayEnded', currentDateStr);
+    recordFinishedSession(domain, session, 'dayEnded', currentDateStr);
     ended.push(domain);
   }
 
@@ -1123,7 +1121,7 @@ function updateTimerDisplay(updatedTime: number): void {
         log(
           `[timer] domain=${trackedTabDomain} daily=${updatedTime}s ` +
           `start=${session.startDaily}s base=${session.baseLength}s ` +
-          `carryover=${session.carryover}s grace=${session.graceSeconds}s ` +
+          `carryover=${session.carryover}s ` +
           `effLimit=${display.sessionLimitSeconds}s sessionTime=${display.sessionTime}s ` +
           `→ remaining=${display.remaining}s`
         );
@@ -1465,7 +1463,7 @@ function applyUpdatedSettings(): void {
           `Session limit changed for ${domain}: ` +
           `effLimit=${display.sessionLimitSeconds}s remaining=${display.remaining}s ` +
           `(daily=${dailyTotal()}s, base=${newLimitSeconds}s, ` +
-          `carryover=${updated.carryover}s, grace=${updated.graceSeconds}s)`
+          `carryover=${updated.carryover}s)`
         );
       }
     }
@@ -1886,7 +1884,7 @@ function endSession(domain: Domain, endState: SessionEndState): void {
   // that would miss them. `session` keeps the object alive for the record.
   delete sessions[domain];
   syncClock();
-  recordFinishedSession(domain, session, 0, endState);
+  recordFinishedSession(domain, session, endState);
   returnUnused(domain, session);
   clearWindDown(domain);
   saveSessionState();
@@ -1917,9 +1915,6 @@ function checkSessionLimit(settings: InterventionSettings): boolean {
     session,
     dailyTotal: dailyTotal(),
     sessionLimitSeconds,
-    cooldownIncrementSeconds: 0,
-    cooldownEndsAt: 0,
-    now: Date.now(),
   });
   if (outcome.kind !== 'limit-reached') return false;
 

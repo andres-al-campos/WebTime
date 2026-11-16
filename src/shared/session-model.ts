@@ -5,7 +5,7 @@
 // AT WHICH IT STARTED (startDaily), not to a modulo-of-daily-total boundary.
 // Everything else — remaining time, nudge times, wind-down, end-of-session —
 // derives from this object. Live length changes become "mutate baseLength";
-// carryover and grace are fields on the session, not parallel domain maps.
+// carryover is a field on the session, not a parallel domain map.
 //
 // Pure functions only. No browser APIs. Unit-testable with `node --test`.
 
@@ -16,20 +16,17 @@ export const WIND_DOWN_DURATION = 60;
 // ---------------------------------------------------------------------------
 
 export interface ActiveSession {
-  /** 1-based session number for the day. Drives cooldown length. */
+  /** 1-based session number for the day, shown as "End Session N?". */
   sessionNum: number;
   /** dailyTotal (seconds) at the moment this session began. The anchor. */
   startDaily: number;
   /** Base limit in seconds, AS IT APPLIES TO THIS SESSION. Live-editable. */
   baseLength: number;
-  /** Rolled-over seconds from an early end of the previous session. */
-  carryover: number;
   /**
-   * Grace seconds baked into this session AT BIRTH (earned from the previous
-   * session's early end). Part of the duration from the start — there is no
-   * mid-session "grace kicks in" moment. 0 means none was earned; reads clean.
+   * Seconds on top of baseLength: negative for a partial session started from
+   * less than a whole one, positive for time an early end carried over.
    */
-  graceSeconds: number;
+  carryover: number;
   /**
    * Session-relative seconds (since startDaily) of nudges already fired.
    * The only "I already did this" bookkeeping the session needs.
@@ -46,7 +43,7 @@ export interface ActiveSession {
 
 /** Total allowed length of this session. */
 export function effectiveLength(s: ActiveSession): number {
-  return s.baseLength + s.carryover + s.graceSeconds;
+  return s.baseLength + s.carryover;
 }
 
 export interface SessionDisplay {
@@ -75,15 +72,12 @@ export function startSession(opts: {
   baseLength: number;
   sessionNum?: number;
   carryover?: number;
-  /** Grace earned from the PREVIOUS session's early end. Baked in at birth. */
-  graceSeconds?: number;
 }): ActiveSession {
   return {
     sessionNum: opts.sessionNum ?? 1,
     startDaily: opts.dailyTotal,
     baseLength: opts.baseLength,
     carryover: opts.carryover ?? 0,
-    graceSeconds: opts.graceSeconds ?? 0,
     firedNudges: [],
     // Fresh randomness every session — the single Math.random call in this module.
     nudgeSeed: Math.floor(Math.random() * 0x7fffffff),
@@ -104,96 +98,13 @@ export function sessionPhase(opts: { rulesOn: boolean; hasSession: boolean }): S
   return opts.hasSession ? 'running' : 'gate';
 }
 
-export interface CooldownResult {
-  cooldownSeconds: number;
-  /** The session the user enters AFTER the cooldown ends. */
-  nextSession: ActiveSession;
-  /** Grace earned for the next session (0 if none). */
-  graceEarned: number;
-}
-
 /**
- * The stored cooldown increment (fractional minutes) as whole seconds.
- *
- * Settings persists `coolMin + coolSec / 60`, so the value arrives having been
- * divided by 60 and about to be multiplied by 60 again. That round-trip is not
- * exact in binary floating point: 4:30 stores as 4.5 and survives, but 0:31
- * comes back as 31.000000000000004 and 4:30's neighbours come back a hair
- * *under* — which formatClock then floors to 4:29. 49 of the 3600 reachable
- * minute/second combinations display one second short without this round.
- *
- * Rounding here rather than at each display site keeps the noise from entering
- * the system at all: everything downstream — cooldownLength, the recorded
- * cooldownSec, the card's division back out — is then exact integer work.
- */
-export function incrementSeconds(cooldownIncrementMinutes: number | undefined): number {
-  return Math.round((cooldownIncrementMinutes || 0) * 60);
-}
-
-/**
- * Cooldown grows with the session number: session N → N * increment seconds.
- * If no increment is configured (0), there is no cooldown. The old code fell
- * back to `baseLength` here — a vestigial "need some number" default that tied
- * cooldown length to session length for no real reason. Dropped.
+ * The cooldown that followed session N under the old escalating cooldowns:
+ * N * increment seconds. Sessions no longer have one; past-day cards still
+ * read it to describe records from before.
  */
 export function cooldownLength(sessionNum: number, increment: number): number {
   return increment > 0 ? sessionNum * increment : 0;
-}
-
-/**
- * Natural end: the user reached the end of the session's effective length.
- * Carryover is consumed; the next session is a clean baseLength session
- * anchored at the current daily.
- */
-export function naturalEnd(s: ActiveSession, opts: {
-  dailyTotal: number;
-  cooldownIncrement: number;
-}): CooldownResult {
-  const cooldownSeconds = cooldownLength(s.sessionNum, opts.cooldownIncrement);
-  return {
-    cooldownSeconds,
-    graceEarned: 0,
-    nextSession: startSession({
-      dailyTotal: opts.dailyTotal,
-      baseLength: s.baseLength,
-      sessionNum: s.sessionNum + 1,
-    }),
-  };
-}
-
-/**
- * End early: the user quit with `remaining` seconds left. Those seconds roll
- * into the next session as carryover, and 10% of them is earned as grace.
- * Returns null if there's nothing to claim (already at/over the end).
- */
-export function endEarly(s: ActiveSession, opts: {
-  dailyTotal: number;
-  cooldownIncrement: number;
-}): CooldownResult | null {
-  const { remaining } = displayFor(s, opts.dailyTotal);
-  const carryover = Math.max(0, remaining);
-  if (carryover <= 0) return null;
-
-  const cooldownSeconds = cooldownLength(s.sessionNum, opts.cooldownIncrement);
-  // 10% of the given-up time is always earned, regardless of whether this
-  // session was itself grace-extended — the bonus tracks time left, not the
-  // session's pedigree.
-  const graceEarned = computeGraceSeconds(carryover);
-
-  return {
-    cooldownSeconds,
-    graceEarned,
-    // Grace and carryover are baked into the next session HERE, at birth.
-    // The next session simply *is* base+carryover+grace long from second 0 —
-    // there is no later "grace kicks in" moment and thus no gap.
-    nextSession: startSession({
-      dailyTotal: opts.dailyTotal,
-      baseLength: s.baseLength,
-      sessionNum: s.sessionNum + 1,
-      carryover,
-      graceSeconds: graceEarned,
-    }),
-  };
 }
 
 /**
@@ -203,7 +114,7 @@ export function endEarly(s: ActiveSession, opts: {
  * negative, in which case the caller should treat the session as ended.
  *
  * Returns the updated session. If the change pushes the user at/past the end,
- * `expired` is true and the caller fires a cooldown via naturalEnd().
+ * `expired` is true and the caller ends the session.
  */
 export function changeLength(s: ActiveSession, opts: {
   dailyTotal: number;
@@ -212,11 +123,6 @@ export function changeLength(s: ActiveSession, opts: {
   const updated: ActiveSession = { ...s, baseLength: opts.newBaseLength };
   const { remaining } = displayFor(updated, opts.dailyTotal);
   return { session: updated, expired: remaining <= 0 };
-}
-
-/** 10% of given-up time is earned as grace for the next session. */
-export function computeGraceSeconds(remainingSeconds: number): number {
-  return Math.floor(remainingSeconds * 0.1);
 }
 
 // ---------------------------------------------------------------------------
@@ -399,9 +305,8 @@ export function instantFor(
 export function shouldScheduleWakes(opts: {
   clockRunning: boolean;
   hasSession: boolean;
-  inCooldown: boolean;
 }): boolean {
-  return opts.clockRunning && opts.hasSession && !opts.inCooldown;
+  return opts.clockRunning && opts.hasSession;
 }
 
 export interface ScheduledWake {

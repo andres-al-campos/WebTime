@@ -41,15 +41,14 @@ function session(overrides = {}) {
     startDaily: 0,
     baseLength: 900,
     carryover: 0,
-    graceSeconds: 0,
     firedNudges: [],
     ...overrides,
   };
 }
 
-test('effective length is base + carryover + grace', () => {
+test('effective length is base + carryover', () => {
   assert.equal(effectiveLengthOf(session()), 900);
-  assert.equal(effectiveLengthOf(session({ carryover: 420, graceSeconds: 42 })), 1362);
+  assert.equal(effectiveLengthOf(session({ carryover: 420 })), 1320);
 });
 
 test('used is measured from the session anchor, not the day start', () => {
@@ -70,13 +69,10 @@ test('used never goes negative', () => {
   assert.equal(usedSecondsOf(s, 0), 0);
 });
 
-test('a record captures the cooldown that ran, not one derived later', () => {
-  const s = session({ sessionNum: 3 });
-  const r = toRecord(s, 900, 900, 'completed');
-  assert.deepEqual(r, [900, 900, 900, 'completed']);
-  // Nothing in the record references the increment setting, so changing it
-  // cannot alter this session's stored cooldown.
-  assert.equal(r[2], 900);
+test('a new record stores no cooldown', () => {
+  // The slot stays so records written while cooldowns existed still read.
+  const r = toRecord(session({ sessionNum: 3 }), 900, 'completed');
+  assert.deepEqual(r, [900, 900, 0, 'completed']);
 });
 
 test('append builds a day per domain, in order', () => {
@@ -128,19 +124,9 @@ test('running totals accumulate used time across the day', () => {
   assert.deepEqual(totals, [900, 1380, 2390]);
 });
 
-test('a day-ended session records the cooldown it would have served', () => {
-  // The rollover pre-empted the cooldown, but what it WOULD have been is a real
-  // fact about the session. Storing it keeps the card stable when the increment
-  // setting changes later — the same reason every other record stores its own.
-  const r = toRecord(session({ sessionNum: 3, startDaily: 1800 }), 2100, 900, 'dayEnded');
-  assert.deepEqual(r, [300, 900, 900, 'dayEnded']);
-});
-
-test('a zero cooldown is recorded when the domain has cooldowns off', () => {
-  // cooldownLength() returns 0 when the increment is 0. That is a true record —
-  // no cooldown ran and none was due — distinct from the day-ended case above.
-  const r = toRecord(session({ sessionNum: 2 }), 900, 0, 'completed');
-  assert.deepEqual(r, [900, 900, 0, 'completed']);
+test('a day-ended session records what it used', () => {
+  const r = toRecord(session({ sessionNum: 3, startDaily: 1800 }), 2100, 'dayEnded');
+  assert.deepEqual(r, [300, 900, 0, 'dayEnded']);
 });
 
 

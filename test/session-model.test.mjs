@@ -2,9 +2,9 @@
 // Run with: npm test  (or: node --test test/session-model.test.mjs)
 // Compiles the module inline via esbuild, then runs assertions.
 //
-// Headline cases: live-length-change (shrink preserves elapsed time) and grace
-// baked in at session birth (no mid-session gap, wind-down only at the true
-// extended tail).
+// Headline cases: live-length-change (shrink preserves elapsed time) and
+// carryover baked in at session birth (wind-down only at the true extended
+// tail).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -25,8 +25,7 @@ await build({
 const mod = await import(pathToFileURL(outFile).href);
 const {
   startSession, effectiveLength, displayFor,
-  naturalEnd, endEarly, changeLength, cooldownLength, incrementSeconds,
-  computeGraceSeconds, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
+  changeLength, cooldownLength, computeNudgeTimes, nextNudgeToFire, markNudgeFired,
   windDownState, windDownProgress, WIND_DOWN_DURATION,
   endsAtSessionTime, windDownAtSessionTime, secondsUntil, instantFor, scheduleFor,
   shouldScheduleWakes,
@@ -38,8 +37,8 @@ const M = 60;
 // Derivers
 // ---------------------------------------------------------------------------
 
-test('effectiveLength sums base + carryover + grace', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, carryover: 5 * M, graceSeconds: 1 * M });
+test('effectiveLength sums base + carryover', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, carryover: 6 * M });
   assert.equal(effectiveLength(s), 36 * M);
 });
 
@@ -76,7 +75,7 @@ test('changeLength: 55→45 min at 40 min in → 5 min remaining (the reported b
 });
 
 // ---------------------------------------------------------------------------
-// CASE 2 — shrink past elapsed → expired (caller fires cooldown)
+// CASE 2 — shrink past elapsed → expired (caller ends the session)
 // ---------------------------------------------------------------------------
 
 test('changeLength: shrink below elapsed → expired=true', () => {
@@ -104,70 +103,13 @@ test('changeLength: 45→55 min at 30 min in → 25 min remaining, not expired',
 });
 
 // ---------------------------------------------------------------------------
-// CASE 4 — endEarly bakes carryover + grace into the next session AT BIRTH
+// cooldownLength — still read by past-day cards for records from before refills
 // ---------------------------------------------------------------------------
-
-test('endEarly: 10 min left → carryover 10 min, grace 1 min, both baked into next session', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum: 1 });
-  // 20 min in → 10 min left
-  const r = endEarly(s, { dailyTotal: 20 * M, cooldownIncrement: 5 * M });
-  assert.ok(r !== null);
-  assert.equal(r.graceEarned, 1 * M); // 10% of 10 min = 1 min
-
-  const next = r.nextSession;
-  assert.equal(next.sessionNum, 2);
-  assert.equal(next.startDaily, 20 * M);     // anchored at current daily
-  assert.equal(next.carryover, 10 * M);
-  assert.equal(next.graceSeconds, 1 * M);
-  // Effective length from second 0 — grace is part of the duration, no gap.
-  assert.equal(effectiveLength(next), 30 * M + 10 * M + 1 * M);
-});
-
-test('endEarly: returns null when nothing left to claim', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M });
-  assert.equal(endEarly(s, { dailyTotal: 30 * M, cooldownIncrement: 5 * M }), null);
-  assert.equal(endEarly(s, { dailyTotal: 35 * M, cooldownIncrement: 5 * M }), null);
-});
-
-// The end-session confirm quotes the cooldown BEFORE the user commits, by
-// calling cooldownLength directly with the session number it has on hand. The
-// blocker then shows what endEarly actually produced. If those two ever
-// disagreed the dialog would be lying about the price, so pin them together.
-test('cooldownLength matches the cooldown endEarly actually fires', () => {
-  for (const sessionNum of [1, 2, 3, 7]) {
-    for (const increment of [0, 3 * M, 5 * M]) {
-      const s = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum });
-      const quoted = cooldownLength(sessionNum, increment);
-      const r = endEarly(s, { dailyTotal: 10 * M, cooldownIncrement: increment });
-      assert.equal(r.cooldownSeconds, quoted,
-        `session ${sessionNum}, increment ${increment}`);
-    }
-  }
-});
 
 test('cooldownLength: no increment configured means no cooldown to quote', () => {
   assert.equal(cooldownLength(4, 0), 0);
 });
 
-// ---------------------------------------------------------------------------
-// CASE 5 — grace tracks time left, not the session's pedigree
-// ---------------------------------------------------------------------------
-
-test('endEarly: a grace-extended session still earns 10% of time left', () => {
-  // This session was BORN with grace (graceSeconds > 0).
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, graceSeconds: 1 * M, sessionNum: 2 });
-  // End it early with time left — 10% is earned regardless of prior grace.
-  const r = endEarly(s, { dailyTotal: 20 * M, cooldownIncrement: 5 * M });
-  assert.ok(r !== null);
-  // effLen 31 min, 20 in → 11 left; 10% of 11 min = 66s.
-  assert.equal(r.nextSession.carryover, 11 * M);
-  assert.equal(r.graceEarned, 66);
-  assert.equal(r.nextSession.graceSeconds, 66);
-});
-
-// ---------------------------------------------------------------------------
-// CASE 6 — catch-up nudge after a shrink
-// ---------------------------------------------------------------------------
 
 test('nextNudgeToFire: a nudge that moves behind us after shrink fires once', () => {
   // Long session with a known nudge schedule. computeNudgeTimes reads the same
@@ -350,11 +292,11 @@ test('computeNudgeTimes: count grows linearly with length at a fixed interval', 
 });
 
 // ---------------------------------------------------------------------------
-// CASE 8 — wind-down only at the extended tail (after carryover + grace)
+// CASE 8 — wind-down only at the extended tail (after carryover)
 // ---------------------------------------------------------------------------
 
-test('windDownState: not active at base-60 when session has carryover+grace', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, carryover: 5 * M, graceSeconds: 1 * M });
+test('windDownState: not active at base-60 when session has carryover', () => {
+  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, carryover: 6 * M });
   const eff = effectiveLength(s); // 36 min
   // At base - 60 (29 min in) — would be wind-down on a plain 30-min session,
   // but here the real end is 36 min, so NOT active.
@@ -379,42 +321,6 @@ test('windDownProgress: the bar is the timer drawn as a line', () => {
   assert.equal(windDownProgress(30 * M - 30, 31 * M), null);
   // Sessions shorter than the wind-down never show it.
   assert.equal(windDownProgress(10, 50), null);
-});
-
-// ---------------------------------------------------------------------------
-// CASE 9 — cooldown length: increment in seconds, 0 = immediate roll-over
-// ---------------------------------------------------------------------------
-
-test('naturalEnd: cooldown = sessionNum * increment (seconds)', () => {
-  const s3 = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum: 3 });
-  const r = naturalEnd(s3, { dailyTotal: 30 * M, cooldownIncrement: 5 * M });
-  assert.equal(r.cooldownSeconds, 15 * M); // 3 * 5 min
-  assert.equal(r.nextSession.sessionNum, 4);
-  assert.equal(r.nextSession.carryover, 0); // natural end consumes carryover
-});
-
-test('naturalEnd: increment 0 → 0 cooldown (limit still fires, immediate roll-over)', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum: 1 });
-  const r = naturalEnd(s, { dailyTotal: 30 * M, cooldownIncrement: 0 });
-  assert.equal(r.cooldownSeconds, 0);     // no wait
-  assert.equal(r.nextSession.sessionNum, 2); // but the session DID end & rolled over
-});
-
-test('cooldown increment is seconds-granular (not minute-rounded)', () => {
-  const s = startSession({ dailyTotal: 0, baseLength: 30 * M, sessionNum: 2 });
-  // 90-second increment → session 2 cooldown = 180s. Proves sub-minute works.
-  const r = naturalEnd(s, { dailyTotal: 30 * M, cooldownIncrement: 90 });
-  assert.equal(r.cooldownSeconds, 180);
-});
-
-// ---------------------------------------------------------------------------
-// CASE 10 — endEarly with nothing left (covered above) + grace formula
-// ---------------------------------------------------------------------------
-
-test('computeGraceSeconds: floor of 10% of given-up time', () => {
-  assert.equal(computeGraceSeconds(10 * M), 1 * M);
-  assert.equal(computeGraceSeconds(55), 5);  // floor(5.5)
-  assert.equal(computeGraceSeconds(0), 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -508,51 +414,12 @@ test('scheduled instants agree with the live state derivers at those instants', 
 // shouldScheduleWakes — the guard around arming alarms.
 // ---------------------------------------------------------------------------
 
-test('shouldScheduleWakes requires a running clock, a session, and no cooldown', () => {
-  const yes = { clockRunning: true, hasSession: true, inCooldown: false };
+test('shouldScheduleWakes requires a running clock and a session', () => {
+  const yes = { clockRunning: true, hasSession: true };
   assert.equal(shouldScheduleWakes(yes), true);
   // A paused clock: deadlines have no knowable instant.
   assert.equal(shouldScheduleWakes({ ...yes, clockRunning: false }), false);
   // No session yet: nothing to schedule against.
   assert.equal(shouldScheduleWakes({ ...yes, hasSession: false }), false);
-  // Mid-cooldown: the session is not advancing.
-  assert.equal(shouldScheduleWakes({ ...yes, inCooldown: true }), false);
 });
 
-// ---------------------------------------------------------------------------
-// incrementSeconds — the minutes/seconds round-trip
-// ---------------------------------------------------------------------------
-
-test('incrementSeconds recovers whole seconds from every stepper combination', () => {
-  // Settings persists coolMin + coolSec/60 and the shell multiplies by 60. That
-  // round-trip is not exact in binary floating point, and 49 of these 3600
-  // combinations land a hair BELOW the true second — which formatClock then
-  // floors to one second short (a 4:30 increment displaying as 4:29).
-  const wrong = [];
-  for (let m = 0; m <= 59; m++) {
-    for (let s = 0; s < 60; s++) {
-      const stored = m + s / 60;
-      const got = incrementSeconds(stored);
-      if (got !== m * 60 + s) wrong.push(`${m}:${s} -> ${got}`);
-    }
-  }
-  assert.deepEqual(wrong, [], 'these combinations do not survive the round-trip');
-});
-
-test('a recorded cooldown divides back out to its exact increment', () => {
-  // What the past-day card does: cooldownSec / sessionNum to recover the
-  // increment it was built from. Exact only because incrementSeconds rounded.
-  for (const [m, s] of [[4, 30], [0, 31], [7, 17], [1, 1], [12, 59]]) {
-    const inc = incrementSeconds(m + s / 60);
-    for (let n = 1; n <= 12; n++) {
-      const total = cooldownLength(n, inc);
-      assert.equal(total / n, inc, `${m}:${s} x ${n} did not divide back out`);
-      assert.ok(Number.isInteger(total), `${m}:${s} x ${n} is not whole seconds`);
-    }
-  }
-});
-
-test('incrementSeconds treats a missing increment as no cooldown', () => {
-  assert.equal(incrementSeconds(undefined), 0);
-  assert.equal(incrementSeconds(0), 0);
-});

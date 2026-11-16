@@ -11,7 +11,7 @@
  * actually ran, so changing the increment later cannot rewrite the past.
  */
 
-import type { ActiveSession } from './session-model.js';
+import { type ActiveSession, effectiveLength } from './session-model.js';
 
 /** How a session ended. Mutually exclusive — one card, one answer. */
 export type SessionEndState =
@@ -32,9 +32,10 @@ export type SessionEndState =
 export type SessionRecord = [
   /** Seconds actually spent in the session. */
   used: number,
-  /** Its full length: baseLength + carryover + graceSeconds. */
+  /** Its full length: baseLength + carryover (+ grace, in old records). */
   effectiveLength: number,
-  /** The cooldown that followed, in seconds. 0 when none ran. */
+  /** The cooldown that followed, in seconds. Always 0 since sessions refill;
+   *  kept so old records keep their shape. */
   cooldownSec: number,
   endState: SessionEndState,
 ];
@@ -116,9 +117,7 @@ export function toStored(history: SessionHistory): StoredSessionHistory {
 }
 
 /** The session's full length — what `used` is measured against. */
-export function effectiveLengthOf(s: ActiveSession): number {
-  return s.baseLength + s.carryover + s.graceSeconds;
-}
+export const effectiveLengthOf = effectiveLength;
 
 /**
  * Seconds spent in `s` given the daily total when it ended.
@@ -135,10 +134,9 @@ export function usedSecondsOf(s: ActiveSession, dailyTotalAtEnd: number): number
 export function toRecord(
   s: ActiveSession,
   dailyTotalAtEnd: number,
-  cooldownSec: number,
   endState: SessionEndState
 ): SessionRecord {
-  return [usedSecondsOf(s, dailyTotalAtEnd), effectiveLengthOf(s), cooldownSec, endState];
+  return [usedSecondsOf(s, dailyTotalAtEnd), effectiveLengthOf(s), 0, endState];
 }
 
 /**
