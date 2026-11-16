@@ -691,7 +691,7 @@ function hideAveragePopup(): void {
 // regenerates on screen and the wait ends on its own without a message a
 // second. shared/session-budget.ts is the one arithmetic for both sides.
 
-type GateView = 'gate' | 'starting' | 'dismissed';
+type GateView = 'gate' | 'starting';
 
 let gateState: ShowGateMessage | null = null;
 let gateView: GateView = 'gate';
@@ -805,14 +805,10 @@ function buildGateDialog(): void {
   el.replaceChildren(title, dots, body, buttonRow, bar);
   blurOverlay!.appendChild(el);
   gateDialog = el;
-  setTimeout(() => { if (gateView !== 'dismissed') el.style.opacity = '1'; }, 50);
+  setTimeout(() => { el.style.opacity = '1'; }, 50);
 
   okBtn.addEventListener('click', gateOk);
   cancelBtn.addEventListener('click', gateCancel);
-  // After Cancel the dialog is gone and the page stays blurred; clicking the
-  // blurred page asks again. Clicks inside the dialog don't count.
-  el.addEventListener('click', (e) => e.stopPropagation());
-  blurOverlay!.addEventListener('click', gateReopen);
 
   gateKeyHandler = (e: KeyboardEvent): void => {
     if (e.key === 'Enter' && gateView === 'gate') { e.preventDefault(); e.stopPropagation(); gateOk(); }
@@ -833,19 +829,12 @@ function gateOk(): void {
 }
 
 function gateCancel(): void {
-  if (gateView === 'starting') {
-    // Nothing was spent yet: the session is only used when the countdown ends.
-    gateView = 'gate';
-    gateStartSentAt = 0;
-  } else if (gateView === 'gate') {
-    gateView = 'dismissed';
-  }
-  renderGate();
-}
-
-function gateReopen(): void {
-  if (gateView !== 'dismissed') return;
+  // Only the countdown can be cancelled. The gate itself stays up: a site
+  // with rules on is either in a session or behind it.
+  if (gateView !== 'starting') return;
+  // Nothing was spent yet: the session is only used when the countdown ends.
   gateView = 'gate';
+  gateStartSentAt = 0;
   renderGate();
 }
 
@@ -869,9 +858,6 @@ function renderGate(): void {
   const q = (c: string) => gateDialog!.querySelector(`.web-time-gate-${c}`) as HTMLElement;
   const starting = gateView === 'starting';
   const waiting = !starting && offer <= 0;
-
-  gateDialog.style.opacity = gateView === 'dismissed' ? '0' : '1';
-  gateDialog.style.pointerEvents = gateView === 'dismissed' ? 'none' : 'auto';
 
   q('title').textContent = starting ? 'Starting Session' : waiting ? 'Next Session In' : 'Start a Session?';
 
@@ -899,6 +885,7 @@ function renderGate(): void {
 
   const left = Math.max(0, Math.ceil((gateCountdownEndsAt - now) / 1000));
   q('cancel').textContent = starting && left > 0 ? `Cancel (${left})` : 'Cancel';
+  q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
   q('buttons').style.display = waiting ? 'none' : 'flex';
 
@@ -930,7 +917,6 @@ function renderGateDots(row: HTMLElement, held: number, maxSessions: number): vo
 function hideGate(): void {
   if (gateTicker) { clearInterval(gateTicker); gateTicker = null; }
   if (gateKeyHandler) { document.removeEventListener('keydown', gateKeyHandler, true); gateKeyHandler = null; }
-  blurOverlay?.removeEventListener('click', gateReopen);
   const wasShown = gateDialog !== null;
   gateState = null;
   gateView = 'gate';

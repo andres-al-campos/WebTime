@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-16 00:56, at 2.10.0.
+Updated 2026-11-16 01:06, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -17,8 +17,8 @@ gate.
 - OK starts a 10-second countdown inside the Cancel button ("Starting Session
   / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
-- Cancel on the gate hides the dialog and leaves the page blurred; clicking
-  the blurred page brings the gate back.
+- The gate has OK and nothing else: a site with rules on is either in a
+  session or behind the gate, so there is nothing to cancel there.
 - Sessions regenerate continuously: 3 a day by default (one every 8 hours), up
   to 4 held. There is no daily reset of what a site holds, and no cooldown.
 - A session that ends with time left returns the unused share. With less than
@@ -44,8 +44,8 @@ Preconditions: `npm run build`.
    clock verdicts `gate → running → gate`.
 
 Last driven: 2026-11-15, Chrome headless. Gate back at 61s, verdicts `gate →
-running → gate`, 60s stored. The wait screen, a partial session, Cancel on the
-gate and regeneration over hours were not driven. Not driven on Firefox.
+running → gate`, 60s stored. The wait screen, a partial session
+and regeneration over hours were not driven. Not driven on Firefox.
 
 ## Gotchas
 
