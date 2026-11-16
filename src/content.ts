@@ -52,7 +52,7 @@ let endSessionShortcut: string = 'Ctrl+E'; // default; overridden by settings
 // The keep-alive document (src/offscreen.ts) keeps the worker resident, so
 // updates arrive every second and there is nothing left to paper over. One
 // clock, in the background, which is also the only place that can see tab
-// focus, idle state and cooldowns.
+// focus, idle state and the gate.
 //
 // If the worker does die anyway, the displayed number freezes at its last value
 // until the worker returns — at which point the background credits the elapsed
@@ -347,10 +347,9 @@ function clearPendingBlurHide(): void {
   blurHideEnd = null;
 }
 
-// Only the session-cooldown blocker exits fullscreen, and not because of
-// layering — promoteToTopLayer lets any overlay paint over a fullscreen video.
-// It exits because the session is actually over: leaving the video is part of
-// the cooldown. Softer surfaces (nudge, average, end-session confirm) stay in
+// Only the gate exits fullscreen, and not because of layering —
+// promoteToTopLayer lets any overlay paint over a fullscreen video. It exits
+// because no session is running: leaving the video is part of stopping. Softer surfaces (nudge, average, end-session confirm) stay in
 // fullscreen. The end-session confirm especially — it's a question the user may
 // answer "no" to, and they should land back on a still-fullscreen video.
 function exitFullscreenIfActive(): void {
@@ -995,7 +994,7 @@ function createWindDownOverlay(): void {
 }
 
 // Set by the background's SHOW/HIDE: whether wind-down applies to this site at
-// all (not during a cooldown, not on another domain's updates). How far along
+// all (not at the gate, not on another domain's updates). How far along
 // it is comes from the timer's own numbers, so the two never disagree. The bar
 // once ran on a local deadline and kept draining while the clock was paused.
 let windDownEnabled = false;

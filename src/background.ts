@@ -160,10 +160,10 @@ let interventionState: InterventionState = {
 //
 // `sessions[domain]` is the single source of truth for the *current* session of
 // that domain: its start anchor (daily seconds when it began), base length,
-// carryover, grace, and which nudges have fired. All session math (remaining,
+// carryover, and which nudges have fired. All session math (remaining,
 // nudges, wind-down) derives from it via the pure helpers in session-model.ts.
-// A domain has no entry until its first session is started (lazily, on the
-// first tick / settings change while it's the tracked domain).
+// A domain has no entry until the user starts a session at the gate
+// (beginSession).
 const sessions: Record<Domain, ActiveSession> = {};
 
 // Sessions whose rules were toggled OFF mid-session. We KEEP the object here
@@ -1198,8 +1198,8 @@ function handleDomainSwitch(url: string): void {
   syncClock();
   // NOTE: We deliberately do NOT clear the session for this domain here. An
   // earlier version reset session state on every domain switch to handle
-  // settings changes made for an inactive domain — but that wiped legitimate
-  // mid-cooldown carryover/grace state when the user briefly switched away and
+  // settings changes made for an inactive domain — but that wiped
+  // a running session's carryover when the user briefly switched away and
   // back. Settings changes are handled in the SETTINGS_UPDATED handler, which
   // touches only the changed domain. So domain switches safely preserve the
   // session object across tabs of the same domain.
@@ -1429,7 +1429,7 @@ function applyUpdatedSettings(): void {
       let existing = sessions[domain];
       if (!existing && suspendedSessions[domain]) {
         // Rules toggled back ON — resume the suspended session (same number,
-        // carryover, grace, anchor). It may have run past its end while off,
+        // carryover, anchor). It may have run past its end while off,
         // which the changeLength/expired path below handles like any overrun.
         existing = suspendedSessions[domain];
         sessions[domain] = existing;
