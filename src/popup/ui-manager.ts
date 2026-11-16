@@ -467,7 +467,7 @@ export async function loadSettings(): Promise<void> {
     const countdownVal = global.startCountdownS ?? 10;
     if (countdownEl) countdownEl.value = String(countdownVal);
     mountSettingsStepper('start-countdown-stepper', countdownEl, 'Start countdown', 's',
-      { value: countdownVal, min: 0, max: 60, step: 5 });
+      { value: countdownVal, min: 0, max: 60, step: 1 });
 
     // End-session shortcut: undefined = default Ctrl+E, null = disabled, string = custom
     const endSessionShortcutEl = document.getElementById('end-session-shortcut') as HTMLInputElement | null;

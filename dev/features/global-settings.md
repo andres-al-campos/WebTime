@@ -1,6 +1,6 @@
 # Global settings
 
-Updated 2026-11-16 14:43, at 2.10.0.
+Updated 2026-11-16 16:27, at 2.10.0.
 
 Settings that apply to every site.
 
@@ -11,7 +11,7 @@ Settings that apply to every site.
   a silent tab stops counting.
 - Chart scale: 0.3–1.0 (default 1.0). Compresses tall bars so short days stay
   visible.
-- Start countdown: 0–60s in 5s steps (default 10). How long the gate counts
+- Start countdown: 0–60s in 1s steps (default 10). How long the gate counts
   down after OK before the session starts; 0 starts it at once. Read when the
   gate is shown, so an open gate keeps the old value.
 - End-session shortcut: click the field and press a combo; × disables it.
@@ -38,7 +38,7 @@ Inactivity value. It
 doesn't check the background picks the settings up.
 
 Last driven: 2026-11-16, Chrome headless. Saved `scalingPower: 0.95` and
-`startCountdownS: 5`, `inactivityTimeoutS` kept. A gate using a changed
+`startCountdownS: 9`, `inactivityTimeoutS` kept. A gate using a changed
 countdown was not driven.
 
 ## Gotchas
