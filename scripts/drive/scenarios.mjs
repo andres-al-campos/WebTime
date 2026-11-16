@@ -175,6 +175,52 @@ async function endEarly(opts) {
   }
 }
 
+/** An end-session confirm left open in one tab holds the clock only there:
+ *  another site keeps counting, and going back to the confirm's tab stops it
+ *  again. Held everywhere, it froze every timer in the browser. */
+async function confirmElsewhere(opts) {
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 40 }) });
+  try {
+    const first = await openPage(run);
+    await stay(first, 3);
+    await first.keyboard.press('Control+e');
+    const confirm = await stay(first, 3, { until: (o) => o.includes('end-session confirm') });
+    if (!confirm.includes('end-session confirm')) {
+      return fail('Ctrl+E did not open the end-session confirm.',
+        'check isEndSessionShortcutMatch and the keydown listener in content.ts.');
+    }
+    console.log(`  confirm open on localhost, verdict ${run.lastVerdict()}`);
+
+    // Another site: same server, another host name, so another domain.
+    const other = await run.context.newPage();
+    await other.goto(run.pageUrl.replace('localhost', '127.0.0.1'));
+    await other.bringToFront();
+    other.timeline = [];
+    other.openedAt = Date.now();
+    await stay(other, 3);
+    const from = clockSeconds((await readTimer(other)).text);
+    await stay(other, 6);
+    const to = clockSeconds((await readTimer(other)).text);
+    console.log(`  127.0.0.1 timer over 6s: ${from}s → ${to}s, verdict ${run.lastVerdict()}`);
+    if (from === null || to === null || to - from < 4) {
+      return fail(`With a confirm open on localhost, 127.0.0.1's timer went ${from}s → ${to}s in 6s (verdict ${run.lastVerdict()}).`,
+        'a dialog should hold the clock only while its own tab is active: check endSessionConfirmOpen in currentClockVerdict (background.ts).');
+    }
+
+    await first.bringToFront();
+    await stay(first, 2);
+    const back = run.lastVerdict();
+    console.log(`  back on localhost with the confirm still open: verdict ${back}`);
+    if (back !== 'end-session-confirm') {
+      return fail(`Back on the tab with the confirm open, the verdict is ${back}.`,
+        'the confirm should still hold the clock on its own tab: check currentClockVerdict in background.ts.');
+    }
+    return pass(`confirm held only its own tab: 127.0.0.1 counted ${to - from}s meanwhile, localhost frozen again on return`);
+  } finally {
+    await run.close();
+  }
+}
+
 /** Sitting still after the gate on a silent page, with the default 30s
  *  inactivity: the clock stops once the window since the last input passes,
  *  and a mouse move starts it again. The OS idle gate asks this machine, so
@@ -517,6 +563,7 @@ function exportData(opts) {
 export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
   nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
+  'confirm-elsewhere': { run: confirmElsewhere, about: 'An end-session confirm left open holds the clock only on its tab (~25s)' },
   'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },

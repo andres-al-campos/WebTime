@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-16 01:46, at 2.10.0.
+Updated 2026-11-16 15:36, at 2.10.0.
 
 Stop a session before it runs out. The unused time is added to the site's next
 session, and the gate comes up.
@@ -13,7 +13,8 @@ session, and the gate comes up.
   popup and opens the same confirm on the page.
 - Confirm dialog: "End Session N?" and the time that is kept ("1:50 unused is
   added to your next session"). Enter confirms, Escape cancels. Media pauses while it's
-  open and resumes on cancel; the clock is frozen while it's open.
+  open and resumes on cancel; the clock is frozen while it's open and its tab
+  is the one in front. Other tabs and sites keep counting.
 - The unused time is added to the next session, so the reward shows at the
   very next gate: ending 10 seconds into a 2-minute session makes the next one
   3:50. It is stored per site under `webTimeSessionExtra` and survives the day
@@ -39,3 +40,10 @@ left kept after it started. The popup's End session button and the recorded
 
 - The shortcut can be changed or disabled in [global settings](global-settings.md).
 - Does nothing if there's no session or the session has no time left.
+- The popup's button opens the confirm in the front tab of the window the
+  popup came from. It used to go to the last tab the background saw
+  activated, which switching windows doesn't change, so the confirm could open
+  out of sight in another window. While it held the clock from any tab, that
+  froze every timer in the browser until Floorp restarted.
+  `npm run drive -- confirm-elsewhere` checks another site keeps counting
+  while a confirm is open.

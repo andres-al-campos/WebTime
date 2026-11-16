@@ -965,8 +965,12 @@ function currentClockVerdict(): ClockVerdict {
     browserIsFocused,
     trackedDomain: trackedTabDomain,
     atGate: trackedTabDomain ? atGate(trackedTabDomain) : false,
-    endSessionConfirmOpen: endSessionConfirmTabId !== null,
-    averagePopupOpen: averagePopupTabId !== null,
+    // A dialog holds the clock only while its own tab is the one in front.
+    // Held from any tab, a confirm left open in a tab you'd moved on from (or
+    // opened by the popup in another window's tab) froze every timer in the
+    // browser, and nothing on the page you were looking at could release it.
+    endSessionConfirmOpen: endSessionConfirmTabId !== null && endSessionConfirmTabId === activeTabId,
+    averagePopupOpen: averagePopupTabId !== null && averagePopupTabId === activeTabId,
     osIdleState,
     activeTabAudible,
     tabIsEngaged: activeTabIsEngaged(),
@@ -1525,10 +1529,13 @@ const messageHandlers: {
   [MSG.SHOW_END_SESSION_CONFIRM]: () => {
     // Popup asks us to open the confirmation overlay on the active tab (instead
     // of ending immediately). The popup closes itself; the user confirms there.
-    if (activeTabId !== null) {
-      browser.tabs.sendMessage(activeTabId, { type: MSG.SHOW_END_SESSION_CONFIRM })
-        .catch(() => { /* tab may have closed or have no content script */ });
-    }
+    // The front tab of the window the popup was opened from. activeTabId is
+    // not that: switching windows doesn't move it, and the confirm then opened
+    // in a tab of another window, out of sight.
+    void browser.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+      if (tab?.id === undefined) return;
+      return browser.tabs.sendMessage(tab.id, { type: MSG.SHOW_END_SESSION_CONFIRM });
+    }).catch(() => { /* tab may have closed or have no content script */ });
   },
 
   [MSG.END_SESSION_CONFIRM_OPEN]: (_message, sender) => {

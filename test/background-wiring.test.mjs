@@ -609,3 +609,13 @@ test('the clock gate and syncGate both wait for the stored state', () => {
     && init.indexOf('await loadSessionState();') < init.indexOf('stateLoaded = true;'),
     'init must set stateLoaded only after loadSessionState and loadBudgets');
 });
+
+// A dialog held the clock from whatever tab it was in, so a confirm left open
+// in a tab you'd moved on from froze every timer in the browser.
+for (const { flag } of GATES) {
+  test(`${flag} holds the clock only while its tab is the active one`, () => {
+    const verdict = src.slice(src.indexOf('function currentClockVerdict'), src.indexOf('function shouldClockRun'));
+    assert.match(verdict, new RegExp(`${flag}\\s*===\\s*activeTabId`),
+      `currentClockVerdict must compare ${flag} with activeTabId: a dialog in a tab you are not on must not freeze the clock everywhere.`);
+  });
+}
