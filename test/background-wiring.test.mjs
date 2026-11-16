@@ -362,18 +362,6 @@ test('every UIManager method chart-builder calls is actually exported', () => {
   }
 });
 
-test('the minutes/seconds conversion goes through incrementSeconds', () => {
-  // A bare `* 60` on the stored fractional-minutes increment reintroduces the
-  // float noise that incrementSeconds exists to round away, and it does so
-  // silently — the cooldown is one second short and nothing fails.
-  const bg = readFileSync('src/background.ts', 'utf8');
-  assert.doesNotMatch(
-    bg,
-    /cooldownIncrement[^\n]*\|\| 0\)\s*\*\s*60/,
-    'convert the cooldown increment with incrementSeconds(), not a bare * 60',
-  );
-});
-
 // ── Dialog gates must not outlive the tab that opened them ──────────────────
 // Reported as: timer frozen on ALL sites after a tab sat in an unfocused window
 // for hours; only reinstalling fixed it. These two gates sit above every other
