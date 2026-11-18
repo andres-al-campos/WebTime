@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 15:15, at 2.10.0.
+Updated 2026-11-18 15:21, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -55,8 +55,8 @@ Preconditions: `npm run build`.
 2. Expected in the overlay timeline: `gate "Session 1 Ended"` just after 60s;
    clock verdicts `gate → running → gate`.
 
-Last driven: 2026-11-15, Chrome headless. Gate back at 61s, verdicts `gate →
-running → gate`, 60s stored. The wait screen, a partial session
+Last driven: 2026-11-18, Chrome headless. `gate "Session 1 Ended"` at 61s, 60s
+stored, timer at the gate `⏱ 01:00`. The wait screen, a partial session
 and regeneration over hours were not driven. Not driven on Firefox.
 
 ## Gotchas

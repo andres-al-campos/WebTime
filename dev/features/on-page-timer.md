@@ -1,6 +1,6 @@
 # On-page timer
 
-Updated 2026-11-18 15:15, at 2.10.0.
+Updated 2026-11-18 15:21, at 2.10.0.
 
 A small timer in the top-right corner of every tracked page. With a session
 running it counts down the session, and at the gate it shows how long the next
@@ -30,8 +30,8 @@ Preconditions: `./build.sh` has run.
 2. Expected: `timer: visible "00:15"` for a 15-second run on a site with no
    session rules (daily view).
 
-Not yet driven: the session view and the click-to-peek. Both need session
-rules set first (see [session-rules.md](session-rules.md)).
+`npm run drive -- end-early` checks the session view and the preview at the
+gate. Not yet driven: the click-to-peek.
 
 Last driven: 2026-10-06, Chrome (headless). Output: `timer: visible "00:15"`.
 
