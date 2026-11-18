@@ -788,14 +788,14 @@ function buildGateDialog(): void {
   });
   const dots = makeEl('div', {
     className: 'web-time-gate-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 12px;',
+    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 13px;',
   });
-  // Two lines tall whatever it says, so the box keeps its height when the
-  // text changes after OK. A dialog that resizes under the cursor draws the
+  // A line tall whatever it says, so the box keeps its height when the text
+  // changes after the click. A dialog that resizes under the cursor draws the
   // eye to the frame.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
-    style: 'font-size: 14px; color: #ccc; line-height: 1.5; min-height: 42px; display: flex; flex-direction: column; justify-content: center; font-variant-numeric: tabular-nums;',
+    style: 'font-size: 14px; color: #ccc; line-height: 1.5; min-height: 21px; display: flex; flex-direction: column; justify-content: center; font-variant-numeric: tabular-nums;',
   });
   const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;';
   const cancelBtn = makeEl('button', {
@@ -809,7 +809,7 @@ function buildGateDialog(): void {
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
-    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 16px;',
+    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 13px;',
     children: [cancelBtn, okBtn],
   });
   const barFill = makeEl('div', {
@@ -1222,7 +1222,7 @@ function showEndSessionConfirm(): void {
   // the dialog doesn't grow under the cursor.
   const dots = makeEl('div', {
     className: 'web-time-end-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 12px;',
+    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 13px;',
   });
   const domain = extractDomain(location.href);
   if (domain) {
@@ -1237,7 +1237,7 @@ function showEndSessionConfirm(): void {
   // and their body copy should not step. Clock-style, same formatClock as the
   // timer the number is read against.
   const body = makeEl('div', {
-    style: 'font-size: 14px; color: #ccc; margin-bottom: 16px; line-height: 1.5;',
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 13px; line-height: 1.5;',
     text: `${formatClock(remaining)} unused is added to your next session`,
   });
 
