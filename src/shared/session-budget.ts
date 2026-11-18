@@ -203,7 +203,7 @@ export function nextStartAt(b: Budget, rules: BudgetRules, now: number, minFract
 
 /**
  * The instant the next whole session completes, or null when the row is full
- * or nothing regenerates: the "Next session in" on the gate.
+ * or nothing regenerates: the "Next session refills in" on the gate.
  */
 export function nextSessionAt(b: Budget, rules: BudgetRules, now: number): number | null {
   const held = sessionsAt(b, rules, now);

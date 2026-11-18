@@ -220,6 +220,22 @@ function hasSession(): boolean {
   return lastSessionTime !== undefined && !!lastSessionLimitSeconds && lastSessionLimitSeconds > 0;
 }
 
+/** How long a session started at the gate right now would run; null if none can start. */
+function offeredSeconds(state: ShowGateMessage, now: number): number | null {
+  const offer = startable(state.budget, state.rules, now, state.minFraction);
+  return offer > 0 ? Math.round(offer * state.sessionLengthSeconds) + (state.extraSeconds || 0) : null;
+}
+
+/**
+ * The seconds the session view counts: what's left of the running session or,
+ * at the gate, the length the next one would have. Null shows the daily total.
+ * The last update's session numbers are stale behind the gate, so it decides first.
+ */
+function sessionViewSeconds(): number | null {
+  if (gateState) return offeredSeconds(gateState, Date.now());
+  return hasSession() ? Math.max(0, lastSessionLimitSeconds! - lastSessionTime!) : null;
+}
+
 // 'session' = countdown view, 'daily' = total view. Tracked so we can fade only
 // when the VIEW flips (peek in / revert out), not on every per-second tick.
 let lastTimerMode: 'session' | 'daily' | null = null;
@@ -236,8 +252,10 @@ function updateTimerText(): void {
     return;
   }
 
+  const sessionSeconds = sessionViewSeconds();
+
   // Nothing received yet: no number to show.
-  if (receivedAt === 0) {
+  if (receivedAt === 0 && sessionSeconds === null) {
     setTimerVisible(false);
     return;
   }
@@ -247,10 +265,9 @@ function updateTimerText(): void {
   let text: string;
   let mode: 'session' | 'daily';
   // Session is the default view; daily only while peeking, or when there is no
-  // session for this site at all.
-  if (hasSession() && !peekingDaily) {
-    const remaining = Math.max(0, lastSessionLimitSeconds! - lastSessionTime!);
-    text = `⏱ ${formatTimeAdaptive(remaining)}`;
+  // session to show for this site at all.
+  if (sessionSeconds !== null && !peekingDaily) {
+    text = `⏱ ${formatTimeAdaptive(sessionSeconds)}`;
     mode = 'session';
   } else {
     text = formatTimeAdaptive(lastDailyTime);
@@ -286,7 +303,7 @@ function updateTimerText(): void {
  * is already shown).
  */
 function peekDaily(): void {
-  if (!hasSession()) return;
+  if (sessionViewSeconds() === null) return;
   if (peekRevertTimer) clearTimeout(peekRevertTimer);
   peekRevertTimer = null;
   peekingDaily = !peekingDaily;
@@ -697,6 +714,10 @@ function hideAveragePopup(): void {
 type GateView = 'gate' | 'starting';
 
 let gateState: ShowGateMessage | null = null;
+// The session this tab last saw running, and the one the gate is up after. Kept
+// in the tab, so a page loaded later greets you instead of reporting an ending.
+let sessionNumSeen: number | undefined;
+let endedSessionNum: number | undefined;
 let gateView: GateView = 'gate';
 let gateTicker: ReturnType<typeof setInterval> | null = null;
 let gateCountdownEndsAt = 0;
@@ -725,6 +746,8 @@ try {
 
 function showGate(state: ShowGateMessage): void {
   gateState = state;
+  if (sessionNumSeen !== undefined) endedSessionNum = sessionNumSeen;
+  sessionNumSeen = undefined;
   // A SHOW_GATE while a start is in flight is the background declining it.
   if (gateStartSentAt) {
     gateStartSentAt = 0;
@@ -789,7 +812,7 @@ function buildGateDialog(): void {
   const okBtn = makeEl('button', {
     className: 'web-time-gate-ok',
     style: `${buttonStyle} background: ${GATE_BLUE}; color: #fff;`,
-    text: 'OK',
+    text: 'Start Session',
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
@@ -844,7 +867,7 @@ function gateCancel(): void {
 
 function renderGate(): void {
   if (!gateDialog || !gateState) return;
-  const { budget, rules, sessionLengthSeconds, minFraction, extraSeconds } = gateState;
+  const { budget, rules, minFraction } = gateState;
   const now = Date.now();
   const held = sessionsAt(budget, rules, now);
   const offer = startable(budget, rules, now, minFraction);
@@ -863,7 +886,11 @@ function renderGate(): void {
   const starting = gateView === 'starting';
   const waiting = !starting && offer <= 0;
 
-  q('title').textContent = starting ? 'Starting Session' : waiting ? 'Next Session In' : 'Start a Session?';
+  q('title').textContent = starting ? 'Starting Session'
+    : waiting ? 'Next Session Refills In'
+    : endedSessionNum !== undefined ? `Session ${endedSessionNum} Ended`
+    : 'Start a Session?';
+  updateTimerText();
 
   // While starting, the row already shows the session as used.
   // Only a day's worth: the bank is the popup's to show.
@@ -882,8 +909,8 @@ function renderGate(): void {
     body.style.color = '#eee';
   } else {
     const next = nextSessionAt(budget, rules, now);
-    const lines = [`${formatClock(Math.round(offer * sessionLengthSeconds) + (extraSeconds || 0))} session`];
-    if (next !== null) lines.push(`Next session in ${formatClock(Math.ceil((next - now) / 1000))}`);
+    const lines = [`${formatClock(offeredSeconds(gateState, now) ?? 0)} session`];
+    if (next !== null) lines.push(`Next session refills in ${formatClock(Math.ceil((next - now) / 1000))}`);
     body.replaceChildren(...lines.map((text) => makeEl('div', { text })));
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
@@ -925,6 +952,7 @@ function hideGate(): void {
   if (gateKeyHandler) { document.removeEventListener('keydown', gateKeyHandler, true); gateKeyHandler = null; }
   const wasShown = gateDialog !== null;
   gateState = null;
+  endedSessionNum = undefined;
   gateView = 'gate';
   gateStartSentAt = 0;
   if (!wasShown) return;
@@ -1358,6 +1386,7 @@ function handleIncomingMessage(
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
+    if (message.sessionNum !== undefined) sessionNumSeen = message.sessionNum;
     // Marks that a real value has arrived, which is what lets the timer show at
     // all. Not used for arithmetic any more — the background sends the number.
     receivedAt = Date.now();

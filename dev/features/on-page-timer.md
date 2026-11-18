@@ -1,16 +1,17 @@
 # On-page timer
 
-Updated 2026-11-16 17:15, at 2.10.0.
+Updated 2026-11-18 15:15, at 2.10.0.
 
 A small timer in the top-right corner of every tracked page. With a session
-running it counts down the session; otherwise it shows today's total on this
-site.
+running it counts down the session, and at the gate it shows how long the next
+session would run; otherwise it shows today's total on this site.
 
 ## Sub-features
 
-- Session view: `⏱ 12:34`, time left in the current session.
+- Session view: `⏱ 12:34`, time left in the current session. At the gate it
+  holds still on the length a start would give, unused time included.
 - Daily view: `12:34` (or `1:02:03` past an hour), today's total on the site.
-  Shown when the site has no session rules.
+  Shown when the site has no session rules, or at the gate with nothing to start.
 - Click the timer during a session to see today's total for 5 seconds; clicking
   again goes back to the session at once.
 - Hidden until the first update arrives, and hidden for good in a tab whose

@@ -138,11 +138,34 @@ async function endEarly(opts) {
 
     await page.click('.web-time-end-ok');
     const gated = await stay(page, 5, { until: (o) => o.includes('gate') });
-    if (!gated.includes('Start a Session?')) {
+    if (!gated.includes('gate')) {
       return fail('OK on the confirm did not bring the gate back.',
         'check END_SESSION_EARLY and endSession in background.ts, and SHOW_GATE in content.ts.');
     }
     console.log(`  verdict at the gate: ${run.lastVerdict()}`);
+    const gateTitle = () => page.locator('.web-time-gate-title').innerText();
+    const endedTitle = await gateTitle();
+    const button = await page.locator('.web-time-gate-ok').innerText();
+    const previewAfterEnd = clockSeconds((await readTimer(page)).text);
+    console.log(`  gate after the end: "${endedTitle}", button "${button}", timer ${previewAfterEnd}s`);
+    if (endedTitle !== 'Session 1 Ended' || button !== 'Start Session') {
+      return fail(`After ending session 1 the gate reads "${endedTitle}" with a "${button}" button.`,
+        'expected "Session 1 Ended" and "Start Session": check sessionNumSeen in showGate and the title in renderGate (content.ts).');
+    }
+    if (!(previewAfterEnd > 220 && previewAfterEnd <= 240)) {
+      return fail(`At the gate the timer should show the next session's length, about 3:50; it shows ${previewAfterEnd}s.`,
+        'check sessionViewSeconds and offeredSeconds in content.ts.');
+    }
+    await page.reload();
+    await page.locator('.web-time-gate-title').waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(1200);
+    const freshTitle = await gateTitle();
+    const previewAfterLoad = clockSeconds((await readTimer(page)).text);
+    console.log(`  gate after a reload: "${freshTitle}", timer ${previewAfterLoad}s`);
+    if (freshTitle !== 'Start a Session?' || !(previewAfterLoad > 220 && previewAfterLoad <= 240)) {
+      return fail(`A freshly loaded page reads "${freshTitle}" with the timer at ${previewAfterLoad}s.`,
+        'a new page should greet with "Start a Session?" and still preview the session: check showGate and updateTimerText in content.ts.');
+    }
     // About 110 of the 120 seconds wait to be added to the next session.
     const extra = (await run.storage('webTimeSessionExtra'))?.localhost;
     console.log(`  extra kept after ending ~10s into a 2-minute session: ${extra}s`);
