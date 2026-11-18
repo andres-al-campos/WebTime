@@ -471,7 +471,7 @@ interface Held {
   extraSec: number;
 }
 
-// The row and its "Next refill in" count regenerate while the popup is open,
+// The row and its "Next session refills in" count regenerate while the popup is open,
 // so they tick on their own. Only their text and fill change: re-rendering the
 // whole card each second would replace the End button under a click.
 let heldTicker: ReturnType<typeof setInterval> | null = null;
@@ -503,7 +503,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
     }
     const inClock = (at: number) => formatClock(Math.max(0, Math.ceil((at - now) / 1000)));
     const next = nextSessionAt(h.budget, h.rules, now);
-    const nextText = next === null ? '' : `Next refill in ${inClock(next)}`;
+    const nextText = next === null ? '' : `Next session refills in ${inClock(next)}`;
     if (running) {
       line.textContent = nextText;
     } else {
@@ -512,7 +512,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
       const startAt = nextStartAt(h.budget, h.rules, now, minFraction);
       line.textContent = offer > 0
         ? [`A ${formatClock(Math.round(offer * h.lengthSec) + h.extraSec)} session is ready on the site.`, nextText].filter(Boolean).join(' ')
-        : startAt === null ? 'No sessions regenerate.' : `Next refill in ${inClock(startAt)}`;
+        : startAt === null ? 'No sessions regenerate.' : `Next session refills in ${inClock(startAt)}`;
     }
     line.style.display = line.textContent ? '' : 'none';
   };

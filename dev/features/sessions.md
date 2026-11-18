@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 15:32, at 2.10.0.
+Updated 2026-11-18 15:39, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -9,10 +9,9 @@ gate.
 ## Sub-features
 
 - With rules on and no session running, every tab of the site is blurred
-  behind the gate: "No Active Session" ("Session Ended" on a tab that was
-  in the session, until it reloads), a row of dots (one per session a day,
-  the one regenerating filled at half strength, every dot with the same ring; banked sessions aren't shown), when the next refill arrives, and a button
-  with the length it would start ("Start 40:00"). Media pauses and anything that starts
+  behind the gate: "Session Ended", however you got there, a row of dots (one per session a day,
+  the one regenerating filled at half strength, every dot with the same ring; banked sessions aren't shown), "Next session refills in", and a button with
+  the length it would start ("Start 40:00 Session"). Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed
@@ -28,7 +27,7 @@ gate.
   under the lower setting commits it: the row drops by one from what it shows.
 - A session that ends with time left adds it to the next session. With less than
   a whole session held, the gate offers a shorter one, down to 5 minutes.
-- With nothing to offer, the gate shows "Next Refill In" over a clock, and
+- With nothing to offer, the gate shows "Next Session Refills In" over a clock, and
   becomes the gate again on its own.
 - When a session's time runs out the gate comes back.
 - The bank is the reserve for when the day runs out. A refill goes to the
@@ -70,7 +69,7 @@ and regeneration over hours were not driven. Not driven on Firefox.
 - A partial session is stored as the full length with a negative `carryover`.
   Its `baseLength` has to equal the setting, or the next settings change reads
   the difference as a length change and resizes it to full.
-- The popup's session card is titled with the session's number and shows the time left with "Next refill in" beside
+- The popup's session card is titled with the session's number and shows the time left with "Next session refills in" beside
   it, the same row of dots, and "+1 banked" when the bank holds a whole
   session, ticking while it is open. The card fits the panel with no scroll:
   the percent in its title is the share left, so there is no "left of" line. Only the row and that line tick: re-rendering the
