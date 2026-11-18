@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-18 15:21, at 2.10.0.
+Updated 2026-11-18 15:32, at 2.10.0.
 
 Stop a session before it runs out. The unused time is added to the site's next
 session, and the gate comes up.
@@ -32,8 +32,8 @@ session card → "End session".
 Ctrl+E, reads the confirm, clicks OK, checks the gate is up and what storage
 holds, then starts the next session through the gate.
 
-Last driven: 2026-11-18, Chrome headless. 110s kept; gate "Session 1 Ended" with
-a "Start Session" button and the timer previewing 3:50, "Start a Session?" after
+Last driven: 2026-11-18, Chrome headless. 110s kept; gate "Session Ended" with
+a "Start 3:50" button and the timer previewing 3:50, "No Active Session" after
 a reload; timer `⏱ 03:49` two seconds into the next session, and nothing left
 kept after it started. The popup's End session button and the recorded
 "ended early" tag were not checked.

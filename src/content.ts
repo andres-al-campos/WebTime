@@ -714,10 +714,10 @@ function hideAveragePopup(): void {
 type GateView = 'gate' | 'starting';
 
 let gateState: ShowGateMessage | null = null;
-// The session this tab last saw running, and the one the gate is up after. Kept
-// in the tab, so a page loaded later greets you instead of reporting an ending.
-let sessionNumSeen: number | undefined;
-let endedSessionNum: number | undefined;
+// Whether this tab saw a session run, and whether the gate is up after one. Kept
+// in the tab, so a page loaded later doesn't report an ending it never saw.
+let sawSession = false;
+let sessionJustEnded = false;
 let gateView: GateView = 'gate';
 let gateTicker: ReturnType<typeof setInterval> | null = null;
 let gateCountdownEndsAt = 0;
@@ -746,8 +746,8 @@ try {
 
 function showGate(state: ShowGateMessage): void {
   gateState = state;
-  if (sessionNumSeen !== undefined) endedSessionNum = sessionNumSeen;
-  sessionNumSeen = undefined;
+  if (sawSession) sessionJustEnded = true;
+  sawSession = false;
   // A SHOW_GATE while a start is in flight is the background declining it.
   if (gateStartSentAt) {
     gateStartSentAt = 0;
@@ -812,7 +812,6 @@ function buildGateDialog(): void {
   const okBtn = makeEl('button', {
     className: 'web-time-gate-ok',
     style: `${buttonStyle} background: ${GATE_BLUE}; color: #fff;`,
-    text: 'Start Session',
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
@@ -887,9 +886,9 @@ function renderGate(): void {
   const waiting = !starting && offer <= 0;
 
   q('title').textContent = starting ? 'Starting Session'
-    : waiting ? 'Next Session Refills In'
-    : endedSessionNum !== undefined ? `Session ${endedSessionNum} Ended`
-    : 'Start a Session?';
+    : waiting ? 'Next Refill In'
+    : sessionJustEnded ? 'Session Ended'
+    : 'No Active Session';
   updateTimerText();
 
   // While starting, the row already shows the session as used.
@@ -909,9 +908,8 @@ function renderGate(): void {
     body.style.color = '#eee';
   } else {
     const next = nextSessionAt(budget, rules, now);
-    const lines = [`${formatClock(offeredSeconds(gateState, now) ?? 0)} session`];
-    if (next !== null) lines.push(`Next session refills in ${formatClock(Math.ceil((next - now) / 1000))}`);
-    body.replaceChildren(...lines.map((text) => makeEl('div', { text })));
+    // The button carries the length, so this line only says when more arrives.
+    body.textContent = next === null ? '' : `Next refill in ${formatClock(Math.ceil((next - now) / 1000))}`;
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
   }
@@ -920,6 +918,7 @@ function renderGate(): void {
   q('cancel').textContent = starting && left > 0 ? `Cancel (${left})` : 'Cancel';
   q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
+  q('ok').textContent = `Start ${formatClock(offeredSeconds(gateState, now) ?? 0)}`;
   q('buttons').style.display = waiting ? 'none' : 'flex';
 
   // The wait's bar fills toward the least the gate will offer.
@@ -952,7 +951,7 @@ function hideGate(): void {
   if (gateKeyHandler) { document.removeEventListener('keydown', gateKeyHandler, true); gateKeyHandler = null; }
   const wasShown = gateDialog !== null;
   gateState = null;
-  endedSessionNum = undefined;
+  sessionJustEnded = false;
   gateView = 'gate';
   gateStartSentAt = 0;
   if (!wasShown) return;
@@ -1386,7 +1385,7 @@ function handleIncomingMessage(
     lastSessionTime = message.sessionTime;
     lastSessionLimitSeconds = message.sessionLimitSeconds;
     lastSessionNum = message.sessionNum;
-    if (message.sessionNum !== undefined) sessionNumSeen = message.sessionNum;
+    if (message.sessionNum !== undefined) sawSession = true;
     // Marks that a real value has arrived, which is what lets the timer show at
     // all. Not used for arithmetic any more — the background sends the number.
     receivedAt = Date.now();

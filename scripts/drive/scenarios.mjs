@@ -148,9 +148,9 @@ async function endEarly(opts) {
     const button = await page.locator('.web-time-gate-ok').innerText();
     const previewAfterEnd = clockSeconds((await readTimer(page)).text);
     console.log(`  gate after the end: "${endedTitle}", button "${button}", timer ${previewAfterEnd}s`);
-    if (endedTitle !== 'Session 1 Ended' || button !== 'Start Session') {
-      return fail(`After ending session 1 the gate reads "${endedTitle}" with a "${button}" button.`,
-        'expected "Session 1 Ended" and "Start Session": check sessionNumSeen in showGate and the title in renderGate (content.ts).');
+    if (endedTitle !== 'Session Ended' || !/^Start 3:[45]\d$/.test(button)) {
+      return fail(`After ending a session the gate reads "${endedTitle}" with a "${button}" button.`,
+        'expected "Session Ended" and a button with the next length, like "Start 3:50": check sawSession in showGate and the title in renderGate (content.ts).');
     }
     if (!(previewAfterEnd > 220 && previewAfterEnd <= 240)) {
       return fail(`At the gate the timer should show the next session's length, about 3:50; it shows ${previewAfterEnd}s.`,
@@ -162,9 +162,9 @@ async function endEarly(opts) {
     const freshTitle = await gateTitle();
     const previewAfterLoad = clockSeconds((await readTimer(page)).text);
     console.log(`  gate after a reload: "${freshTitle}", timer ${previewAfterLoad}s`);
-    if (freshTitle !== 'Start a Session?' || !(previewAfterLoad > 220 && previewAfterLoad <= 240)) {
+    if (freshTitle !== 'No Active Session' || !(previewAfterLoad > 220 && previewAfterLoad <= 240)) {
       return fail(`A freshly loaded page reads "${freshTitle}" with the timer at ${previewAfterLoad}s.`,
-        'a new page should greet with "Start a Session?" and still preview the session: check showGate and updateTimerText in content.ts.');
+        'a new page should read "No Active Session" and still preview the session: check showGate and updateTimerText in content.ts.');
     }
     // About 110 of the 120 seconds wait to be added to the next session.
     const extra = (await run.storage('webTimeSessionExtra'))?.localhost;
