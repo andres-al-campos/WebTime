@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 16:01, at 2.10.0.
+Updated 2026-11-18 16:03, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -10,8 +10,8 @@ gate.
 
 - With rules on and no session running, every tab of the site is blurred
   behind the gate: "Session Ended", however you got there, a row of dots (one per session a day,
-  the one regenerating filled at half strength, every dot with the same ring; banked sessions aren't shown), "Next session refills in", and a button with
-  the length it would start ("Start 40:00 Session"). Media pauses and anything that starts
+  the one regenerating filled at half strength, every dot with the same ring; banked sessions aren't shown), "Next session refills in", and a "Start Session"
+  button. The on-page timer shows the length a start would give. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed

@@ -148,9 +148,9 @@ async function endEarly(opts) {
     const button = await page.locator('.web-time-gate-ok').innerText();
     const previewAfterEnd = clockSeconds((await readTimer(page)).text);
     console.log(`  gate after the end: "${endedTitle}", button "${button}", timer ${previewAfterEnd}s`);
-    if (endedTitle !== 'Session Ended' || !/^Start 3:[45]\d Session$/.test(button)) {
+    if (endedTitle !== 'Session Ended' || button !== 'Start Session') {
       return fail(`After ending a session the gate reads "${endedTitle}" with a "${button}" button.`,
-        'expected "Session Ended" and a button with the next length, like "Start 3:50 Session": check the title and button in renderGate (content.ts).');
+        'expected "Session Ended" and "Start Session": check the title and button in renderGate (content.ts).');
     }
     if (!(previewAfterEnd > 220 && previewAfterEnd <= 240)) {
       return fail(`At the gate the timer should show the next session's length, about 3:50; it shows ${previewAfterEnd}s.`,

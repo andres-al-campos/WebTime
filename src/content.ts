@@ -811,7 +811,8 @@ function buildGateDialog(): void {
   });
   const okBtn = makeEl('button', {
     className: 'web-time-gate-ok',
-    style: `${buttonStyle} width: auto; min-width: 104px; padding: 8px 16px; background: ${GATE_BLUE}; color: #fff;`,
+    style: `${buttonStyle} background: ${GATE_BLUE}; color: #fff;`,
+    text: 'Start Session',
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
@@ -925,7 +926,7 @@ function renderGate(): void {
     body.style.color = '#eee';
   } else {
     const next = nextSessionAt(budget, rules, now);
-    // The button carries the length, so this line only says when more arrives.
+    // The on-page timer already shows the length a start would give.
     body.textContent = next === null ? '' : `Next session refills in ${formatClock(Math.ceil((next - now) / 1000))}`;
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
@@ -935,7 +936,6 @@ function renderGate(): void {
   q('cancel').textContent = starting && left > 0 ? `Cancel (${left})` : 'Cancel';
   q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
-  q('ok').textContent = `Start ${formatClock(offeredSeconds(gateState, now) ?? 0)} Session`;
   q('buttons').style.display = waiting ? 'none' : 'flex';
 
   // The wait's bar fills toward the least the gate will offer.
