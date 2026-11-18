@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 15:39, at 2.10.0.
+Updated 2026-11-18 16:01, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. The site holds a number
 of sessions that regenerate over time, and each one is started by hand at a
@@ -18,6 +18,8 @@ gate.
   in [global settings](global-settings.md)) ("Starting Session
   / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
+- When the gate changes screen (ready, countdown, waiting) its text crossfades:
+  100ms out, 180ms in. The dots stay put and the countdowns tick without fading.
 - The gate has OK and nothing else: a site with rules on is either in a
   session or behind the gate, so there is nothing to cancel there.
 - Sessions regenerate continuously: 3 a day by default (one every 8 hours), up

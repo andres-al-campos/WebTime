@@ -716,6 +716,12 @@ type GateView = 'gate' | 'starting';
 let gateState: ShowGateMessage | null = null;
 let gateView: GateView = 'gate';
 let gateTicker: ReturnType<typeof setInterval> | null = null;
+// Which screen the gate's text is showing, and the fade between two of them.
+// Only a change of screen fades: the countdowns tick inside one screen, and a
+// fade every second would pull the eye to numbers that are meant to run quietly.
+const GATE_TEXT_OUT_MS = 100;
+let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
+let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
 let gateStartSentAt = 0;
 let gatePausedMedia: HTMLMediaElement[] = [];
@@ -784,11 +790,11 @@ function buildGateDialog(): void {
 
   const title = makeEl('div', {
     className: 'web-time-gate-title',
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 14px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 21px; line-height: 1.3;',
   });
   const dots = makeEl('div', {
     className: 'web-time-gate-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 13px;',
+    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;',
   });
   // A line tall whatever it says, so the box keeps its height when the text
   // changes after the click. A dialog that resizes under the cursor draws the
@@ -809,7 +815,7 @@ function buildGateDialog(): void {
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
-    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 13px;',
+    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 20px;',
     children: [cancelBtn, okBtn],
   });
   const barFill = makeEl('div', {
@@ -879,15 +885,33 @@ function renderGate(): void {
   const starting = gateView === 'starting';
   const waiting = !starting && offer <= 0;
 
-  q('title').textContent = starting ? 'Starting Session'
-    : waiting ? 'Next Session Refills In'
-    : 'Session Ended';
   updateTimerText();
 
   // While starting, the row already shows the session as used.
   // Only a day's worth: the bank is the popup's to show.
   const after = starting ? spend(budget, rules, now, minFraction)?.budget ?? budget : budget;
   renderGateDots(q('dots'), heldAt(after, rules, now).daily, rules.sessionsPerDay);
+
+  // Old text out fast, new text in slower, written while nothing is visible.
+  const screen = starting ? 'starting' : waiting ? 'waiting' : 'ready';
+  gateScreen ??= screen;
+  if (screen !== gateScreen) {
+    if (gateFadeTimer === null) {
+      const parts = [q('title'), q('body'), q('buttons')];
+      parts.forEach((p) => { p.style.transition = `opacity ${GATE_TEXT_OUT_MS}ms ease-in`; p.style.opacity = '0'; });
+      gateFadeTimer = setTimeout(() => {
+        gateFadeTimer = null;
+        gateScreen = null;
+        renderGate();
+        parts.forEach((p) => { p.style.transition = 'opacity 180ms cubic-bezier(.2,.8,.2,1)'; p.style.opacity = '1'; });
+      }, GATE_TEXT_OUT_MS);
+    }
+    return;
+  }
+
+  q('title').textContent = starting ? 'Starting Session'
+    : waiting ? 'Next Session Refills In'
+    : 'Session Ended';
 
   const body = q('body');
   if (starting) {
@@ -941,6 +965,8 @@ function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number):
 
 function hideGate(): void {
   if (gateTicker) { clearInterval(gateTicker); gateTicker = null; }
+  if (gateFadeTimer) { clearTimeout(gateFadeTimer); gateFadeTimer = null; }
+  gateScreen = null;
   if (gateKeyHandler) { document.removeEventListener('keydown', gateKeyHandler, true); gateKeyHandler = null; }
   const wasShown = gateDialog !== null;
   gateState = null;
@@ -1213,7 +1239,7 @@ function showEndSessionConfirm(): void {
   // Title, then what happens to the unused time. The gap under the title is
   // what makes it read as a heading rather than the first of three equal lines.
   const title = makeEl('div', {
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 14px; line-height: 1.3;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 21px; line-height: 1.3;',
     text: `End Session ${lastSessionNum ?? ''}?`,
   });
 
@@ -1222,7 +1248,7 @@ function showEndSessionConfirm(): void {
   // the dialog doesn't grow under the cursor.
   const dots = makeEl('div', {
     className: 'web-time-end-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 13px;',
+    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 20px;',
   });
   const domain = extractDomain(location.href);
   if (domain) {
@@ -1237,7 +1263,7 @@ function showEndSessionConfirm(): void {
   // and their body copy should not step. Clock-style, same formatClock as the
   // timer the number is read against.
   const body = makeEl('div', {
-    style: 'font-size: 14px; color: #ccc; margin-bottom: 13px; line-height: 1.5;',
+    style: 'font-size: 14px; color: #ccc; margin-bottom: 20px; line-height: 1.5;',
     text: `${formatClock(remaining)} unused is added to your next session`,
   });
 
