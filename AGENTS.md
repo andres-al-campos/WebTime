@@ -144,7 +144,7 @@ owner's why. A call about one feature goes in its file.
   Cards and the settings sheet take `--control-h` and `--radius-control`, the
   field height, so a button beside an input lines up. Steppers stay 32px: they
   sit two-up inside cards. The on-page dialogs are their own context with
-  their own greys. Applies *The design system holds consistency, not laws*.
+  their own greys. Applies *The design system holds consistency, not lints*.
 - 2026-10-12 12:43, 2.10.0. **On-page dialog headings are Title Case.** "Title case
   looks a bit neater." Captions inside the popup stay sentence case.
 

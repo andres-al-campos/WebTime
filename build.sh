@@ -6,7 +6,7 @@ set -e  # Exit immediately if a command fails
 # The pre-commit hook stamps the docs a commit changes (dev/hooks/stamp-docs.mjs).
 git -C "$(dirname "$0")" config core.hooksPath dev/hooks 2>/dev/null || true
 
-# ./build.sh check: the typecheck and the tests (which hold the laws, e.g. the
+# ./build.sh check: the typecheck and the tests (which hold its rules, e.g. the
 # clock-gate order). Opens no browser; the pre-push hook runs it.
 # ./build.sh check --drives: rebuilds extension/dist/ and dist-chrome/ from the
 # source, so the drive tests this code and not the last build, then runs the
