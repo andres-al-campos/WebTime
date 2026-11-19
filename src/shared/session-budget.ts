@@ -107,16 +107,16 @@ export function canStart(b: Budget, rules: BudgetRules, today: string): boolean 
 /**
  * The dots the gate shows for `budget`, filled as `shown` holds them: the same
  * budget, or what it becomes once a start that is counting down is spent, so
- * the dot drains in place. The reserve (the bank) is a backup, not something to
+ * the dot drains in place. The bank is a backup, not something to
  * plan the day around, so it is shown only once the day's row is empty, and
  * then in the row's place, every slot of it.
  */
 export function dotsShown(b: Budget, rules: BudgetRules, today: string, shown: Budget = b):
-  { kind: 'row' | 'reserve'; held: number; slots: number } {
+  { kind: 'row' | 'bank'; held: number; slots: number } {
   const { perDay, bankMax } = capsOf(rules);
   const before = heldAt(b, rules, today);
   const after = heldAt(shown, rules, today);
-  if (before.daily === 0 && before.bank > 0) return { kind: 'reserve', held: after.bank, slots: bankMax };
+  if (before.daily === 0 && before.bank > 0) return { kind: 'bank', held: after.bank, slots: bankMax };
   return { kind: 'row', held: after.daily, slots: perDay };
 }
 

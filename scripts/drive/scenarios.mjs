@@ -143,12 +143,12 @@ async function dailyRow(opts) {
     const said = await line(page);
     console.log(`  new day: ${row} dots, "${said}", stored ${JSON.stringify(banked)}`);
     if (row !== 3 || banked?.bank !== 2 || banked?.used !== 0 || banked?.day !== today) {
-      return fail(`Yesterday left 2 of 3: expected a full row and 2 in reserve, got ${row} dots and ${JSON.stringify(banked)}.`,
+      return fail(`Yesterday left 2 of 3: expected a full row and 2 banked, got ${row} dots and ${JSON.stringify(banked)}.`,
         'check settle in session-budget.ts and budgetOf in background.ts.');
     }
     if (said !== '3/3 sessions left') {
       return fail(`Under a full row of 3 the gate says "${said}".`,
-        'expected "3/3 sessions left", and nothing about the reserve while the row has some: check renderGate in content.ts.');
+        'expected "3/3 sessions left", and nothing about the bank while the row has some: check renderGate in content.ts.');
     }
     if (!(await passGate(page))) return fail('The gate did not start a session.', 'check beginSession in background.ts.');
     await stay(page, 3);
@@ -167,7 +167,7 @@ async function dailyRow(opts) {
     await run.close();
   }
 
-  // The row used up, the reserve holding 2 of 3: the reserve takes the row's place.
+  // The row used up, the bank holding 2 of 3: the bank takes the row's place.
   run = await startRun({ ...opts, storage: seeded({ used: 3, bank: 2, day: today }) });
   try {
     const page = await openPage(run, { gate: false });
@@ -175,17 +175,17 @@ async function dailyRow(opts) {
     await page.waitForTimeout(900);
     const shown = { kind: await kind(page), slots: await slots(page), filled: await filled(page), line: await line(page) };
     console.log(`  row used up: ${JSON.stringify(shown)}`);
-    if (shown.kind !== 'reserve' || shown.slots !== 3 || shown.filled !== 2 || shown.line !== '2/3 reserve sessions left') {
-      return fail(`With the row used up and 2 of 3 in reserve the gate shows ${JSON.stringify(shown)}.`,
-        'expected the reserve\'s 3 slots in the row\'s place, 2 filled, over "2/3 reserve sessions left": check renderGate and renderGateDots in content.ts.');
+    if (shown.kind !== 'bank' || shown.slots !== 3 || shown.filled !== 2 || shown.line !== '2/3 banked sessions left') {
+      return fail(`With the row used up and 2 of 3 banked the gate shows ${JSON.stringify(shown)}.`,
+        'expected the bank\'s 3 slots in the row\'s place, 2 filled, over "2/3 banked sessions left": check renderGate and renderGateDots in content.ts.');
     }
     await page.locator('.web-time-gate-ok').click();
     await page.waitForTimeout(900);
     const starting = { filled: await filled(page), line: await line(page) };
-    console.log(`  counting down from the reserve: ${JSON.stringify(starting)}`);
-    if (starting.filled !== 1 || starting.line !== '1/3 reserve sessions left') {
-      return fail(`Starting from the reserve shows ${JSON.stringify(starting)}.`,
-        'during the countdown one reserve dot should drain and stay as an empty slot: check renderGate in content.ts.');
+    console.log(`  counting down from the bank: ${JSON.stringify(starting)}`);
+    if (starting.filled !== 1 || starting.line !== '1/3 banked sessions left') {
+      return fail(`Starting from the bank shows ${JSON.stringify(starting)}.`,
+        'during the countdown one banked dot should drain and stay as an empty slot: check renderGate in content.ts.');
     }
   } finally {
     await run.close();
@@ -232,13 +232,13 @@ async function dailyRow(opts) {
     const moved = await stored(run);
     console.log(`  stored by the refilling design: now ${JSON.stringify(moved)}`);
     if (moved?.used !== 2 || moved?.bank !== 1 || moved?.day !== today) {
-      return fail(`A budget of 0.4 in the row and 1 in reserve should read 2 used, 1 in reserve: ${JSON.stringify(moved)}.`,
+      return fail(`A budget of 0.4 in the row and 1 banked should read 2 used, 1 banked: ${JSON.stringify(moved)}.`,
         'check readBudget in session-budget.ts and loadBudgets in background.ts.');
     }
   } finally {
     await run.close();
   }
-  return pass('the row refills at the reset, a start costs one dot, the reserve shows once the row is used up, an empty row waits, old budgets carry over');
+  return pass('the row refills at the reset, a start costs one dot, the bank shows once the row is used up, an empty row waits, old budgets carry over');
 }
 
 /** End session early with the shortcut: confirm, the gate, and the unused
@@ -792,7 +792,7 @@ export const scenarios = {
   'confirm-elsewhere': { run: confirmElsewhere, about: 'An end-session confirm left open holds the clock only on its tab (~25s)' },
   'two-windows': { run: twoWindows, about: 'Time follows the focused window (~30s)' },
   'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
-  'daily-row': { run: dailyRow, about: 'The day\'s row: reset, reserve, one dot per start, the wait (~35s)' },
+  'daily-row': { run: dailyRow, about: 'The day\'s row: reset, bank, one dot per start, the wait (~35s)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },

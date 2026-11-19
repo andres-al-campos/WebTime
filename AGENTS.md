@@ -62,10 +62,6 @@ Firefox's persistent background does not. **Test both.**
 is the on-page display and its once-a-second refresh (`startTimer`). The owner
 says "timer" for both; ask which one when it matters.
 
-**Reserve** is what the UI and the docs call the sessions saved past a day's
-worth. The code calls it the bank (`bank`, `bankSessions`): `bankSessions` is a
-stored setting key, so the code name stays.
-
 `ensure*` means idempotent-with-effects (`ensureKeepAlive`, `ensureHeartbeat`).
 A plain `get*` must not persist or schedule.
 
@@ -130,14 +126,14 @@ the time and version it was made or reworded at.
 - 2026-10-22 19:10, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
   alarm colours, nudges are brief, and stopping early is rewarded, not
   punished.
-- 2026-11-19 17:04, 2.10.0. **Saving pays later.** Time you don't use is kept for later:
+- 2026-11-19 17:34, 2.10.0. **Saving pays later.** Time you don't use is kept for later:
   unused time from an early end stacks onto the next session, sessions left
-  when the day resets go to the reserve, and a setting lowered then raised
-  gives back what it hid. The reserve is a backup, spent last and never
+  when the day resets go to the bank, and a setting lowered then raised
+  gives back what it hid. The bank is a backup, spent last and never
   expiring, so the gate shows it only once the day's row is used up. Why, in the owner's words: "you get rewarded for being frugal with
   time, then you use that time at a later time", and "humans like to see
   number go up". The opposite is use-it-or-lose-it, which starts only once the
-  reserve is full, so saving can't turn into endless hoarding.
+  bank is full, so saving can't turn into endless hoarding.
 
 ## Calls
 

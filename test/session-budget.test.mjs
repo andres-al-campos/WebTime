@@ -134,21 +134,21 @@ test('a budget from the refilling design keeps its dots, part-refilled ones roun
   assert.deepEqual(readBudget({ sessions: 4, at: 1 }, rules, D1), { used: 0, bank: 1, day: D1 });
 });
 
-test('the gate shows the row while it has any left, and nothing of the reserve', () => {
+test('the gate shows the row while it has any left, and nothing of the bank', () => {
   assert.deepEqual(dotsShown({ used: 2, bank: 3, day: D1 }, roomy, D1), { kind: 'row', held: 1, slots: 3 });
 });
 
-test('once the row is used up the reserve takes its place, every slot of it', () => {
-  assert.deepEqual(dotsShown({ used: 3, bank: 2, day: D1 }, roomy, D1), { kind: 'reserve', held: 2, slots: 3 });
+test('once the row is used up the bank takes its place, every slot of it', () => {
+  assert.deepEqual(dotsShown({ used: 3, bank: 2, day: D1 }, roomy, D1), { kind: 'bank', held: 2, slots: 3 });
 });
 
 test('a start counting down drains its dot in place', () => {
   const lastOfRow = { used: 2, bank: 2, day: D1 };
   assert.deepEqual(dotsShown(lastOfRow, roomy, D1, spend(lastOfRow, roomy, D1)), { kind: 'row', held: 0, slots: 3 });
-  const fromReserve = { used: 3, bank: 2, day: D1 };
-  assert.deepEqual(dotsShown(fromReserve, roomy, D1, spend(fromReserve, roomy, D1)), { kind: 'reserve', held: 1, slots: 3 });
+  const fromBank = { used: 3, bank: 2, day: D1 };
+  assert.deepEqual(dotsShown(fromBank, roomy, D1, spend(fromBank, roomy, D1)), { kind: 'bank', held: 1, slots: 3 });
 });
 
-test('with the row and the reserve empty the gate shows the spent row', () => {
+test('with the row and the bank empty the gate shows the spent row', () => {
   assert.equal(dotsShown({ used: 3, bank: 0, day: D1 }, roomy, D1).kind, 'row');
 });

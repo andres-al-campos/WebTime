@@ -738,8 +738,8 @@ let gatePausedMedia: HTMLMediaElement[] = [];
 let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
-// The reserve's ring. Its dot is the same blue session, held in reserve.
-const GATE_RESERVE_RING = 'rgba(232, 137, 74, 0.85)';
+// The bank's ring. Its dot is the same blue session, banked.
+const GATE_BANK_RING = 'rgba(232, 137, 74, 0.85)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -917,7 +917,7 @@ function renderGate(): void {
   updateTimerText();
 
   // While starting, the dots already show the session as used.
-  // The reserve is a backup, not something to plan the day around, so it only
+  // The bank is a backup, not something to plan the day around, so it only
   // appears once the day's row is empty, and then in the row's place.
   const view = sessionsView(budget, rules, today, starting ? spend(budget, rules, today) ?? budget : budget);
   renderGateDots(q('dots'), view.kind, view.held, view.slots);
@@ -982,19 +982,19 @@ const GATE_DOT_STYLE = {
   row: `border: 2px solid ${GATE_BLUE}; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) border-box no-repeat;`,
   // Whole pixels, 2 + 2 + 14 + 2 + 2 = 22, so the blue sits exactly 4px in on
   // every side.
-  reserve: `border: 2px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
+  bank: `border: 2px solid ${GATE_BANK_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
 };
 
 /** The dots to draw and the line under them. */
 function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: Budget):
-  { kind: 'row' | 'reserve'; held: number; slots: number; line: string } {
+  { kind: 'row' | 'bank'; held: number; slots: number; line: string } {
   const dots = dotsShown(budget, rules, today, shown);
   const count = `${dots.held}/${dots.slots}`;
-  return { ...dots, line: dots.kind === 'reserve' ? `${count} reserve sessions left` : `${count} sessions left` };
+  return { ...dots, line: dots.kind === 'bank' ? `${count} banked sessions left` : `${count} sessions left` };
 }
 
-/** One dot per slot, the day's row or the reserve; `held` of them filled. */
-function renderGateDots(row: HTMLElement, kind: 'row' | 'reserve', held: number, slots: number): void {
+/** One dot per slot, the day's row or the bank; `held` of them filled. */
+function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, slots: number): void {
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(slots)));
   if (row.dataset.kind !== kind) {
     row.dataset.kind = kind;

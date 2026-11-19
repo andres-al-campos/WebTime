@@ -427,14 +427,14 @@ export async function renderSessionSettingsCard(
       // The row each day brings. Also the dots on the gate, so 10 is as many
       // as its row can hold.
       label: 'Sessions per day', value: cur.sessionsPerDay,
-      hint: 'Unused sessions roll over into your reserve when the day resets.',
+      hint: 'Unused sessions roll over into your bank when the day resets.',
       min: 1, max: 10, step: 1,
       onChange: v => { cur.sessionsPerDay = v; showMath(); persist(); },
     }).el,
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
-      label: 'Reserve sessions', value: cur.bankSessions,
-      hint: "Sessions in reserve don't expire. Once the reserve is full, extra sessions are lost.",
+      label: 'Banked sessions', value: cur.bankSessions,
+      hint: "Banked sessions don't expire. Once the bank is full, extra sessions are lost.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
@@ -478,7 +478,7 @@ interface Held {
 let heldTicker: ReturnType<typeof setInterval> | null = null;
 
 /**
- * The row of a day's sessions, the count in reserve beyond it, and the line under
+ * The row of a day's sessions, the count banked beyond it, and the line under
  * them. With `running` the line is when the row refills; without, it also says
  * what the gate would offer right now.
  */
@@ -494,7 +494,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
     const now = Date.now();
     const today = getLocalDateStr(liveDayReset);
     const { daily, bank: banked } = heldAt(h.budget, h.rules, today);
-    bank.textContent = banked > 0 ? `+${banked} in reserve` : '';
+    bank.textContent = banked > 0 ? `+${banked} banked` : '';
     for (let i = 0; i < count; i++) {
       dots.children[i].classList.toggle('is-full', i < daily);
     }

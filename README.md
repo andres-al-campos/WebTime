@@ -35,7 +35,7 @@ keeps you informed: a quick visual pulse early, an awareness popup when you're
 approaching your typical usage, and a 60-second wind-down near a session's end.
 On a site with session limits, each session starts at a gate you click
 through, and each day brings only so many: what you don't use goes to a small
-reserve. Ending a session early on your own terms keeps the time you
+bank. Ending a session early on your own terms keeps the time you
 didn't use.
 
 ## Features
@@ -60,7 +60,7 @@ didn't use.
   interrupting your flow.
 - **A fixed number of sessions a day** — a site with limits gets a few sessions
   a day, each started at a gate with a short countdown. Sessions you don't use
-  go to a reserve when the day resets, and reserve sessions don't expire.
+  go to a bank when the day resets, and banked sessions don't expire.
 - **End a session early** — unused time is added to your next session, so
   stopping early is rewarded, not punished.
 - **Wind-down mode** — a bar across the top of the page that drains down over
