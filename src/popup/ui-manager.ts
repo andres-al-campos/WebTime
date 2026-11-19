@@ -15,7 +15,7 @@ import {
   highlightBar,
   type DomainPieData
 } from './chart-builder.js';
-import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek, dayResetMinutesOf, formatTimeOfDay, parseTimeOfDay } from '../shared/utils.js';
+import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfWeek, dayResetMinutesOf, formatTimeOfDay, parseTimeOfDay, DEFAULT_START_QUESTION } from '../shared/utils.js';
 import { renderSessionCard, renderSessionSettingsCard, stepper } from './session-card.js';
 import { renderPastDayCards, backToTodayButton } from './past-day-cards.js';
 import { sessionsFor } from '../shared/session-history.js';
@@ -401,6 +401,11 @@ export async function loadSettings(): Promise<void> {
     if (countdownEl) countdownEl.value = String(countdownVal);
     mountSettingsStepper('start-countdown-stepper', countdownEl, 'Start countdown', 's',
       { value: countdownVal, min: 0, max: 60, step: 1 });
+    const startQuestionEl = document.getElementById('start-question') as HTMLInputElement | null;
+    if (startQuestionEl) {
+      startQuestionEl.placeholder = DEFAULT_START_QUESTION;
+      startQuestionEl.value = global.startQuestion ?? '';
+    }
 
     // End-session shortcut: undefined = default Ctrl+E, null = disabled, string = custom
     const endSessionShortcutEl = document.getElementById('end-session-shortcut') as HTMLInputElement | null;
@@ -448,6 +453,7 @@ export async function saveSettings(): Promise<void> {
     const inactivityTimeoutEl = document.getElementById('inactivity-timeout') as HTMLInputElement | null;
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
     const countdownEl = document.getElementById('start-countdown') as HTMLInputElement | null;
+    const startQuestionEl = document.getElementById('start-question') as HTMLInputElement | null;
 
     const scalingPower = parseFloat(chartScalingEl?.value || '1.0') || 1.0;
 
@@ -470,6 +476,7 @@ export async function saveSettings(): Promise<void> {
       endSessionShortcut,
       // 0 is a real choice (start at once), so no `|| 10` here.
       startCountdownS: Math.max(0, parseInt(countdownEl?.value ?? '10', 10) || 0),
+      startQuestion: startQuestionEl?.value.trim() ?? '',
     };
     // Apply the new scale to the live chart config so the currently open chart
     // reflects it immediately — otherwise it only took effect on the NEXT popup

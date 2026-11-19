@@ -1,6 +1,6 @@
 # Global settings
 
-Updated 2026-11-16 17:12, at 2.10.0.
+Updated 2026-11-18 19:37, at 2.10.0.
 
 Settings that apply to every site.
 
@@ -9,7 +9,8 @@ Settings that apply to every site.
 - Day resets at: a stepper like the others, showing HH:MM. The arrows step 5
   minutes and come round past midnight; any minute can be typed ("7",
   "7:30", "730"). Default midnight. It
-  decides which day time is counted under; sessions held don't reset.
+  decides which day time is counted under and when each site's row of sessions
+  is full again.
 - Inactivity: 5–600s in 5s steps (default 30). How long after your last input
   a silent tab stops counting.
 - Chart scale: 0.3–1.0 (default 1.0). Compresses tall bars so short days stay
@@ -17,6 +18,8 @@ Settings that apply to every site.
 - Start countdown: 0–60s in 1s steps (default 10). How long the gate counts
   down after OK before the session starts; 0 starts it at once. Read when the
   gate is shown, so an open gate keeps the old value.
+- Ask before starting: what the gate asks during that countdown, up to 40
+  characters so it stays on one line. Blank asks "Are you sure?".
 - End-session shortcut: click the field and press a combo; × disables it.
   Default Ctrl+E.
 - "Your data" row: see [your-data.md](your-data.md).
@@ -36,13 +39,13 @@ Preconditions: `./build.sh`.
    new value.
 
 `npm run drive -- global-settings` (~5s): steps Chart scale and Start
-countdown down, saves, and checks storage holds both and the untouched
-Inactivity value. It
-doesn't check the background picks the settings up.
+countdown down, types a start question, saves, and checks storage holds them and
+the untouched Inactivity value. `npm run drive -- daily-row` checks the gate asks
+the question that was set.
 
-Last driven: 2026-11-16, Chrome headless. Saved `scalingPower: 0.95` and
-`startCountdownS: 9`, `inactivityTimeoutS` kept. A gate using a changed
-countdown was not driven.
+Last driven: 2026-11-18, Chrome headless. Saved `scalingPower: 0.95`,
+`startCountdownS: 9` and `startQuestion: "Worth it?"`, `inactivityTimeoutS` kept,
+and the gate asked "Worth it?". A gate using a changed countdown was not driven.
 
 ## Gotchas
 

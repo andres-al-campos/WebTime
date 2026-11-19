@@ -43,6 +43,7 @@ export interface GlobalSettings {
   scalingPower?: number; // Chart bar scaling power (default: 0.8, range 0.3-1.0)
   endSessionShortcut?: string | null; // Keyboard shortcut to end session early; null = disabled, undefined = default (Ctrl+E)
   startCountdownS?: number; // Seconds between OK on the gate and the session starting (default 10)
+  startQuestion?: string; // What the gate asks during that countdown; blank = the default
 }
 
 export interface DomainSettings {
@@ -140,6 +141,8 @@ export interface ShowGateMessage {
   resetAt: number;
   /** Seconds between OK and the session starting. */
   countdownSeconds: number;
+  /** What the gate asks during that countdown. */
+  startQuestion: string;
 }
 
 export interface HideGateMessage {

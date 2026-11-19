@@ -137,7 +137,12 @@ async function dailyRow(opts) {
     await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
     const row = await filled(page);
     const banked = await stored(run);
-    console.log(`  new day: ${row} dots, stored ${JSON.stringify(banked)}`);
+    const fullRowLine = await page.locator('.web-time-gate-body').innerText();
+    console.log(`  new day: ${row} dots, "${fullRowLine}", stored ${JSON.stringify(banked)}`);
+    if (!fullRowLine.startsWith('Sessions refill in')) {
+      return fail(`On a full row the gate's line reads "${fullRowLine}".`,
+        'the line holds the gate\'s spacing, so it always shows: check renderGate in content.ts.');
+    }
     if (row !== 3 || banked?.bank !== 2 || banked?.used !== 0 || banked?.day !== today) {
       return fail(`Yesterday left 2 of 3: expected a full row and 2 banked, got ${row} dots and ${JSON.stringify(banked)}.`,
         'check settle in session-budget.ts and budgetOf in background.ts.');
@@ -175,10 +180,20 @@ async function dailyRow(opts) {
     await run.close();
   }
 
-  run = await startRun({ ...opts, storage: seeded({ sessions: 1.4, at: Date.now(), bank: 1 }) });
+  const asking = seeded({ sessions: 1.4, at: Date.now(), bank: 1 });
+  asking.webTimeSettings.global = { startQuestion: 'Worth it?' };
+  run = await startRun({ ...opts, storage: asking });
   try {
     const page = await openPage(run, { gate: false });
     await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('.web-time-gate-ok').click();
+    await page.waitForTimeout(500);
+    const question = await page.locator('.web-time-gate-body').innerText();
+    console.log(`  during the countdown the gate asks: "${question}"`);
+    if (question !== 'Worth it?') {
+      return fail(`The start question is set to "Worth it?", the gate asks "${question}".`,
+        'check startQuestion in syncGate (background.ts) and renderGate (content.ts).');
+    }
     const moved = await stored(run);
     console.log(`  stored by the refilling design: now ${JSON.stringify(moved)}`);
     if (moved?.used !== 2 || moved?.bank !== 1 || moved?.day !== today) {
@@ -606,6 +621,7 @@ function globalSettings(opts) {
     await popup.click('#chart-scaling-stepper .sc-stepper-btn:has-text("▼")');
     await popup.click('#start-countdown-stepper .sc-stepper-btn:has-text("▼")');
     await popup.click('#day-reset-stepper .sc-stepper-btn:has-text("▼")');
+    await popup.fill('#start-question', '  Worth it?  ');
     await popup.click('#save-settings-btn');
     await popup.waitForTimeout(500);
     const saved = (await run.storage('webTimeSettings'))?.global;
@@ -626,7 +642,11 @@ function globalSettings(opts) {
       return fail(`Stepped Start countdown down from 10 and saved; storage holds ${saved.startCountdownS}.`,
         'check #start-countdown-stepper mirrors into #start-countdown and saveSettings writes startCountdownS (popup/ui-manager.ts).');
     }
-    return pass(`Chart scale saved as ${saved.scalingPower}, start countdown as 9s, day reset wrapped to 23:55; untouched settings kept`);
+    if (saved.startQuestion !== 'Worth it?') {
+      return fail(`Typed a start question and saved; storage holds "${saved.startQuestion}".`,
+        'saveSettings rewrites every global from the form: check it writes #start-question (popup/ui-manager.ts).');
+    }
+    return pass(`Chart scale saved as ${saved.scalingPower}, start countdown as 9s, start question kept, day reset wrapped to 23:55; untouched settings kept`);
   });
 }
 

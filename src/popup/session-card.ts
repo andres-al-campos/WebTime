@@ -498,11 +498,10 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
       dots.children[i].classList.toggle('is-full', i < daily);
     }
     const refillsIn = `Sessions refill in ${formatClock(Math.ceil((nextDayResetAt(now, liveDayReset) - now) / 1000))}`;
-    const nextText = daily >= h.rules.sessionsPerDay ? '' : refillsIn;
     if (running) {
-      line.textContent = nextText;
+      line.textContent = refillsIn;
     } else if (canStart(h.budget, h.rules, today)) {
-      line.textContent = [`A ${formatClock(h.lengthSec + h.extraSec)} session is ready on the site.`, nextText].filter(Boolean).join(' ');
+      line.textContent = `A ${formatClock(h.lengthSec + h.extraSec)} session is ready on the site. ${refillsIn}`;
     } else {
       line.textContent = h.rules.sessionsPerDay > 0 ? refillsIn : 'No sessions refill.';
     }

@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 19:26, at 2.10.0.
+Updated 2026-11-18 19:37, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -9,13 +9,13 @@ row of them, and each one is started by hand at a gate.
 
 - With rules on and no session running, every tab of the site is blurred
   behind the gate: "Session Ended", however you got there, a row of dots (one per session a day,
-  filled for each one left; banked sessions aren't shown), "Sessions refill in" once one is used, and a "Start Session"
+  filled for each one left; banked sessions aren't shown), "Sessions refill in", and a "Start Session"
   button. The on-page timer shows the length a start would give. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed
-  in [global settings](global-settings.md)) ("Starting Session
-  / Are you sure?"). Cancel during it goes back to the gate and uses nothing.
+  in [global settings](global-settings.md)) ("Starting Session"
+  over the question set in [global settings](global-settings.md), "Are you sure?" unless changed). Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
 - When the gate changes screen (ready, countdown, waiting) its text crossfades:
   100ms out, 180ms in. The dots stay put and the countdowns tick without fading.

@@ -897,8 +897,7 @@ function renderGate(): void {
   // While starting, the row already shows the session as used.
   // Only a day's worth: the bank is the popup's to show.
   const after = starting ? spend(budget, rules, today) ?? budget : budget;
-  const { daily } = heldAt(after, rules, today);
-  renderGateDots(q('dots'), daily, rules.sessionsPerDay);
+  renderGateDots(q('dots'), heldAt(after, rules, today).daily, rules.sessionsPerDay);
 
   // Old text out fast, new text in slower, written while nothing is visible.
   const screen = starting ? 'starting' : waiting ? 'waiting' : 'ready';
@@ -923,7 +922,7 @@ function renderGate(): void {
 
   const body = q('body');
   if (starting) {
-    body.textContent = 'Are you sure?';
+    body.textContent = gateState.startQuestion;
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
   } else if (waiting) {
@@ -933,7 +932,7 @@ function renderGate(): void {
     body.style.color = '#eee';
   } else {
     // The on-page timer already shows the length a start would give.
-    body.textContent = daily >= rules.sessionsPerDay ? '' : `Sessions refill in ${formatClock(Math.ceil((resetAt - now) / 1000))}`;
+    body.textContent = `Sessions refill in ${formatClock(Math.ceil((resetAt - now) / 1000))}`;
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
   }

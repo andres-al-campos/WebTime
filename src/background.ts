@@ -1,6 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE, ALARM, PORT } from './shared/protocol.js';
-import { extractDomain, getLocalDateStr, log, compute7DayStats, dayResetMinutesOf, nextDayResetAt } from './shared/utils.js';
+import { extractDomain, getLocalDateStr, log, compute7DayStats, dayResetMinutesOf, nextDayResetAt, startQuestionOf } from './shared/utils.js';
 import {
   type ActiveSession,
   startSession,
@@ -1804,6 +1804,7 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
       sessionLengthSeconds,
       resetAt: nextDayResetAt(Date.now(), dayResetMinutes),
       countdownSeconds: Math.max(0, settings.global?.startCountdownS ?? DEFAULT_START_COUNTDOWN_SECONDS),
+      startQuestion: startQuestionOf(settings.global),
       extraSeconds: extraSeconds[domain] || 0,
     };
   }

@@ -89,6 +89,13 @@ export function dayResetMinutesOf(global?: { dayResetTime?: number; dayResetMinu
   return (global?.dayResetTime || 0) * 60 + (global?.dayResetMinute || 0);
 }
 
+export const DEFAULT_START_QUESTION = 'Are you sure?';
+
+/** What the gate asks during the start countdown. A blank setting asks the default. */
+export function startQuestionOf(global?: { startQuestion?: string }): string {
+  return global?.startQuestion?.trim() || DEFAULT_START_QUESTION;
+}
+
 /** Minutes past midnight as "HH:MM". */
 export function formatTimeOfDay(minutes: number): string {
   const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
