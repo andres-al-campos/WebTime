@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-19 16:52, at 2.10.0.
+Updated 2026-11-19 17:04, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -61,6 +61,7 @@ left 2 dots, a used-up row showed the reserve's 3 slots with 2 filled over "2/3
 reserve sessions left" and drained one on Start, an empty row read "Sessions Refill
 In" over a clock, and an old budget of 0.4 + 1 in reserve read 2 used, 1 in
 reserve. The reset landing while a gate is open was not driven. Not driven on Firefox.
+The owner checked the dots, the reserve and the fades in Floorp on 2026-11-19: they look good.
 
 ## Gotchas
 
