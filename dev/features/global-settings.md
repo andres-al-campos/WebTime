@@ -1,6 +1,6 @@
 # Global settings
 
-Updated 2026-11-18 19:42, at 2.10.0.
+Updated 2026-11-18 21:19, at 2.10.0.
 
 Settings that apply to every site.
 
@@ -18,7 +18,7 @@ Settings that apply to every site.
 - Start countdown: 0–60s in 1s steps (default 10). How long the gate counts
   down after OK before the session starts; 0 starts it at once. Read when the
   gate is shown, so an open gate keeps the old value.
-- Ask before starting: what the gate asks during that countdown, up to 47
+- Ask before starting: the gate's title during that countdown, up to 37
   characters so it stays on one line. Blank asks "Are you sure?".
 - End-session shortcut: click the field and press a combo; × disables it.
   Default Ctrl+E.

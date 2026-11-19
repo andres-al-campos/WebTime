@@ -137,12 +137,7 @@ async function dailyRow(opts) {
     await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
     const row = await filled(page);
     const banked = await stored(run);
-    const fullRowLine = await page.locator('.web-time-gate-body').innerText();
-    console.log(`  new day: ${row} dots, "${fullRowLine}", stored ${JSON.stringify(banked)}`);
-    if (!fullRowLine.startsWith('Sessions refill in')) {
-      return fail(`On a full row the gate's line reads "${fullRowLine}".`,
-        'the line holds the gate\'s spacing, so it always shows: check renderGate in content.ts.');
-    }
+    console.log(`  new day: ${row} dots, stored ${JSON.stringify(banked)}`);
     if (row !== 3 || banked?.bank !== 2 || banked?.used !== 0 || banked?.day !== today) {
       return fail(`Yesterday left 2 of 3: expected a full row and 2 banked, got ${row} dots and ${JSON.stringify(banked)}.`,
         'check settle in session-budget.ts and budgetOf in background.ts.');
@@ -181,18 +176,26 @@ async function dailyRow(opts) {
   }
 
   const asking = seeded({ sessions: 1.4, at: Date.now(), bank: 1 });
-  asking.webTimeSettings.global = { startQuestion: 'Worth it?' };
+  // Longer than a title's line: it must not push the button down.
+  const question = 'Is this really how you want to spend this whole evening?';
+  asking.webTimeSettings.global = { startQuestion: question };
   run = await startRun({ ...opts, storage: asking });
   try {
     const page = await openPage(run, { gate: false });
     await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
+    const start = await page.locator('.web-time-gate-ok').boundingBox();
     await page.locator('.web-time-gate-ok').click();
-    await page.waitForTimeout(500);
-    const question = await page.locator('.web-time-gate-body').innerText();
-    console.log(`  during the countdown the gate asks: "${question}"`);
-    if (question !== 'Worth it?') {
-      return fail(`The start question is set to "Worth it?", the gate asks "${question}".`,
+    await page.waitForTimeout(800);
+    const asked = await page.locator('.web-time-gate-title').innerText();
+    const cancel = await page.locator('.web-time-gate-cancel').boundingBox();
+    console.log(`  during the countdown the title asks: "${asked}"; button moved ${Math.abs(cancel.y - start.y)}px down, ${Math.abs(cancel.x - start.x)}px across`);
+    if (asked !== question) {
+      return fail(`The start question is set to "${question}", the gate's title reads "${asked}".`,
         'check startQuestion in syncGate (background.ts) and renderGate (content.ts).');
+    }
+    if (Math.abs(cancel.y - start.y) > 0.5 || Math.abs(cancel.x - start.x) > 0.5) {
+      return fail(`Cancel appears ${cancel.y - start.y}px below and ${cancel.x - start.x}px beside Start Session.`,
+        'it must land exactly where Start Session was, so a second click cancels: keep the gate\'s title to one line and both buttons the same width (content.ts).');
     }
     const moved = await stored(run);
     console.log(`  stored by the refilling design: now ${JSON.stringify(moved)}`);

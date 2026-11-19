@@ -720,7 +720,8 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // Which screen the gate's text is showing, and the fade between two of them.
 // Only a change of screen fades: the countdowns tick inside one screen, and a
 // fade every second would pull the eye to numbers that are meant to run quietly.
-const GATE_TEXT_OUT_MS = 100;
+const GATE_TEXT_OUT_MS = 150;
+const GATE_TEXT_IN_MS = 250;
 let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
@@ -791,18 +792,18 @@ function buildGateDialog(): void {
 
   const title = makeEl('div', {
     className: 'web-time-gate-title',
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 21px; line-height: 1.3;',
+    // One line whatever the question, so Cancel lands exactly where Start Session
+    // was and a second click can't miss.
+    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 21px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
   });
   const dots = makeEl('div', {
     className: 'web-time-gate-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;',
+    style: 'display: flex; justify-content: center; gap: 10px;',
   });
-  // A line tall whatever it says, so the box keeps its height when the text
-  // changes after the click. A dialog that resizes under the cursor draws the
-  // eye to the frame.
+  // Only the wait has a body: its clock.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
-    style: 'font-size: 14px; color: #ccc; line-height: 1.5; min-height: 21px; display: flex; flex-direction: column; justify-content: center; font-variant-numeric: tabular-nums;',
+    style: 'margin-top: 20px; color: #eee; font-size: 28px; line-height: 1.5; font-variant-numeric: tabular-nums;',
   });
   const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;';
   const cancelBtn = makeEl('button', {
@@ -910,31 +911,22 @@ function renderGate(): void {
         gateFadeTimer = null;
         gateScreen = null;
         renderGate();
-        parts.forEach((p) => { p.style.transition = 'opacity 180ms cubic-bezier(.2,.8,.2,1)'; p.style.opacity = '1'; });
+        parts.forEach((p) => { p.style.transition = `opacity ${GATE_TEXT_IN_MS}ms cubic-bezier(.2,.8,.2,1)`; p.style.opacity = '1'; });
       }, GATE_TEXT_OUT_MS);
     }
     return;
   }
 
-  q('title').textContent = starting ? 'Starting Session'
+  q('title').textContent = starting ? gateState.startQuestion
     : waiting ? 'Sessions Refill In'
     : 'Session Ended';
 
   const body = q('body');
-  if (starting) {
-    body.textContent = gateState.startQuestion;
-    body.style.fontSize = '14px';
-    body.style.color = '#ccc';
-  } else if (waiting) {
+  body.style.display = waiting ? 'block' : 'none';
+  if (waiting) {
     const refills = rules.sessionsPerDay > 0;
     body.textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
     body.style.fontSize = refills ? '28px' : '14px';
-    body.style.color = '#eee';
-  } else {
-    // The on-page timer already shows the length a start would give.
-    body.textContent = `Sessions refill in ${formatClock(Math.ceil((resetAt - now) / 1000))}`;
-    body.style.fontSize = '14px';
-    body.style.color = '#ccc';
   }
 
   const left = Math.max(0, Math.ceil((gateCountdownEndsAt - now) / 1000));
