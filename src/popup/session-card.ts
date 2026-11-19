@@ -427,14 +427,14 @@ export async function renderSessionSettingsCard(
       // The row each day brings. Also the dots on the gate, so 10 is as many
       // as its row can hold.
       label: 'Sessions per day', value: cur.sessionsPerDay,
-      hint: 'You get this many each day. Unused ones roll over into your reserve when the day resets.',
+      hint: 'Unused sessions roll over into your reserve when the day resets.',
       min: 1, max: 10, step: 1,
       onChange: v => { cur.sessionsPerDay = v; showMath(); persist(); },
     }).el,
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
       label: 'Reserve sessions', value: cur.bankSessions,
-      hint: "Reserve sessions don't expire. Once it's full, extra ones are lost.",
+      hint: "Sessions in reserve don't expire. Once the reserve is full, extra sessions are lost.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
