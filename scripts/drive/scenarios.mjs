@@ -146,9 +146,9 @@ async function dailyRow(opts) {
       return fail(`Yesterday left 2 of 3: expected a full row and 2 in reserve, got ${row} dots and ${JSON.stringify(banked)}.`,
         'check settle in session-budget.ts and budgetOf in background.ts.');
     }
-    if (said !== '3/3 sessions available') {
+    if (said !== '3/3 sessions left') {
       return fail(`Under a full row of 3 the gate says "${said}".`,
-        'expected "3/3 sessions available", and nothing about the reserve while the row has some: check renderGate in content.ts.');
+        'expected "3/3 sessions left", and nothing about the reserve while the row has some: check renderGate in content.ts.');
     }
     if (!(await passGate(page))) return fail('The gate did not start a session.', 'check beginSession in background.ts.');
     await stay(page, 3);
@@ -175,15 +175,15 @@ async function dailyRow(opts) {
     await page.waitForTimeout(900);
     const shown = { kind: await kind(page), slots: await slots(page), filled: await filled(page), line: await line(page) };
     console.log(`  row used up: ${JSON.stringify(shown)}`);
-    if (shown.kind !== 'reserve' || shown.slots !== 3 || shown.filled !== 2 || shown.line !== '2/3 reserve sessions available') {
+    if (shown.kind !== 'reserve' || shown.slots !== 3 || shown.filled !== 2 || shown.line !== '2/3 reserve sessions left') {
       return fail(`With the row used up and 2 of 3 in reserve the gate shows ${JSON.stringify(shown)}.`,
-        'expected the reserve\'s 3 slots in the row\'s place, 2 filled, over "2/3 reserve sessions available": check renderGate and renderGateDots in content.ts.');
+        'expected the reserve\'s 3 slots in the row\'s place, 2 filled, over "2/3 reserve sessions left": check renderGate and renderGateDots in content.ts.');
     }
     await page.locator('.web-time-gate-ok').click();
     await page.waitForTimeout(900);
     const starting = { filled: await filled(page), line: await line(page) };
     console.log(`  counting down from the reserve: ${JSON.stringify(starting)}`);
-    if (starting.filled !== 1 || starting.line !== '1/3 reserve sessions available') {
+    if (starting.filled !== 1 || starting.line !== '1/3 reserve sessions left') {
       return fail(`Starting from the reserve shows ${JSON.stringify(starting)}.`,
         'during the countdown one reserve dot should drain and stay as an empty slot: check renderGate in content.ts.');
     }

@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-19 15:55, at 2.10.0.
+Updated 2026-11-19 15:58, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -9,10 +9,10 @@ row of them, and each one is started by hand at a gate.
 
 - With rules on and no session running, every tab of the site is blurred
   behind the gate: "Session Ended", however you got there, a row of dots (one per session a day,
-  solid blue for each one left, a blue ring for each used) over "2/3 sessions available", and a "Start Session"
+  solid blue for each one left, a blue ring for each used) over "2/3 sessions left", and a "Start Session"
   button. The reserve isn't shown while the row has any left. Once the row is
   used up, the reserve's slots take its place: blue dots inside an orange ring,
-  an empty ring for each slot spent, over "2/3 reserve sessions available". The on-page timer shows the length a start would give. Media pauses and anything that starts
+  an empty ring for each slot spent, over "2/3 reserve sessions left". The on-page timer shows the length a start would give. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed
@@ -56,9 +56,9 @@ Preconditions: `npm run build`.
 cost of a start, the wait and a budget stored by the refilling design.
 
 Last driven: 2026-11-19, Chrome headless. `daily-row`: a new day showed 3 dots
-over "3/3 sessions available" with 2 in reserve from the day before, an early end
+over "3/3 sessions left" with 2 in reserve from the day before, an early end
 left 2 dots, a used-up row showed the reserve's 3 slots with 2 filled over "2/3
-reserve sessions available" and drained one on Start, an empty row read "Sessions Refill
+reserve sessions left" and drained one on Start, an empty row read "Sessions Refill
 In" over a clock, and an old budget of 0.4 + 1 in reserve read 2 used, 1 in
 reserve. The reset landing while a gate is open was not driven. Not driven on Firefox.
 

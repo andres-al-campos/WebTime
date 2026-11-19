@@ -985,7 +985,7 @@ function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: 
   { kind: 'row' | 'reserve'; held: number; slots: number; line: string } {
   const dots = dotsShown(budget, rules, today, shown);
   const count = `${dots.held}/${dots.slots}`;
-  return { ...dots, line: dots.kind === 'reserve' ? `${count} reserve sessions available` : `${count} sessions available` };
+  return { ...dots, line: dots.kind === 'reserve' ? `${count} reserve sessions left` : `${count} sessions left` };
 }
 
 /** One dot per slot, the day's row or the reserve; `held` of them filled. */
