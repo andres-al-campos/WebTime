@@ -1,6 +1,6 @@
 # Wind-down
 
-Updated 2026-11-10 21:11, at 2.10.0.
+Updated 2026-11-18 20:15, at 2.10.0.
 
 The last 60 seconds of a session: a thin bar across the top of the page drains
 to nothing and the page darkens, up to 30%.
@@ -23,12 +23,11 @@ Preconditions: `./build.sh`.
 `npm run drive -- wind-down` (~45s): a 1-minute session, which is all
 wind-down. It checks the overlay appears and the dim deepens, then raises the
 session to 2 minutes and checks the overlay fades out and stays gone. To watch it hand
-over to the blocker, `npm run drive -- --limit 1 --seconds 70`.
+over to the gate, `npm run drive -- --limit 1 --seconds 70`.
 
-Last driven: 2026-11-10, Chrome headless. Wind-down from 2s, dim 10% at 21s;
-raised to 2 minutes, opacity eased 1.00 → 0 over ~400ms, then hidden, and it
-stayed hidden. The blocker took over at 65s on a 1-minute session. The draining
-bar's width was not read.
+Last driven: 2026-11-18, Chrome headless. Dim went 0% → 10% → 20% over 40s;
+raised to 2 minutes, opacity eased 0.90 → 0 and the overlay hid and stayed
+hidden. The draining bar's width and the handover to the gate were not read.
 
 ## Gotchas
 
