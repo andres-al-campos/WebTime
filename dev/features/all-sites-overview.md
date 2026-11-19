@@ -1,6 +1,6 @@
 # All-sites overview
 
-Updated 2026-10-25 11:42, at 2.10.0.
+Updated 2026-11-19 16:26, at 2.10.0.
 
 The popup's "All sites" page: how much time you spent browsing each day, and
 on what.
@@ -30,12 +30,13 @@ Preconditions: `./build.sh`; some stored history (drive a page first, or write
 2. Click "◂ All sites".
 3. Expected: a bar for today; the breakdown lists `localhost` with its time.
 
-`npm run drive -- overview` (~5s): seeds two days for `localhost`, opens the
-popup, switches to All sites and checks the breakdown lists `localhost`. It
+`npm run drive -- overview` (~6s): seeds two days for `localhost`, opens the
+popup, switches to All sites and checks the breakdown lists `localhost`, then
+switches back and checks the site chart was kept, not rebuilt. It
 doesn't check the chart's bars or the average line.
 
-Last driven: 2026-10-07, Chrome. Breakdown showed `0h 2m`, `↓ 54% from avg`,
-`localhost`.
+Last driven: 2026-11-19, Chrome headless. Breakdown showed `0h 2m`, `↓ 54% from avg`,
+`localhost`; back on the site view the chart was kept.
 
 ## Gotchas
 

@@ -594,8 +594,7 @@ export function buildPieChart(domainData: DomainPieData[]): ChartConfiguration {
           const index = elements[0].index;
           const domain = chart.data.labels?.[index] as string;
           AppState.setSelectedDomain(domain);
-          UIManager.renderDetailView(domain);
-          UIManager.showDetailView();
+          UIManager.showDetailFor(domain);
         }
       }
     }

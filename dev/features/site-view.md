@@ -1,6 +1,6 @@
 # Site view
 
-Updated 2026-11-16 16:34, at 2.10.0.
+Updated 2026-11-19 16:26, at 2.10.0.
 
 The popup's default page: your history on one site, today's usage, and that
 site's session controls.
@@ -38,3 +38,7 @@ Time left 1:55" with `--limit 2`. The chart and the top bar were not checked.
 
 - On a non-web page (new tab, settings) the view says "No site to show here"
   and shows no cards.
+- Coming back from All sites keeps the chart if it's the same site:
+  `showDetailFor` only builds one for a different site. Rebuilding on every
+  switch replayed the bars' grow-in each time. `npm run drive -- overview`
+  checks it.

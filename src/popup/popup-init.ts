@@ -38,8 +38,7 @@ export const App = {
         if (AppState.currentView === ViewState.DETAIL) {
           UIManager.showGeneralView();
         } else {
-          UIManager.renderDetailView(AppState.selectedDomain);
-          UIManager.showDetailView();
+          UIManager.showDetailFor(AppState.selectedDomain);
         }
       });
     }

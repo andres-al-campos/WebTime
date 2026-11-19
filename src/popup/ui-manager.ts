@@ -564,6 +564,22 @@ function lockedDetailDate(domain: string): string | null {
 /** The live detail chart. AppState.chartInstance is the general view's; keeping
  *  this one separate stops a highlight meant for one landing on the other. */
 let detailChart: ExtendedChart | null = null;
+/** The site `detailChart` was built for. */
+let detailChartDomain: string | null = null;
+
+/**
+ * Show the site view for `domain`, building its chart only if it shows another
+ * site. Coming back to the same site keeps the chart, as the general view does:
+ * rebuilding replayed the grow-in animation on every switch.
+ */
+export function showDetailFor(domain: string | null): void {
+  if (domain && detailChart && detailChartDomain === domain) {
+    selectDetailDay(AppState.lockedDayIndex);
+  } else {
+    renderDetailView(domain);
+  }
+  showDetailView();
+}
 
 /** Select a day in the detail view: move the lock, repaint the chart highlight,
  *  and swap the panel. `null` means today (the last bar).
@@ -624,6 +640,9 @@ export function updateDetailPanel(domain: string): void {
 
 export function renderDetailView(domain: string | null): void {
   if (!domain) {
+    detailChart?.destroy();
+    detailChart = null;
+    detailChartDomain = null;
     displayMessage('#detail-page .left-panel',
       "No site to show here. Open a website (any http or https page), then reopen this popup to see its stats.");
     // Also clear the right-panel cards so nothing bogus lingers beside the message.
@@ -660,8 +679,10 @@ export function renderDetailView(domain: string | null): void {
   const ctx = canvasElement.getContext('2d');
   if (!ctx) return;
 
+  detailChart?.destroy();
   const chart = new Chart(ctx, chartConfig);
   detailChart = chart as unknown as ExtendedChart;
+  detailChartDomain = domain;
 
   // A day is always selected (defaulted to today above), and a fresh Chart
   // starts with no highlight — so paint it after building.
@@ -866,8 +887,7 @@ export function renderBreakdownBars(container: HTMLElement, domainData: DomainPi
       const domain = bar.dataset.domain;
       if (domain) {
         AppState.setSelectedDomain(domain);
-        renderDetailView(domain);
-        showDetailView();
+        showDetailFor(domain);
       }
     }
   };
@@ -1034,6 +1054,7 @@ export function setupDetailViewScrolling(
 export const UIManager = {
   showGeneralView,
   showDetailView,
+  showDetailFor,
   openSettings,
   closeSettings,
   toggleSettings,

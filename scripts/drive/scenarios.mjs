@@ -678,7 +678,17 @@ function overview(opts) {
       return fail('The all-sites breakdown does not list localhost, which has 2:05 stored today.',
         'check updateDailyBreakdown in popup/ui-manager.ts and the totals from data-processor.ts.');
     }
-    return pass('all-sites overview lists localhost in today\'s breakdown');
+    // Back to the site: its chart is kept, not rebuilt with its grow-in again.
+    await popup.evaluate(() => { document.querySelector('#detail-page canvas').dataset.drive = 'first'; });
+    await popup.click('#nav-toggle-btn');
+    await popup.waitForTimeout(500);
+    const kept = await popup.evaluate(() => document.querySelector('#detail-page canvas')?.dataset.drive);
+    console.log(`  back on the site view, chart ${kept === 'first' ? 'kept' : 'rebuilt'}`);
+    if (kept !== 'first') {
+      return fail('Switching to All sites and back rebuilt the site chart, which replays its grow-in animation.',
+        'the nav toggle should call showDetailFor in popup/ui-manager.ts, which keeps the chart for the same site.');
+    }
+    return pass('all-sites overview lists localhost in today\'s breakdown; the site chart survives a switch');
   });
 }
 
@@ -787,7 +797,7 @@ export const scenarios = {
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },
   'wind-down': { run: windDown, about: 'Wind-down dims the page as a session ends (~45s)' },
-  overview: { run: overview, about: 'All-sites overview lists stored sites (~5s)' },
+  overview: { run: overview, about: 'All-sites overview lists stored sites; switching back keeps the site chart (~6s)' },
   'past-day': { run: pastDay, about: 'Past-day sessions from a clicked bar (~5s)' },
   'global-settings': { run: globalSettings, about: 'Global settings save from the gear sheet (~5s)' },
   export: { run: exportData, about: 'Your data: summary and Export download (~5s)' },
