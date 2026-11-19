@@ -196,6 +196,11 @@ export function createSingleDomainDataset(
   };
 }
 
+/** Both day charts share one legend, so switching views doesn't move the bars. */
+const CHART_LEGEND = {
+  labels: { boxHeight: 8, padding: 8, font: { size: 11, family: "'IBM Plex Sans', sans-serif" } },
+};
+
 export function getBaseChartOptions(_isGeneralView: boolean = false): Record<string, unknown> {
   return {
     animation: { duration: CONFIG.initAnimationDuration },
@@ -323,7 +328,7 @@ export function buildGeneralViewChart(totalTimeData: GeneralViewData): ChartConf
       }
     },
     plugins: {
-      legend: { display: false },
+      legend: CHART_LEGEND,
       tooltip: getGeneralViewTooltipConfig(totalTimeData)
     },
     onHover: (_event: unknown, elements: { index: number }[], chart: ExtendedChart) => {
@@ -440,9 +445,7 @@ export function buildDetailViewChart(processedData: DetailViewData): ChartConfig
       }
     },
     plugins: {
-      legend: {
-        labels: { boxHeight: 8, padding: 8, font: { size: 11, family: "'IBM Plex Sans', sans-serif" } }
-      },
+      legend: CHART_LEGEND,
       tooltip: getDetailViewTooltipConfig(processedData)
     },
     // Clicking a bar locks that day and swaps the right panel to its finished

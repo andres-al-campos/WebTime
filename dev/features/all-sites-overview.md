@@ -1,6 +1,6 @@
 # All-sites overview
 
-Updated 2026-11-19 16:26, at 2.10.0.
+Updated 2026-11-19 17:07, at 2.10.0.
 
 The popup's "All sites" page: how much time you spent browsing each day, and
 on what.
@@ -9,6 +9,7 @@ on what.
 
 - Daily bar chart of total time across all sites, 30 days at a time, with a
   7-day moving average line.
+  Its legend is the site view's, so switching views doesn't move the bars.
 - Scroll back through older days with the mouse wheel or the arrow keys on the
   chart (only when there are more than 30 days).
 - Hover a bar to preview that day; click it to lock the selection; click it
