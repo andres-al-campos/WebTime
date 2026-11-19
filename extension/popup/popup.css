@@ -469,7 +469,7 @@ body {
   width: 15px; height: 15px; border-radius: 50%; box-sizing: border-box;
   border: 1px solid var(--accent);
 }
-.sc-dot.is-full { background: var(--accent) padding-box; }
+.sc-dot.is-full { background: var(--accent) border-box; }
 .sc-good { color: var(--good); font-weight: 600; }
 
 .sc-btn {

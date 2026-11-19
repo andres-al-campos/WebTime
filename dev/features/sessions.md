@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-19 15:58, at 2.10.0.
+Updated 2026-11-19 16:46, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -9,7 +9,7 @@ row of them, and each one is started by hand at a gate.
 
 - With rules on and no session running, every tab of the site is blurred
   behind the gate: "Session Ended", however you got there, a row of dots (one per session a day,
-  solid blue for each one left, a blue ring for each used) over "2/3 sessions left", and a "Start Session"
+  solid blue for each one left, a 2px blue ring for each used) over "2/3 sessions left", and a "Start Session"
   button. The reserve isn't shown while the row has any left. Once the row is
   used up, the reserve's slots take its place: blue dots inside an orange ring,
   an empty ring for each slot spent, over "2/3 reserve sessions left". The on-page timer shows the length a start would give. Media pauses and anything that starts

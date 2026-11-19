@@ -974,10 +974,12 @@ function renderGate(): void {
 
 const GATE_DOT_STYLE = {
   // An empty slot is a blue ring: a faint grey one disappeared against the gate.
-  row: `border: 1.5px solid ${GATE_BLUE}; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat;`,
-  // The ring and gap are the same on every side, so the blue stays centred
-  // when the 1.5px ring rounds to 1px on a 1x screen.
-  reserve: `border: 1.5px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
+  // The fill runs under the ring (border-box): stopped at the ring's inner edge,
+  // the two antialiased separately and left a dark seam between them.
+  row: `border: 2px solid ${GATE_BLUE}; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) border-box no-repeat;`,
+  // Whole pixels, 2 + 2 + 14 + 2 + 2 = 22, so the blue sits exactly 4px in on
+  // every side.
+  reserve: `border: 2px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
 };
 
 /** The dots to draw and the line under them. */
