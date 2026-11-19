@@ -26,8 +26,8 @@ All of this lives in your browser's local extension storage
 - **Your settings.** Session length, sessions per day and banked sessions,
   nudge interval, inactivity threshold, day reset time, start countdown, and
   your keyboard shortcut.
-- **Sessions held.** How many sessions each site holds and when they last
-  refilled, and unused time carried to the next session.
+- **Sessions held.** How many sessions each site has used today and holds in
+  its bank, and unused time carried to the next session.
 
 ## What is not stored
 

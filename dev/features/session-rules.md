@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-16 17:31, at 2.10.0.
+Updated 2026-11-18 19:26, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions.md).
@@ -10,8 +10,8 @@ each started at the [gate](sessions.md).
 - On/off toggle per site. Off means tracking only.
 - Session length: 1–240 min (default 40).
 - Nudge every: 0–120 min (default 20; 0 shows "Disabled").
-- Sessions per day: 1–10 (default 3), also the dots on the gate. One session returns every 24h ÷ this.
-- Banked sessions: 0–10 (default 1), explained by clicking the ⓘ beside its label, which opens a sentence just above it. Sessions saved up past a day's worth; a full
+- Sessions per day: 1–10 (default 3), also the dots on the gate. The row is full again at each day reset.
+- Banked sessions: 0–10 (default 1), explained by clicking the ⓘ beside its label, which opens a sentence just above it. Sessions left when the day resets are saved here; a full
   bank earns nothing more. Stored as `bankSessions`; a `maxSessions` stored
   before it is read as the bank above the day.
 - Under the steppers, sessions per day × length = the average a day,

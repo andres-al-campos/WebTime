@@ -108,6 +108,15 @@ export function parseTimeOfDay(text: string): number | null {
   return h < 24 && m < 60 ? h * 60 + m : null;
 }
 
+/** The next instant the logical day changes, epoch ms. Built from local time so
+ *  a daylight-saving change keeps the reset at the same time on the wall clock. */
+export function nextDayResetAt(nowMs: number, resetMinutes: number = 0): number {
+  const at = new Date(nowMs);
+  at.setHours(0, resetMinutes, 0, 0);
+  if (at.getTime() <= nowMs) at.setDate(at.getDate() + 1);
+  return at.getTime();
+}
+
 export function getLocalDateStr(resetMinutes: number = 0): string {
   const now = new Date();
 

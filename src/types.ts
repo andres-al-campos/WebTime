@@ -48,8 +48,8 @@ export interface GlobalSettings {
 export interface DomainSettings {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number; // Minutes — continuous usage before cooldown triggers
-  cooldownIncrement?: number; // Unused since sessions regenerate; still on disk for existing users, never read
-  sessionsPerDay?: number; // How many sessions regenerate per day (undefined = default)
+  cooldownIncrement?: number; // Unused since cooldowns were removed; still on disk for existing users, never read
+  sessionsPerDay?: number; // The row of sessions each day brings (undefined = default)
   bankSessions?: number; // Sessions that can be saved up beyond a day's worth (undefined = default)
   maxSessions?: number; // Before bankSessions: the most held in all. Read only to derive the bank
   nudgeInterval?: number; // Minutes between nudges (0 = disabled, undefined = default)
@@ -126,7 +126,7 @@ export interface ShowAveragePopupMessage {
 /**
  * Background → content: this site has rules on and no session running. The
  * page draws the gate (or the wait, when nothing can start yet) from the
- * budget itself, so the row regenerates on screen without a message a second.
+ * budget itself, and counts down to the day reset without a message a second.
  */
 export interface ShowGateMessage {
   type: typeof MSG.SHOW_GATE;
@@ -136,8 +136,8 @@ export interface ShowGateMessage {
   sessionLengthSeconds: number;
   /** Unused time from the last session, added to the next one. */
   extraSeconds: number;
-  /** The smallest share of a session the gate will offer. */
-  minFraction: number;
+  /** When the day resets and the row is full again, epoch ms. */
+  resetAt: number;
   /** Seconds between OK and the session starting. */
   countdownSeconds: number;
 }

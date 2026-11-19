@@ -5,14 +5,14 @@
 //
 // Three states:
 //   Active — a session is running: time left, the sessions held, "End session".
-//   Idle   — rules on, no session: the sessions held and when the next arrives.
+//   Idle   — rules on, no session: the sessions held and when they refill.
 //   Off    — rules off for this domain.
 
-import { formatClock, formatDuration, getLocalDateStr } from '../shared/utils.js';
+import { formatClock, formatDuration, getLocalDateStr, nextDayResetAt } from '../shared/utils.js';
 import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
 import {
-  budgetRules, fullBudget, nextSessionAt, nextStartAt, startable, minFractionFor,
+  budgetRules, canStart, readBudget,
   DEFAULT_SESSIONS_PER_DAY, bankOf, heldAt, type Budget, type BudgetRules,
 } from '../shared/session-budget.js';
 
@@ -424,8 +424,8 @@ export async function renderSessionSettingsCard(
   const rowTwo = el('div', 'sc-settings-twoup');
   rowTwo.append(
     stepper({
-      // How fast sessions come back: one every 24h / this. Also the dots on
-      // the gate, so 10 is as many as its row can hold.
+      // The row each day brings. Also the dots on the gate, so 10 is as many
+      // as its row can hold.
       label: 'Sessions per day', value: cur.sessionsPerDay,
       min: 1, max: 10, step: 1,
       onChange: v => { cur.sessionsPerDay = v; showMath(); persist(); },
@@ -433,7 +433,7 @@ export async function renderSessionSettingsCard(
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
       label: 'Banked sessions', value: cur.bankSessions,
-      hint: "If a session refills when you have all your daily sessions, it's added to the bank, up to this many. Banked sessions don't expire.",
+      hint: "Sessions you haven't used when the day resets are added to the bank, up to this many. Banked sessions don't expire.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
@@ -471,15 +471,15 @@ interface Held {
   extraSec: number;
 }
 
-// The row and its "Next session refills in" count regenerate while the popup is open,
-// so they tick on their own. Only their text and fill change: re-rendering the
+// The "Sessions refill in" count runs while the popup is open, so the row and
+// its line tick on their own. Only their text and fill change: re-rendering the
 // whole card each second would replace the End button under a click.
 let heldTicker: ReturnType<typeof setInterval> | null = null;
 
 /**
- * The row of a day's sessions (the one regenerating at half opacity), the
- * count banked beyond it, and the line under them. With `running` the line is when the next whole session arrives;
- * without, it also says what the gate would offer right now.
+ * The row of a day's sessions, the count banked beyond it, and the line under
+ * them. With `running` the line is when the row refills; without, it also says
+ * what the gate would offer right now.
  */
 function heldBlock(h: Held, running: boolean): HTMLElement[] {
   const dots = el('div', 'sc-dots');
@@ -491,28 +491,20 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
 
   const update = () => {
     const now = Date.now();
-    const { daily, banked } = heldAt(h.budget, h.rules, now);
+    const today = getLocalDateStr(liveDayReset);
+    const { daily, bank: banked } = heldAt(h.budget, h.rules, today);
     bank.textContent = banked > 0 ? `+${banked} banked` : '';
     for (let i = 0; i < count; i++) {
-      const dot = dots.children[i] as HTMLElement;
-      const fill = Math.min(1, Math.max(0, daily - i));
-      const whole = fill > 0.999;
-      dot.style.setProperty('--sc-fill', `${(whole ? 1 : fill) * 100}%`);
-      dot.classList.toggle('is-full', whole);
-      dot.classList.toggle('is-part', fill > 0 && !whole);
+      dots.children[i].classList.toggle('is-full', i < daily);
     }
-    const inClock = (at: number) => formatClock(Math.max(0, Math.ceil((at - now) / 1000)));
-    const next = nextSessionAt(h.budget, h.rules, now);
-    const nextText = next === null ? '' : `Next session refills in ${inClock(next)}`;
+    const refillsIn = `Sessions refill in ${formatClock(Math.ceil((nextDayResetAt(now, liveDayReset) - now) / 1000))}`;
+    const nextText = daily >= h.rules.sessionsPerDay ? '' : refillsIn;
     if (running) {
       line.textContent = nextText;
+    } else if (canStart(h.budget, h.rules, today)) {
+      line.textContent = [`A ${formatClock(h.lengthSec + h.extraSec)} session is ready on the site.`, nextText].filter(Boolean).join(' ');
     } else {
-      const minFraction = minFractionFor(h.lengthSec);
-      const offer = startable(h.budget, h.rules, now, minFraction);
-      const startAt = nextStartAt(h.budget, h.rules, now, minFraction);
-      line.textContent = offer > 0
-        ? [`A ${formatClock(Math.round(offer * h.lengthSec) + h.extraSec)} session is ready on the site.`, nextText].filter(Boolean).join(' ')
-        : startAt === null ? 'No sessions regenerate.' : `Next session refills in ${inClock(startAt)}`;
+      line.textContent = h.rules.sessionsPerDay > 0 ? refillsIn : 'No sessions refill.';
     }
     line.style.display = line.textContent ? '' : 'none';
   };
@@ -605,9 +597,7 @@ export async function renderSessionCard(domain: string | null, dayResetMinutes: 
   const today = getLocalDateStr(dayResetMinutes);
   const rules = budgetRules(domainSettings);
   const held: Held = {
-    // A site that has never started a session has nothing stored: a full row,
-    // as the background reads it.
-    budget: (data[STORAGE.SESSION_BUDGET]?.[domain] as Budget | undefined) ?? fullBudget(rules, Date.now()),
+    budget: readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today),
     rules,
     lengthSec: (domainSettings.sessionLimit || 40) * 60,
     extraSec: data[STORAGE.SESSION_EXTRA]?.[domain] || 0,

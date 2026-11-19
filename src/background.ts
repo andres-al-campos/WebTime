@@ -1,6 +1,6 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE, ALARM, PORT } from './shared/protocol.js';
-import { extractDomain, getLocalDateStr, log, compute7DayStats, dayResetMinutesOf } from './shared/utils.js';
+import { extractDomain, getLocalDateStr, log, compute7DayStats, dayResetMinutesOf, nextDayResetAt } from './shared/utils.js';
 import {
   type ActiveSession,
   startSession,
@@ -21,7 +21,7 @@ import {
   type BudgetRules,
   budgetRules,
   fullBudget,
-  minFractionFor,
+  readBudget,
   settle,
   spend,
 } from './shared/session-budget.js';
@@ -174,9 +174,8 @@ const sessions: Record<Domain, ActiveSession> = {};
 // it only suspends *enforcement*, not the count.
 const suspendedSessions: Record<Domain, ActiveSession> = {};
 
-// What each site with rules on holds: a fractional number of sessions that
-// regenerates (shared/session-budget.ts). Not scoped to the day, unlike the
-// session state: waiting overnight is how the row refills.
+// What each site with rules on holds (shared/session-budget.ts). Stored apart
+// from the day's session state: what a day leaves unused has to reach the bank.
 const budgets: Record<Domain, Budget> = {};
 
 // How many sessions each site has started today, for the session number.
@@ -657,12 +656,12 @@ async function loadBudgets(): Promise<void> {
     for (const [domain, n] of Object.entries(data[STORAGE.SESSION_EXTRA] || {})) {
       if (typeof n === 'number' && n > 0) extraSeconds[domain] = n;
     }
-    for (const [domain, b] of Object.entries(data[STORAGE.SESSION_BUDGET] || {})) {
-      const budget = b as Budget;
-      if (typeof budget?.sessions === 'number' && typeof budget?.at === 'number') budgets[domain] = budget;
-    }
     const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
     for (const [domain, cfg] of Object.entries(settings.domains || {})) cacheRules(domain, cfg);
+    for (const [domain, b] of Object.entries(data[STORAGE.SESSION_BUDGET] || {})) {
+      budgets[domain] = readBudget(b, budgetRules(settings.domains?.[domain]), currentDateStr);
+    }
+    saveBudgets();
   } catch (err) {
     console.warn('Failed to load session budgets:', err);
   }
@@ -681,8 +680,8 @@ function cacheRules(domain: Domain, cfg: DomainSettings | undefined): number {
 }
 
 /** What a site holds, a full row the first time it is asked for. */
-function budgetOf(domain: Domain, rules: BudgetRules, now: number): Budget {
-  return budgets[domain] ?? (budgets[domain] = fullBudget(rules, now));
+function budgetOf(domain: Domain, rules: BudgetRules): Budget {
+  return budgets[domain] = settle(budgets[domain] ?? fullBudget(rules, currentDateStr), rules, currentDateStr);
 }
 
 // ---------------------------------------------------------------------------
@@ -921,13 +920,11 @@ function rolloverIfNewDay(): boolean {
   //
   //
   // What a session had left goes back to the site, as at any other end.
-  const ended: Domain[] = [];
   for (const domain of Object.keys(sessions)) {
     const session = sessions[domain];
     if (!session) continue;
     returnUnused(domain, session);
     recordFinishedSession(domain, session, 'dayEnded', currentDateStr);
-    ended.push(domain);
   }
 
   currentDateStr = newDateStr;
@@ -942,7 +939,10 @@ function rolloverIfNewDay(): boolean {
   for (const domain of Object.keys(windDownActive)) clearWindDown(domain);
   clearSessionState(); // drop persisted state for the old day
   syncClock(); // the sites that had a session are at the gate now
-  for (const domain of ended) void syncGate(domain);
+  // Every gate, not only those: one already up has a full row to show.
+  for (const domain of Object.keys(cachedDomainSessionLimit)) {
+    if (atGate(domain)) void syncGate(domain);
+  }
   log("New day, reset timer.");
   return true;
 }
@@ -1366,6 +1366,10 @@ function applyUpdatedSettings(): void {
     if (newReset !== dayResetMinutes) {
       dayResetMinutes = newReset;
       log(`Day reset time updated to: ${dayResetMinutes} minutes past midnight`);
+      // A gate up now is counting down to the old time.
+      for (const domain of Object.keys(cachedDomainSessionLimit)) {
+        if (atGate(domain)) void syncGate(domain);
+      }
       const newDateStr = getLocalDateStrWithReset();
       if (newDateStr !== currentDateStr) {
         saveTimeData();
@@ -1396,13 +1400,6 @@ function applyUpdatedSettings(): void {
       const disagrees = newLimitSeconds <= 0
         ? !!session
         : domain === trackedTabDomain && (!session || session.baseLength !== newLimitSeconds);
-      // What the site holds was earned at the old rate; restate it before the
-      // new rules are the ones it is read with.
-      const oldRules = cachedDomainSessionLimit[domain]?.budgetRules;
-      if (budgets[domain] && oldRules) {
-        budgets[domain] = settle(budgets[domain], oldRules, Date.now());
-        saveBudgets();
-      }
       cacheRules(domain, domainCfg);
       if (!disagrees) continue;
 
@@ -1790,6 +1787,7 @@ function checkWindDown(settings: InterventionSettings): void {
  */
 async function syncGate(domain: Domain, tabId?: number): Promise<void> {
   await whenStateLoaded;
+  rolloverIfNewDay(); // a gate counting down to the reset asks at the instant it lands
   const data = await browser.storage.local.get(STORAGE.SETTINGS);
   const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
   const sessionLengthSeconds = cacheRules(domain, settings.domains?.[domain]);
@@ -1797,14 +1795,14 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
 
   let message: Record<string, unknown> = { type: MSG.HIDE_GATE };
   if (atGate(domain)) {
-    const now = Date.now();
-    budgets[domain] = settle(budgetOf(domain, rules, now), rules, now);
+    const budget = budgetOf(domain, rules);
+    saveBudgets();
     message = {
       type: MSG.SHOW_GATE,
-      budget: budgets[domain],
+      budget,
       rules,
       sessionLengthSeconds,
-      minFraction: minFractionFor(sessionLengthSeconds),
+      resetAt: nextDayResetAt(Date.now(), dayResetMinutes),
       countdownSeconds: Math.max(0, settings.global?.startCountdownS ?? DEFAULT_START_COUNTDOWN_SECONDS),
       extraSeconds: extraSeconds[domain] || 0,
     };
@@ -1834,33 +1832,32 @@ async function beginSession(domain: Domain): Promise<void> {
 
   if (domain !== trackedTabDomain || !atGate(domain)) return syncGate(domain);
 
-  const now = Date.now();
-  const started = spend(budgetOf(domain, rules, now), rules, now, minFractionFor(sessionLengthSeconds));
+  rolloverIfNewDay();
+  const started = spend(budgetOf(domain, rules), rules, currentDateStr);
   if (!started) return syncGate(domain);
 
-  budgets[domain] = started.budget;
+  budgets[domain] = started;
   saveBudgets();
   sessionsStartedToday[domain] = (sessionsStartedToday[domain] || 0) + 1;
   // What the last session left unused rides on this one, so ending early pays
-  // off at the very next gate. A partial or extended session is the full
-  // length plus a carryover (negative or positive). baseLength has to equal
-  // the setting, or the next settings change reads the difference as a length
-  // change and resizes the session to full.
+  // off at the very next gate. baseLength has to equal the setting, or the
+  // next settings change reads the extra as a length change and resizes the
+  // session to full.
   const extra = extraSeconds[domain] || 0;
   delete extraSeconds[domain];
   saveExtra();
-  const length = Math.round(started.fraction * sessionLengthSeconds) + extra;
+  const length = sessionLengthSeconds + extra;
   sessions[domain] = startSession({
     dailyTotal: dailyTotal(),
     baseLength: sessionLengthSeconds,
-    carryover: length - sessionLengthSeconds,
+    carryover: extra,
     sessionNum: sessionsStartedToday[domain],
   });
   saveSessionState();
   sendMessageToAllTabsOfDomain(domain, { type: MSG.HIDE_GATE });
   syncClock();
   updateTimerDisplay(dailyTotal());
-  log(`Session ${sessionsStartedToday[domain]} started for ${domain}: ${length}s, ${started.budget.sessions.toFixed(3)} held after.`);
+  log(`Session ${sessionsStartedToday[domain]} started for ${domain}: ${length}s, ${started.used} used today, ${started.bank} banked.`);
 }
 
 /** Keep a session's unused time for the site's next session. */

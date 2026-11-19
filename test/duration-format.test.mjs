@@ -52,7 +52,7 @@ test('the gate wait clock uses the shared formatter, not a local one', () => {
     `content.ts defines its own ${localFormatter?.[0]} — use formatClock from shared/utils.ts`
   );
   // And the countdown element must actually be fed by it.
-  const wait = /nextStartAt\(budget, rules, now, minFraction\);[\s\S]{0,200}?: (\w+)\(Math\.ceil/.exec(src);
+  const wait = /body\.textContent = refills \? (\w+)\(Math\.ceil/.exec(src);
   assert.ok(wait, 'could not find the wait clock on the gate');
   assert.equal(wait[1], 'formatClock');
 });

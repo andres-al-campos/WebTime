@@ -6,7 +6,7 @@ A browser extension for Firefox and Chrome that tracks how long you spend on
 each site, with a small timer in the corner of your screen, and gives you the
 tools to spend that time mindfully. It uses **session-based browsing** that's both disciplined and
 flexible — focused sessions you start on purpose, gentle nudges, and a fixed
-number of sessions a day that refill over time.
+number of sessions a day.
 
 ![WebTime tracking time on a site, with its timer in the corner and the usage view](docs/demo.webp)
 
@@ -34,8 +34,8 @@ WebTime favors **awareness, then accountability**. Most of the time it just
 keeps you informed: a quick visual pulse early, an awareness popup when you're
 approaching your typical usage, and a 60-second wind-down near a session's end.
 On a site with session limits, each session starts at a gate you click
-through, and a site holds only so many: they refill over the day, and a few
-can be banked. Ending a session early on your own terms keeps the time you
+through, and each day brings only so many: what you don't use goes to a small
+bank. Ending a session early on your own terms keeps the time you
 didn't use.
 
 ## Features
@@ -58,10 +58,9 @@ didn't use.
 - **Minimalist nudges** — at a steady per-site interval (every 20 minutes by
   default), the timer briefly swells with the page blurred, without
   interrupting your flow.
-- **Sessions that refill** — a site with limits holds a few sessions a day,
-  each started at a gate with a short countdown. Sessions refill steadily
-  through the day; one that refills while you already hold a full day's worth
-  goes to the bank, and banked sessions don't expire.
+- **A fixed number of sessions a day** — a site with limits gets a few sessions
+  a day, each started at a gate with a short countdown. Sessions you don't use
+  go to the bank when the day resets, and banked sessions don't expire.
 - **End a session early** — unused time is added to your next session, so
   stopping early is rewarded, not punished.
 - **Wind-down mode** — a bar across the top of the page that drains down over
@@ -85,7 +84,7 @@ messaging, storage, alarms — live in the background script.
 | [`src/shared/time-clock.ts`](src/shared/time-clock.ts) | Timestamp accounting (`banked` + `runningSince`), so a worker that dies mid-count loses nothing. |
 | [`src/shared/clock-gates.ts`](src/shared/clock-gates.ts) | Whether time should be accruing right now. The gate order is load-bearing and tested. |
 | [`src/shared/session-model.ts`](src/shared/session-model.ts) | Session lifecycle math — boundaries, carryover, nudge timing, wind-down, wake schedules. |
-| [`src/shared/session-budget.ts`](src/shared/session-budget.ts) | How many sessions a site holds, how they refill, and what a start uses. |
+| [`src/shared/session-budget.ts`](src/shared/session-budget.ts) | How many sessions a site holds each day, what a start uses, and what reaches the bank. |
 | [`src/shared/interventions.ts`](src/shared/interventions.ts) | Which intervention is due: limit reached, nudge. |
 | [`src/shared/session-history.ts`](src/shared/session-history.ts) | The per-day record of finished sessions. |
 | [`src/shared/time-history.ts`](src/shared/time-history.ts) | Reading the tracked-time store across format versions. A store written by a newer build is refused, never half-read. |

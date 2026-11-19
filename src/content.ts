@@ -1,8 +1,8 @@
 import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
-import { extractDomain, formatClock, formatTimeCompact, log } from './shared/utils.js';
+import { dayResetMinutesOf, extractDomain, formatClock, formatTimeCompact, getLocalDateStr, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { sessionsAt, startable, nextSessionAt, nextStartAt, heldAt, spend, budgetRules, fullBudget, type Budget } from './shared/session-budget.js';
+import { canStart, heldAt, spend, budgetRules, readBudget } from './shared/session-budget.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -221,9 +221,10 @@ function hasSession(): boolean {
 }
 
 /** How long a session started at the gate right now would run; null if none can start. */
-function offeredSeconds(state: ShowGateMessage, now: number): number | null {
-  const offer = startable(state.budget, state.rules, now, state.minFraction);
-  return offer > 0 ? Math.round(offer * state.sessionLengthSeconds) + (state.extraSeconds || 0) : null;
+function offeredSeconds(state: ShowGateMessage): number | null {
+  return canStart(state.budget, state.rules, state.budget.day)
+    ? state.sessionLengthSeconds + (state.extraSeconds || 0)
+    : null;
 }
 
 /**
@@ -232,7 +233,7 @@ function offeredSeconds(state: ShowGateMessage, now: number): number | null {
  * The last update's session numbers are stale behind the gate, so it decides first.
  */
 function sessionViewSeconds(): number | null {
-  if (gateState) return offeredSeconds(gateState, Date.now());
+  if (gateState) return offeredSeconds(gateState);
   return hasSession() ? Math.max(0, lastSessionLimitSeconds! - lastSessionTime!) : null;
 }
 
@@ -705,11 +706,11 @@ function hideAveragePopup(): void {
 // `starting`: after OK, the session drains from the row and the countdown runs
 // inside the Cancel button; at zero the background is asked to start. And the
 // wait, which is the gate face when nothing can start yet: a clock counting to
-// the moment something can.
+// the day reset.
 //
-// The page draws all of it from the budget the background sent, so the row
-// regenerates on screen and the wait ends on its own without a message a
-// second. shared/session-budget.ts is the one arithmetic for both sides.
+// The page draws all of it from the budget the background sent, and the clock
+// runs without a message a second. shared/session-budget.ts is the one
+// arithmetic for both sides.
 
 type GateView = 'gate' | 'starting';
 
@@ -724,11 +725,11 @@ let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
 let gateStartSentAt = 0;
+let gateResetAskedFor = 0;
 let gatePausedMedia: HTMLMediaElement[] = [];
 let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
-const GATE_BLUE_HALF = 'rgba(69, 113, 231, 0.5)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -849,7 +850,7 @@ function buildGateDialog(): void {
 function gateOk(): void {
   if (!gateState || gateView !== 'gate') return;
   const now = Date.now();
-  if (startable(gateState.budget, gateState.rules, now, gateState.minFraction) <= 0) return;
+  if (!canStart(gateState.budget, gateState.rules, gateState.budget.day)) return;
   gateView = 'starting';
   gateCountdownEndsAt = now + gateState.countdownSeconds * 1000;
   renderGate();
@@ -867,10 +868,15 @@ function gateCancel(): void {
 
 function renderGate(): void {
   if (!gateDialog || !gateState) return;
-  const { budget, rules, minFraction } = gateState;
+  const { budget, rules, resetAt } = gateState;
+  const today = budget.day;
   const now = Date.now();
-  const held = sessionsAt(budget, rules, now);
-  const offer = startable(budget, rules, now, minFraction);
+
+  // The reset landed: the background has the new day's row.
+  if (now >= resetAt && gateResetAskedFor !== resetAt) {
+    gateResetAskedFor = resetAt;
+    sendToBackground({ type: MSG.REQUEST_GATE_STATE });
+  }
 
   if (gateView === 'starting') {
     if (gateStartSentAt && now - gateStartSentAt > GATE_START_TIMEOUT_MS) {
@@ -884,14 +890,15 @@ function renderGate(): void {
 
   const q = (c: string) => gateDialog!.querySelector(`.web-time-gate-${c}`) as HTMLElement;
   const starting = gateView === 'starting';
-  const waiting = !starting && offer <= 0;
+  const waiting = !starting && !canStart(budget, rules, today);
 
   updateTimerText();
 
   // While starting, the row already shows the session as used.
   // Only a day's worth: the bank is the popup's to show.
-  const after = starting ? spend(budget, rules, now, minFraction)?.budget ?? budget : budget;
-  renderGateDots(q('dots'), heldAt(after, rules, now).daily, rules.sessionsPerDay);
+  const after = starting ? spend(budget, rules, today) ?? budget : budget;
+  const { daily } = heldAt(after, rules, today);
+  renderGateDots(q('dots'), daily, rules.sessionsPerDay);
 
   // Old text out fast, new text in slower, written while nothing is visible.
   const screen = starting ? 'starting' : waiting ? 'waiting' : 'ready';
@@ -911,7 +918,7 @@ function renderGate(): void {
   }
 
   q('title').textContent = starting ? 'Starting Session'
-    : waiting ? 'Next Session Refills In'
+    : waiting ? 'Sessions Refill In'
     : 'Session Ended';
 
   const body = q('body');
@@ -920,14 +927,13 @@ function renderGate(): void {
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
   } else if (waiting) {
-    const at = nextStartAt(budget, rules, now, minFraction);
-    body.textContent = at === null ? 'No sessions regenerate' : formatClock(Math.ceil((at - now) / 1000));
-    body.style.fontSize = at === null ? '14px' : '28px';
+    const refills = rules.sessionsPerDay > 0;
+    body.textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
+    body.style.fontSize = refills ? '28px' : '14px';
     body.style.color = '#eee';
   } else {
-    const next = nextSessionAt(budget, rules, now);
     // The on-page timer already shows the length a start would give.
-    body.textContent = next === null ? '' : `Next session refills in ${formatClock(Math.ceil((next - now) / 1000))}`;
+    body.textContent = daily >= rules.sessionsPerDay ? '' : `Sessions refill in ${formatClock(Math.ceil((resetAt - now) / 1000))}`;
     body.style.fontSize = '14px';
     body.style.color = '#ccc';
   }
@@ -938,28 +944,23 @@ function renderGate(): void {
   q('ok').style.display = starting || waiting ? 'none' : '';
   q('buttons').style.display = waiting ? 'none' : 'flex';
 
-  // The wait's bar fills toward the least the gate will offer.
+  // The wait's bar is how much of the day has gone.
   q('bar').style.display = waiting ? 'block' : 'none';
-  if (waiting) q('bar-fill').style.width = `${Math.min(100, (held / Math.max(minFraction, 1e-6)) * 100)}%`;
+  if (waiting) q('bar-fill').style.width = `${Math.max(0, Math.min(100, 100 - ((resetAt - now) / 864e5) * 100))}%`;
 }
 
-/** One dot per session the site can hold; `held` of them filled, the last in part. */
+/** One dot per session in a day; `held` of them filled. */
 function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number): void {
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(sessionsPerDay)));
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(var(--wt-gate-pie) var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
+      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
   for (let i = 0; i < count; i++) {
     const dot = row.children[i] as HTMLElement;
-    const fill = Math.min(1, Math.max(0, held - i));
-    const whole = fill > 0.999;
-    dot.style.setProperty('--wt-gate-fill', `${(whole ? 1 : fill) * 100}%`);
-    // Every dot keeps the same ring; the one regenerating fills at half
-    // strength so it reads as not yet there.
-    dot.style.setProperty('--wt-gate-pie', fill > 0 && !whole ? GATE_BLUE_HALF : GATE_BLUE);
+    dot.style.setProperty('--wt-gate-fill', i < held ? '100%' : '0%');
   }
 }
 
@@ -1254,8 +1255,9 @@ function showEndSessionConfirm(): void {
   if (domain) {
     browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]).then((data) => {
       const rules = budgetRules(data[STORAGE.SETTINGS]?.domains?.[domain]);
-      const budget: Budget = data[STORAGE.SESSION_BUDGET]?.[domain] ?? fullBudget(rules, Date.now());
-      renderGateDots(dots, heldAt(budget, rules, Date.now()).daily, rules.sessionsPerDay);
+      const today = getLocalDateStr(dayResetMinutesOf(data[STORAGE.SETTINGS]?.global));
+      const budget = readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today);
+      renderGateDots(dots, heldAt(budget, rules, today).daily, rules.sessionsPerDay);
     }).catch(() => {});
   }
 

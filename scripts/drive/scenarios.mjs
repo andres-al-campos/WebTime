@@ -120,12 +120,83 @@ async function nudges(opts) {
   }
 }
 
+/** The day's row: yesterday's leftovers reach the bank, a start costs one dot
+ *  whatever it used, an empty row waits for the reset, and a budget stored while
+ *  sessions refilled through the day keeps its dots. */
+async function dailyRow(opts) {
+  const site = { sessionLimitEnabled: true, sessionLimit: 2, sessionsPerDay: 3, bankSessions: 3 };
+  const today = localDate(0);
+  const seeded = (budget) => ({ ...rules(site), webTimeSessionBudget: { localhost: budget } });
+  const filled = (page) => page.locator('.web-time-gate-dots > span').evaluateAll(
+    (dots) => dots.filter((d) => d.style.getPropertyValue('--wt-gate-fill') === '100%').length);
+  const stored = async (run) => (await run.storage('webTimeSessionBudget'))?.localhost;
+
+  let run = await startRun({ ...opts, storage: seeded({ used: 1, bank: 0, day: localDate(1) }) });
+  try {
+    const page = await openPage(run, { gate: false });
+    await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
+    const row = await filled(page);
+    const banked = await stored(run);
+    console.log(`  new day: ${row} dots, stored ${JSON.stringify(banked)}`);
+    if (row !== 3 || banked?.bank !== 2 || banked?.used !== 0 || banked?.day !== today) {
+      return fail(`Yesterday left 2 of 3: expected a full row and 2 banked, got ${row} dots and ${JSON.stringify(banked)}.`,
+        'check settle in session-budget.ts and budgetOf in background.ts.');
+    }
+    if (!(await passGate(page))) return fail('The gate did not start a session.', 'check beginSession in background.ts.');
+    await stay(page, 3);
+    await page.keyboard.press('Control+e');
+    await page.locator('.web-time-end-ok').click();
+    await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(900);
+    const afterEnd = await filled(page);
+    const spent = await stored(run);
+    console.log(`  ended early: ${afterEnd} dots, stored ${JSON.stringify(spent)}`);
+    if (afterEnd !== 2 || spent?.used !== 1) {
+      return fail(`A session ended early should cost one whole dot: ${afterEnd} dots, ${JSON.stringify(spent)}.`,
+        'the unused time goes to webTimeSessionExtra, not back to the row: check endSession in background.ts.');
+    }
+  } finally {
+    await run.close();
+  }
+
+  run = await startRun({ ...opts, storage: seeded({ used: 3, bank: 0, day: today }) });
+  try {
+    const page = await openPage(run, { gate: false });
+    const title = page.locator('.web-time-gate-title');
+    await title.waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(600);
+    const [text, clock, canPress] = [await title.innerText(), await page.locator('.web-time-gate-body').innerText(), await page.locator('.web-time-gate-ok').isVisible()];
+    console.log(`  nothing left: "${text}" ${clock}`);
+    if (text !== 'Sessions Refill In' || clockSeconds(clock) === null || canPress) {
+      return fail(`With nothing left the gate reads "${text}" / "${clock}".`,
+        'expected "Sessions Refill In" over a clock and no Start button: check renderGate in content.ts.');
+    }
+  } finally {
+    await run.close();
+  }
+
+  run = await startRun({ ...opts, storage: seeded({ sessions: 1.4, at: Date.now(), bank: 1 }) });
+  try {
+    const page = await openPage(run, { gate: false });
+    await page.locator('.web-time-gate-ok').waitFor({ state: 'visible', timeout: 5000 });
+    const moved = await stored(run);
+    console.log(`  stored by the refilling design: now ${JSON.stringify(moved)}`);
+    if (moved?.used !== 2 || moved?.bank !== 1 || moved?.day !== today) {
+      return fail(`A budget of 0.4 in the row and 1 banked should read 2 used, 1 banked: ${JSON.stringify(moved)}.`,
+        'check readBudget in session-budget.ts and loadBudgets in background.ts.');
+    }
+  } finally {
+    await run.close();
+  }
+  return pass('the row refills at the reset, a start costs one dot, an empty row waits, old budgets carry over');
+}
+
 /** End session early with the shortcut: confirm, the gate, and the unused
  *  time back in what the site holds. */
 async function endEarly(opts) {
   const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 2 }) });
   try {
-    console.log('  2-minute sessions; the site starts with 4 and the first is under way');
+    console.log('  2-minute sessions; the first is under way');
     const page = await openPage(run);
     await stay(page, 10);
     await page.keyboard.press('Control+e');
@@ -593,6 +664,7 @@ export const scenarios = {
   nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
   'confirm-elsewhere': { run: confirmElsewhere, about: 'An end-session confirm left open holds the clock only on its tab (~25s)' },
   'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
+  'daily-row': { run: dailyRow, about: 'The day\'s row: reset, bank, one dot per start, the wait (~30s)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },
   'average-popup': { run: averagePopup, about: '7-day average popup pauses the clock (~1 min)' },
   'session-rules': { run: sessionRules, about: 'Session rules toggle in the popup reaches the page (~10s)' },

@@ -34,8 +34,8 @@ tickers — live in `src/background.ts`.
 - `clock-gates.ts` — whether time should be accruing. **Ordering is
   load-bearing** and has broken three times; it is tested for that reason.
 - `session-model.ts` — session lifecycle arithmetic, nudge times, wake schedules.
-- `session-budget.ts` — how many sessions a site holds, how they regenerate,
-  and what a start uses or an early end returns.
+- `session-budget.ts` — how many sessions a site holds each day, what a start
+  uses, and what the day's end saves to the bank.
 - `interventions.ts` — which intervention is due (limit reached, nudge).
 
 `background.ts` is the shell: listeners, dispatch, and the state the gates read.
@@ -126,13 +126,14 @@ the time and version it was made or reworded at.
 - 2026-10-22 19:10, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
   alarm colours, nudges are brief, and stopping early is rewarded, not
   punished.
-- 2026-11-16 17:31, 2.10.0. **Saving pays later.** Time you don't use is kept, and you can see it
+- 2026-11-18 19:26, 2.10.0. **Saving pays later.** Time you don't use is kept, and you can see it
   waiting: unused time from an early end stacks onto the next session,
-  refills past a full day go to the bank, the bank is the reserve spent last
-  and never expires, and a setting lowered then raised gives back what it
+  sessions left when the day resets go to the bank, the bank is the reserve
+  spent last and never expires, and a setting lowered then raised gives back what it
   hid. Why, in the owner's words: "you get rewarded for being frugal with
   time, then you use that time at a later time", and "humans like to see
-  number go up". The opposite is use-it-or-lose-it.
+  number go up". The opposite is use-it-or-lose-it, which starts only once the
+  bank is full, so saving can't turn into endless hoarding.
 
 ## Calls
 
