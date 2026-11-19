@@ -722,9 +722,10 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // fade every second would pull the eye to numbers that are meant to run quietly.
 const GATE_TEXT_OUT_MS = 150;
 const GATE_TEXT_IN_MS = 250;
-// Tall enough for a two-line question. The height never changes, so Cancel lands
-// exactly where Start Session was and a second click can't miss.
-const GATE_HEIGHT_PX = 180;
+// A two-line question leaves 20px above and below the dots. The height never
+// changes, so Cancel lands exactly where Start Session was and a second click
+// can't miss.
+const GATE_HEIGHT_PX = 188;
 let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
