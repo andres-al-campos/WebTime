@@ -170,7 +170,17 @@ async function install() {
 
   if (running()) {
     console.log(`🔄 Restarting ${browserName}...`);
-    execFileSync('osascript', ['-e', `tell application "${browser}" to quit`]);
+    try {
+      execFileSync('osascript', ['-e', `tell application "${browser}" to quit`], { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      const why = String(e.stderr ?? e.message);
+      if (why.includes('-128')) {
+        fail(`${browserName} didn't quit: its quit was cancelled (macOS error -128), and it is still running the old build.`,
+          `that's a "Quit ${browserName}?" or "close tabs?" prompt answered with Cancel. Quit it yourself or answer the prompt with Quit, then run ./build.sh install again.`);
+      }
+      fail(`Asking ${browserName} to quit failed: ${why.trim()}`,
+        `quit ${browserName} by hand, then run ./build.sh install again.`);
+    }
     for (let i = 0; running(); i++) {
       if (i >= 60) {
         fail(`${browserName} did not quit within 30 seconds.`,
