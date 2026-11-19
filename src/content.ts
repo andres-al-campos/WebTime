@@ -2,7 +2,7 @@ import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { dayResetMinutesOf, extractDomain, formatClock, formatTimeCompact, getLocalDateStr, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { canStart, heldAt, spend, budgetRules, readBudget } from './shared/session-budget.js';
+import { canStart, dotsShown, spend, budgetRules, readBudget, type Budget, type BudgetRules } from './shared/session-budget.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -722,10 +722,10 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // fade every second would pull the eye to numbers that are meant to run quietly.
 const GATE_TEXT_OUT_MS = 150;
 const GATE_TEXT_IN_MS = 250;
-// A two-line question leaves 20px above and below the dots. The height never
-// changes, so Cancel lands exactly where Start Session was and a second click
-// can't miss.
-const GATE_HEIGHT_PX = 188;
+// A two-line question leaves 20px above and below the dots and their line. The
+// height never changes, so Cancel lands exactly where Start Session was and a
+// second click can't miss.
+const GATE_HEIGHT_PX = 216;
 let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
@@ -735,6 +735,8 @@ let gatePausedMedia: HTMLMediaElement[] = [];
 let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
+// The reserve's ring. Its dot is the same blue session, held in reserve.
+const GATE_RESERVE_RING = 'rgba(232, 137, 74, 0.8)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -807,6 +809,15 @@ function buildGateDialog(): void {
     className: 'web-time-gate-dots',
     style: 'display: flex; justify-content: center; gap: 10px;',
   });
+  // The count in words: a number reads at a glance where dots have to be counted.
+  const line = makeEl('div', {
+    className: 'web-time-gate-line',
+    style: 'font-size: 13px; color: #aaa; line-height: 18px; margin-top: 8px;',
+  });
+  const sessions = makeEl('div', {
+    className: 'web-time-gate-sessions',
+    children: [dots, line],
+  });
   // Only the wait has a body: its clock.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
@@ -838,7 +849,7 @@ function buildGateDialog(): void {
     children: [barFill],
   });
 
-  el.replaceChildren(title, dots, body, buttonRow, bar);
+  el.replaceChildren(title, sessions, body, buttonRow, bar);
   blurOverlay!.appendChild(el);
   gateDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);
@@ -902,10 +913,12 @@ function renderGate(): void {
 
   updateTimerText();
 
-  // While starting, the row already shows the session as used.
-  // Only a day's worth: the bank is the popup's to show.
-  const after = starting ? spend(budget, rules, today) ?? budget : budget;
-  renderGateDots(q('dots'), heldAt(after, rules, today).daily, rules.sessionsPerDay);
+  // While starting, the dots already show the session as used.
+  // The reserve is a backup, not something to plan the day around, so it only
+  // appears once the day's row is empty, and then in the row's place.
+  const view = sessionsView(budget, rules, today, starting ? spend(budget, rules, today) ?? budget : budget);
+  renderGateDots(q('dots'), view.kind, view.held, view.slots);
+  q('line').textContent = view.line;
 
   // Old text out fast, new text in slower, written while nothing is visible.
   const screen = starting ? 'starting' : waiting ? 'waiting' : 'ready';
@@ -924,7 +937,8 @@ function renderGate(): void {
     return;
   }
 
-  const dotsWereAt = q('dots').offsetTop;
+  const dotsWereAt = q('sessions').offsetTop;
+  q('line').style.display = waiting ? 'none' : '';
   q('title').textContent = starting ? gateState.startQuestion
     : waiting ? 'Sessions Refill In'
     : 'Session Ended';
@@ -945,9 +959,9 @@ function renderGate(): void {
 
   // The row sits midway between the title and the button, so a two-line title
   // moves it. It glides there with the text fading in.
-  const moved = dotsWereAt - q('dots').offsetTop;
+  const moved = dotsWereAt - q('sessions').offsetTop;
   if (moved) {
-    q('dots').animate(
+    q('sessions').animate(
       [{ transform: `translateY(${moved}px)` }, { transform: 'none' }],
       { duration: GATE_TEXT_IN_MS, easing: 'cubic-bezier(.2,.8,.2,1)' },
     );
@@ -958,12 +972,31 @@ function renderGate(): void {
   if (waiting) q('bar-fill').style.width = `${Math.max(0, Math.min(100, 100 - ((resetAt - now) / 864e5) * 100))}%`;
 }
 
-/** One dot per session in a day; `held` of them filled. */
-function renderGateDots(row: HTMLElement, held: number, sessionsPerDay: number): void {
-  const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(sessionsPerDay)));
+const GATE_DOT_STYLE = {
+  row: `border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat;`,
+  // Whole pixels, 2 + 2 + 14 + 2 + 2 = 22, so the blue sits exactly 4px in on
+  // every side; a fractional ring or gap rounds unevenly and looks off-centre.
+  reserve: `border: 2px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
+};
+
+/** The dots to draw and the line under them. */
+function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: Budget):
+  { kind: 'row' | 'reserve'; held: number; slots: number; line: string } {
+  const dots = dotsShown(budget, rules, today, shown);
+  const s = dots.held === 1 ? '' : 's';
+  return { ...dots, line: dots.kind === 'reserve' ? `${dots.held} reserve session${s}` : `${dots.held} session${s} available` };
+}
+
+/** One dot per slot, the day's row or the reserve; `held` of them filled. */
+function renderGateDots(row: HTMLElement, kind: 'row' | 'reserve', held: number, slots: number): void {
+  const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(slots)));
+  if (row.dataset.kind !== kind) {
+    row.dataset.kind = kind;
+    row.replaceChildren();
+  }
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat; transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
+      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE[kind]} transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
@@ -1266,7 +1299,8 @@ function showEndSessionConfirm(): void {
       const rules = budgetRules(data[STORAGE.SETTINGS]?.domains?.[domain]);
       const today = getLocalDateStr(dayResetMinutesOf(data[STORAGE.SETTINGS]?.global));
       const budget = readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today);
-      renderGateDots(dots, heldAt(budget, rules, today).daily, rules.sessionsPerDay);
+      const view = sessionsView(budget, rules, today, budget);
+      renderGateDots(dots, view.kind, view.held, view.slots);
     }).catch(() => {});
   }
 
