@@ -432,8 +432,8 @@ export async function renderSessionSettingsCard(
     }).el,
     stepper({
       // Sessions left over from quiet days, kept past a day's worth.
-      label: 'Banked sessions', value: cur.bankSessions,
-      hint: "Sessions you haven't used when the day resets are added to the bank, up to this many. Banked sessions don't expire.",
+      label: 'Reserve sessions', value: cur.bankSessions,
+      hint: "Sessions you haven't used when the day resets go to the reserve, up to this many. Reserve sessions don't expire.",
       min: 0, max: 10, step: 1,
       onChange: v => { cur.bankSessions = v; persist(); },
     }).el
@@ -477,7 +477,7 @@ interface Held {
 let heldTicker: ReturnType<typeof setInterval> | null = null;
 
 /**
- * The row of a day's sessions, the count banked beyond it, and the line under
+ * The row of a day's sessions, the count in reserve beyond it, and the line under
  * them. With `running` the line is when the row refills; without, it also says
  * what the gate would offer right now.
  */
@@ -493,7 +493,7 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
     const now = Date.now();
     const today = getLocalDateStr(liveDayReset);
     const { daily, bank: banked } = heldAt(h.budget, h.rules, today);
-    bank.textContent = banked > 0 ? `+${banked} banked` : '';
+    bank.textContent = banked > 0 ? `+${banked} in reserve` : '';
     for (let i = 0; i < count; i++) {
       dots.children[i].classList.toggle('is-full', i < daily);
     }
