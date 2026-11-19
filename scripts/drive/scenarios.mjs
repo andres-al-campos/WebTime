@@ -195,7 +195,7 @@ async function dailyRow(opts) {
     }
     if (Math.abs(cancel.y - start.y) > 0.5 || Math.abs(cancel.x - start.x) > 0.5) {
       return fail(`Cancel appears ${cancel.y - start.y}px below and ${cancel.x - start.x}px beside Start Session.`,
-        'it must land exactly where Start Session was, so a second click cancels: keep the gate\'s title to one line and both buttons the same width (content.ts).');
+        'it must land exactly where Start Session was, so a second click cancels: keep the gate at GATE_HEIGHT_PX and both buttons the same width (content.ts).');
     }
     const moved = await stored(run);
     console.log(`  stored by the refilling design: now ${JSON.stringify(moved)}`);

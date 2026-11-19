@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-18 21:19, at 2.10.0.
+Updated 2026-11-18 21:23, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -14,7 +14,7 @@ row of them, and each one is started by hand at a gate.
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed
-  in [global settings](global-settings.md)) and the title becomes the start question, "Are you sure?" unless changed there. Cancel lands exactly where Start Session was. Cancel during it goes back to the gate and uses nothing.
+  in [global settings](global-settings.md)) and the title becomes the start question, "Are you sure?" unless changed there. The dialog keeps one height, so Cancel lands exactly where Start Session was, and with a two-line question the dots glide down to stay midway between the title and the button. Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
 - When the gate changes screen (ready, countdown, waiting) its text crossfades:
   150ms out, 250ms in. The dots stay put and the countdowns tick without fading.

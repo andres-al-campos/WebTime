@@ -722,6 +722,9 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // fade every second would pull the eye to numbers that are meant to run quietly.
 const GATE_TEXT_OUT_MS = 150;
 const GATE_TEXT_IN_MS = 250;
+// Tall enough for a two-line question. The height never changes, so Cancel lands
+// exactly where Start Session was and a second click can't miss.
+const GATE_HEIGHT_PX = 180;
 let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
@@ -784,6 +787,11 @@ function buildGateDialog(): void {
     z-index: 1000001 !important;
     pointer-events: auto !important;
     width: 350px !important;
+    height: ${GATE_HEIGHT_PX}px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
     text-align: center !important;
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
@@ -792,9 +800,7 @@ function buildGateDialog(): void {
 
   const title = makeEl('div', {
     className: 'web-time-gate-title',
-    // One line whatever the question, so Cancel lands exactly where Start Session
-    // was and a second click can't miss.
-    style: 'font-size: 18px; font-weight: 600; color: #eee; margin-bottom: 21px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
+    style: 'font-size: 18px; font-weight: 600; color: #eee; line-height: 1.3; text-wrap: balance; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;',
   });
   const dots = makeEl('div', {
     className: 'web-time-gate-dots',
@@ -803,7 +809,7 @@ function buildGateDialog(): void {
   // Only the wait has a body: its clock.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
-    style: 'margin-top: 20px; color: #eee; font-size: 28px; line-height: 1.5; font-variant-numeric: tabular-nums;',
+    style: 'color: #eee; font-size: 28px; line-height: 1.5; font-variant-numeric: tabular-nums;',
   });
   const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;';
   const cancelBtn = makeEl('button', {
@@ -818,7 +824,7 @@ function buildGateDialog(): void {
   });
   const buttonRow = makeEl('div', {
     className: 'web-time-gate-buttons',
-    style: 'display: flex; gap: 8px; justify-content: center; margin-top: 20px;',
+    style: 'display: flex; gap: 8px; justify-content: center;',
     children: [cancelBtn, okBtn],
   });
   const barFill = makeEl('div', {
@@ -917,6 +923,7 @@ function renderGate(): void {
     return;
   }
 
+  const dotsWereAt = q('dots').offsetTop;
   q('title').textContent = starting ? gateState.startQuestion
     : waiting ? 'Sessions Refill In'
     : 'Session Ended';
@@ -934,6 +941,16 @@ function renderGate(): void {
   q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
   q('buttons').style.display = waiting ? 'none' : 'flex';
+
+  // The row sits midway between the title and the button, so a two-line title
+  // moves it. It glides there with the text fading in.
+  const moved = dotsWereAt - q('dots').offsetTop;
+  if (moved) {
+    q('dots').animate(
+      [{ transform: `translateY(${moved}px)` }, { transform: 'none' }],
+      { duration: GATE_TEXT_IN_MS, easing: 'cubic-bezier(.2,.8,.2,1)' },
+    );
+  }
 
   // The wait's bar is how much of the day has gone.
   q('bar').style.display = waiting ? 'block' : 'none';
