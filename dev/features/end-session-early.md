@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-18 16:03, at 2.10.0.
+Updated 2026-11-18 19:46, at 2.10.0.
 
 Stop a session before it runs out. The unused time is added to the site's next
 session, and the gate comes up.
@@ -19,7 +19,7 @@ session, and the gate comes up.
 - The unused time is added to the next session, so the reward shows at the
   very next gate: ending 10 seconds into a 2-minute session makes the next one
   3:50. It is stored per site under `webTimeSessionExtra` and survives the day
-  reset; the sessions held are not touched.
+  reset. The session still costs its whole dot.
 
 ## How to get to it
 

@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-18 19:26, at 2.10.0.
+Updated 2026-11-18 19:46, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions.md).
@@ -40,8 +40,8 @@ Last driven: 2026-11-15, Chrome headless. Saved 40-minute sessions and
 
 - These are per-site settings stored with the globals; the gear's Settings
   sheet is global-only and doesn't show them.
-- Changing sessions per day or the bank keeps what was already waited:
-  the background settles what the site holds at the old rules first.
+- Changing sessions per day takes effect at once: the row is stored as how many
+  were used today, so lowering it and raising it again gives the same row back.
 - A length change is applied by comparing the running session's length with
   the settings, not with the previous settings. Remembering the previous ones
   lost the first change after every worker start. The wind-down drive raises

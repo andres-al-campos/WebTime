@@ -23,8 +23,7 @@ export interface ActiveSession {
   /** Base limit in seconds, AS IT APPLIES TO THIS SESSION. Live-editable. */
   baseLength: number;
   /**
-   * Seconds on top of baseLength: negative for a partial session started from
-   * less than a whole one, positive for time an early end carried over.
+   * Seconds on top of baseLength: time an early end carried over.
    */
   carryover: number;
   /**
