@@ -723,6 +723,8 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // The same speed both ways: a faster exit (the usual convention) read as a flicker.
 const GATE_TEXT_OUT_MS = 300;
 const GATE_TEXT_IN_MS = 300;
+// A used session drains over the whole text switch, so both settle together.
+const GATE_DRAIN_MS = GATE_TEXT_OUT_MS + GATE_TEXT_IN_MS;
 // A two-line question leaves 20px above and below the dots and their line. The
 // height never changes, so Cancel lands exactly where Start Session was and a
 // second click can't miss.
@@ -1000,7 +1002,7 @@ function renderGateDots(row: HTMLElement, kind: 'row' | 'reserve', held: number,
   }
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE[kind]} transition: --wt-gate-fill .7s cubic-bezier(.2,.8,.2,1);`,
+      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE[kind]} transition: --wt-gate-fill ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
