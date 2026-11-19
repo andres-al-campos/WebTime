@@ -720,8 +720,9 @@ let gateTicker: ReturnType<typeof setInterval> | null = null;
 // Which screen the gate's text is showing, and the fade between two of them.
 // Only a change of screen fades: the countdowns tick inside one screen, and a
 // fade every second would pull the eye to numbers that are meant to run quietly.
-const GATE_TEXT_OUT_MS = 150;
-const GATE_TEXT_IN_MS = 250;
+// The same speed both ways: a faster exit (the usual convention) read as a flicker.
+const GATE_TEXT_OUT_MS = 300;
+const GATE_TEXT_IN_MS = 300;
 // A two-line question leaves 20px above and below the dots and their line. The
 // height never changes, so Cancel lands exactly where Start Session was and a
 // second click can't miss.
