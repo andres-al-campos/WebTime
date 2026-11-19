@@ -736,7 +736,7 @@ let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
 // The reserve's ring. Its dot is the same blue session, held in reserve.
-const GATE_RESERVE_RING = 'rgba(232, 137, 74, 0.8)';
+const GATE_RESERVE_RING = 'rgba(232, 137, 74, 0.85)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -973,18 +973,19 @@ function renderGate(): void {
 }
 
 const GATE_DOT_STYLE = {
-  row: `border: 1.5px solid rgba(255,255,255,.22); background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat;`,
-  // Whole pixels, 2 + 2 + 14 + 2 + 2 = 22, so the blue sits exactly 4px in on
-  // every side; a fractional ring or gap rounds unevenly and looks off-centre.
-  reserve: `border: 2px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
+  // An empty slot is a blue ring: a faint grey one disappeared against the gate.
+  row: `border: 1.5px solid ${GATE_BLUE}; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) padding-box no-repeat;`,
+  // The ring and gap are the same on every side, so the blue stays centred
+  // when the 1.5px ring rounds to 1px on a 1x screen.
+  reserve: `border: 1.5px solid ${GATE_RESERVE_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
 };
 
 /** The dots to draw and the line under them. */
 function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: Budget):
   { kind: 'row' | 'reserve'; held: number; slots: number; line: string } {
   const dots = dotsShown(budget, rules, today, shown);
-  const s = dots.held === 1 ? '' : 's';
-  return { ...dots, line: dots.kind === 'reserve' ? `${dots.held} reserve session${s}` : `${dots.held} session${s} available` };
+  const count = `${dots.held}/${dots.slots}`;
+  return { ...dots, line: dots.kind === 'reserve' ? `${count} reserve sessions available` : `${count} sessions available` };
 }
 
 /** One dot per slot, the day's row or the reserve; `held` of them filled. */
