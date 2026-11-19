@@ -330,6 +330,68 @@ async function confirmElsewhere(opts) {
   }
 }
 
+/** Two browser windows: time goes to the site in the window you're in, and a
+ *  confirm left open in the other window doesn't hold the clock. The focus
+ *  change is sent to the extension directly: a headless browser never moves
+ *  focus between windows, and a visible one loses it to whatever the person at
+ *  the machine is doing. */
+async function twoWindows(opts) {
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 40 }) });
+  const open = async (url) => {
+    const [page, id] = await Promise.all([
+      run.context.waitForEvent('page'),
+      run.worker.evaluate((u) => chrome.windows.create({ url: u, focused: true, width: 700, height: 500 }).then((w) => w.id), url),
+    ]);
+    await page.waitForLoadState();
+    page.timeline = [];
+    page.openedAt = Date.now();
+    return { page, id };
+  };
+  const focus = async (win) => {
+    await run.worker.evaluate((id) => chrome.windows.onFocusChanged.dispatch(id), win.id);
+    await win.page.bringToFront();
+    await win.page.waitForTimeout(800);
+  };
+  try {
+    const other = await open(run.pageUrl.replace('localhost', '127.0.0.1'));
+    const first = await open(run.pageUrl);
+    if (!(await passGate(first.page))) {
+      return fail('The gate did not start a session.', 'check beginSession in background.ts.');
+    }
+    await stay(first.page, 2);
+
+    await focus(other);
+    await stay(other.page, 8);
+    const counted = clockSeconds((await readTimer(other.page)).text);
+    console.log(`  8s in the other window: its timer reads ${counted}s`);
+    if (counted === null || counted < 5) {
+      return fail(`After 8s in the 127.0.0.1 window its timer reads ${counted}s.`,
+        'the active tab should follow window focus: check handleWindowFocusChanged in background.ts.');
+    }
+
+    await focus(first);
+    await first.page.keyboard.press('Control+e');
+    await stay(first.page, 3, { until: (o) => o.includes('end-session confirm') });
+    if (run.lastVerdict() !== 'end-session-confirm') {
+      return fail(`With the confirm open in its own window the verdict is ${run.lastVerdict()}.`,
+        'the confirm should hold the clock there: check endSessionConfirmOpen in currentClockVerdict (background.ts).');
+    }
+    await focus(other);
+    await stay(other.page, 2);
+    const from = clockSeconds((await readTimer(other.page)).text);
+    await stay(other.page, 6);
+    const to = clockSeconds((await readTimer(other.page)).text);
+    console.log(`  confirm open in the first window: the other window counted ${from}s → ${to}s, verdict ${run.lastVerdict()}`);
+    if (from === null || to === null || to - from < 4) {
+      return fail(`With a confirm open in another window, this window's timer went ${from}s → ${to}s in 6s.`,
+        'a dialog holds the clock only while its own tab is active: check handleWindowFocusChanged in background.ts.');
+    }
+    return pass(`time followed the focused window: ${counted}s counted there, and ${to - from}s more with a confirm open in the other window`);
+  } finally {
+    await run.close();
+  }
+}
+
 /** Sitting still after the gate on a silent page, with the default 30s
  *  inactivity: the clock stops once the window since the last input passes,
  *  and a mouse move starts it again. The OS idle gate asks this machine, so
@@ -683,6 +745,7 @@ export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
   nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
   'confirm-elsewhere': { run: confirmElsewhere, about: 'An end-session confirm left open holds the clock only on its tab (~25s)' },
+  'two-windows': { run: twoWindows, about: 'Time follows the focused window (~30s)' },
   'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
   'daily-row': { run: dailyRow, about: 'The day\'s row: reset, bank, one dot per start, the wait (~30s)' },
   'end-early': { run: endEarly, about: 'End session early via Ctrl+E (~40s)' },

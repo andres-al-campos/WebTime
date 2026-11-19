@@ -1287,9 +1287,19 @@ function handleTimerState(activeTab: chrome.tabs.Tab): void {
 // foreground flag; incrementTimer's gate stops/resumes counting on the next
 // tick. We also re-run the active tab's timer-state so startTimer/stopTimer
 // stays consistent for the non-audible path.
-function handleWindowFocusChanged(windowId: number): void {
+// The window the user is in. Switching windows fires no tab activation, so
+// without following focus the clock keeps counting for the window just left.
+let focusedWindowId: number | null = null;
+
+async function handleWindowFocusChanged(windowId: number): Promise<void> {
   browserIsFocused = windowId !== browser.windows.WINDOW_ID_NONE;
   log(`Browser focus changed: ${browserIsFocused ? 'foreground' : 'background'}`);
+  if (browserIsFocused) {
+    focusedWindowId = windowId;
+    const [tab] = await browser.tabs.query({ active: true, windowId }).catch(() => []);
+    if (focusedWindowId !== windowId) return; // already in another window
+    if (tab?.id !== undefined) activeTabId = tab.id;
+  }
   // Act on the gate now rather than waiting for the next tick: under MV3 the
   // tick may never come, and losing focus is exactly when the worker goes idle.
   syncClock();
@@ -1298,6 +1308,8 @@ function handleWindowFocusChanged(windowId: number): void {
 
 function handleTabActivated(activeInfo: chrome.tabs.TabActiveInfo): void {
   log(`handleTabActivated called for tab ${activeInfo.tabId}`);
+  // A tab can come to the front of a window the user isn't in.
+  if (focusedWindowId !== null && activeInfo.windowId !== focusedWindowId) return;
   activeTabId = activeInfo.tabId;
   updateTimingState(activeTabId);
 }
@@ -1981,6 +1993,7 @@ async function init(): Promise<void> {
   try {
     const win = await browser.windows.getLastFocused();
     browserIsFocused = win.focused === true;
+    if (win.id !== undefined) focusedWindowId = win.id;
   } catch {
     browserIsFocused = false;
   }
@@ -2006,7 +2019,7 @@ async function init(): Promise<void> {
 
   const activeTabs = await browser.tabs.query({
     active: true,
-    currentWindow: true,
+    lastFocusedWindow: true,
   });
   if (activeTabs.length > 0 && activeTabs[0].id) {
     activeTabId = activeTabs[0].id;

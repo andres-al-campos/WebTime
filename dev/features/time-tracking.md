@@ -1,6 +1,6 @@
 # Time tracking
 
-Updated 2026-11-16 16:34, at 2.10.0.
+Updated 2026-11-18 20:40, at 2.10.0.
 
 WebTime counts the seconds you spend on each site per day, in the background,
 on any http or https page. Nothing to turn on.
@@ -15,6 +15,8 @@ on any http or https page. Nothing to turn on.
 - On top of that it needs either audio playing in the tab, or recent input
   (scroll, key, mouse move within the inactivity timeout, default 30s) while
   the machine isn't idle. A locked screen stops it even with audio playing.
+- With several browser windows open, time goes to the active tab of the window
+  you're in.
 - The day rolls over at the "Day resets at" time (any hour and minute), not at
   midnight, so late-night use counts toward the previous day.
 - Time is saved once a minute and on every site switch. After a Chrome worker
@@ -38,6 +40,12 @@ check that the harness can fail.
 
 Last driven: 2026-10-06, Chrome (Playwright Chromium 1228, headless). Output:
 `stored localhost seconds on 2026-10-06: 15`.
+
+`npm run drive -- two-windows` (~30s) opens two windows and sends the extension
+the focus change directly, because a headless browser never moves focus between
+windows. Last driven 2026-11-18, Chrome headless: 7s counted
+in the focused window, and 6s more with a confirm open in the other one. Not
+driven on Firefox, and the fix has not been watched with real window switches.
 
 The other drives raise the inactivity timeout to an hour, so they never see
 it. `npm run drive -- sit-still` (~65s) keeps it at 30s, starts a session at

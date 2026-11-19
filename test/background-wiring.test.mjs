@@ -607,3 +607,19 @@ for (const { flag } of GATES) {
       `currentClockVerdict must compare ${flag} with activeTabId: a dialog in a tab you are not on must not freeze the clock everywhere.`);
   });
 }
+
+// Switching browser windows fires no tab activation. Without this the clock
+// counted the window just left, which only shows with two real windows open.
+test('the active tab follows window focus', () => {
+  const body = functionBody('handleWindowFocusChanged');
+  assert.match(body, /tabs\.query\(\{ active: true, windowId \}\)/,
+    'handleWindowFocusChanged must ask which tab is active in the window that gained focus');
+  assert.match(body, /activeTabId = tab\.id/, 'handleWindowFocusChanged must make that tab the active one');
+});
+
+test('a tab coming forward in a background window is not the active tab', () => {
+  const body = functionBody('handleTabActivated');
+  assert.ok(body.indexOf('activeInfo.windowId !== focusedWindowId') !== -1
+    && body.indexOf('activeInfo.windowId !== focusedWindowId') < body.indexOf('activeTabId = activeInfo.tabId'),
+    'handleTabActivated must ignore activations outside the focused window before taking the tab');
+});
