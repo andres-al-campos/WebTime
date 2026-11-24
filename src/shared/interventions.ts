@@ -54,11 +54,11 @@ export function checkNudge(opts: {
   session: ActiveSession;
   dailyTotal: number;
   sessionLimitSeconds: number;
-  nudgeInterval?: number;
+  nudgeCount?: number;
 }): NudgeOutcome | null {
   if (opts.sessionLimitSeconds <= 0) return null;
 
-  const nudgeTime = nextNudgeToFire(opts.session, opts.dailyTotal, opts.nudgeInterval);
+  const nudgeTime = nextNudgeToFire(opts.session, opts.dailyTotal, opts.nudgeCount);
   if (nudgeTime === null) return null;
 
   return { nudgeTime, session: markNudgeFired(opts.session, nudgeTime) };

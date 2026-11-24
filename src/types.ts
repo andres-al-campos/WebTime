@@ -44,6 +44,7 @@ export interface GlobalSettings {
   endSessionShortcut?: string | null; // Keyboard shortcut to end session early; null = disabled, undefined = default (Ctrl+E)
   startCountdownS?: number; // Seconds between OK on the gate and the session starting (default 10)
   startQuestion?: string; // What the gate asks during that countdown; blank = the default
+  nudgesPerSession?: number; // Nudges in each session, spaced by φ (0 = off, undefined = default)
 }
 
 export interface DomainSettings {
@@ -53,7 +54,8 @@ export interface DomainSettings {
   sessionsPerDay?: number; // The row of sessions each day brings (undefined = default)
   bankSessions?: number; // Sessions that can be saved up beyond a day's worth (undefined = default)
   maxSessions?: number; // Before bankSessions: the most held in all. Read only to derive the bank
-  nudgeInterval?: number; // Minutes between nudges (0 = disabled, undefined = default)
+  nudgeInterval?: number; // Unused since nudges became a global count; still on disk, never read
+  breakMinutes?: number; // First break between sessions, growing by √n (0 = none, undefined = default)
 }
 
 export interface WebTimeSettings {
@@ -135,8 +137,9 @@ export interface ShowGateMessage {
   rules: BudgetRules;
   /** The site's full session length. */
   sessionLengthSeconds: number;
-  /** Unused time from the last session, added to the next one. */
-  extraSeconds: number;
+  /** The break before the next session can start, epoch ms; 0 for none. */
+  breakFrom: number;
+  breakUntil: number;
   /** When the day resets and the row is full again, epoch ms. */
   resetAt: number;
   /** Seconds between OK and the session starting. */

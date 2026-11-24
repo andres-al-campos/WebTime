@@ -2,7 +2,8 @@ import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { dayResetMinutesOf, extractDomain, formatClock, formatTimeCompact, getLocalDateStr, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { canStart, dotsShown, spend, budgetRules, readBudget, type Budget, type BudgetRules } from './shared/session-budget.js';
+import { canStart, dotsShown, spend, deposit, budgetRules, readBudget, type Budget, type BudgetRules } from './shared/session-budget.js';
+import { breakLeft } from './shared/session-breaks.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -222,9 +223,7 @@ function hasSession(): boolean {
 
 /** How long a session started at the gate right now would run; null if none can start. */
 function offeredSeconds(state: ShowGateMessage): number | null {
-  return canStart(state.budget, state.rules, state.budget.day)
-    ? state.sessionLengthSeconds + (state.extraSeconds || 0)
-    : null;
+  return canStart(state.budget, state.rules, state.budget.day) ? state.sessionLengthSeconds : null;
 }
 
 /**
@@ -704,9 +703,10 @@ function hideAveragePopup(): void {
 //
 // One dialog with three faces. `gate`: the row of sessions and OK / Cancel.
 // `starting`: after OK, the session drains from the row and the countdown runs
-// inside the Cancel button; at zero the background is asked to start. And the
-// wait, which is the gate face when nothing can start yet: a clock counting to
-// the day reset.
+// inside the Cancel button; at zero the background is asked to start. The
+// break, the gate face between sessions: the start button becomes the break's
+// countdown and a bar along the bottom runs out with it. And the wait, when
+// nothing can start before the day resets: a clock counting to the reset.
 //
 // The page draws all of it from the budget the background sent, and the clock
 // runs without a message a second. shared/session-budget.ts is the one
@@ -725,11 +725,11 @@ const GATE_TEXT_OUT_MS = 300;
 const GATE_TEXT_IN_MS = 300;
 // A used session drains over the whole text switch, so both settle together.
 const GATE_DRAIN_MS = GATE_TEXT_OUT_MS + GATE_TEXT_IN_MS;
-// A two-line question leaves 20px above and below the dots and their line. The
+// A two-line question leaves 20px above and below the pill and its line. The
 // height never changes, so Cancel lands exactly where Start Session was and a
 // second click can't miss.
-const GATE_HEIGHT_PX = 216;
-let gateScreen: 'ready' | 'starting' | 'waiting' | null = null;
+const GATE_HEIGHT_PX = 236;
+let gateScreen: 'ready' | 'starting' | 'break' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
 let gateStartSentAt = 0;
@@ -738,8 +738,17 @@ let gatePausedMedia: HTMLMediaElement[] = [];
 let gateKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 const GATE_BLUE = '#4571e7';
-// The bank's ring. Its dot is the same blue session, banked.
-const GATE_BANK_RING = 'rgba(232, 137, 74, 0.85)';
+// The dots are the row pill's border blue, a step darker than the button. Each
+// set sits on its own pill; the bank's purple says these are the saved ones.
+// The fill is see-through so the pill lifts the card rather than sinking into it.
+const GATE_DOT_BLUE = 'oklch(50% 0.17 265)';
+const GATE_PILL = {
+  row: { border: GATE_DOT_BLUE, fill: 'oklch(60% 0.12 265 / 0.21)' },
+  bank: { border: 'oklch(50% 0.15 292)', fill: 'oklch(60% 0.12 292 / 0.21)' },
+};
+// A dot still being saved can't start yet, so its fill is half strength; its
+// ring stays whole, so it still reads as a slot.
+const GATE_PARTIAL_FILL = 'oklch(50% 0.17 265 / 0.5)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -810,7 +819,7 @@ function buildGateDialog(): void {
   });
   const dots = makeEl('div', {
     className: 'web-time-gate-dots',
-    style: 'display: flex; justify-content: center; gap: 10px;',
+    style: 'display: inline-flex; gap: 10px; padding: 8px 11px; border: 2px solid transparent; border-radius: 999px; vertical-align: top; transition: background-color 300ms ease, border-color 300ms ease;',
   });
   // The count in words: a number reads at a glance where dots have to be counted.
   const line = makeEl('div', {
@@ -873,6 +882,7 @@ function gateOk(): void {
   if (!gateState || gateView !== 'gate') return;
   const now = Date.now();
   if (!canStart(gateState.budget, gateState.rules, gateState.budget.day)) return;
+  if (breakLeft(gateState.breakUntil, now) > 0) return;
   gateView = 'starting';
   gateCountdownEndsAt = now + gateState.countdownSeconds * 1000;
   renderGate();
@@ -913,6 +923,8 @@ function renderGate(): void {
   const q = (c: string) => gateDialog!.querySelector(`.web-time-gate-${c}`) as HTMLElement;
   const starting = gateView === 'starting';
   const waiting = !starting && !canStart(budget, rules, today);
+  const breakSecs = starting || waiting ? 0 : breakLeft(gateState.breakUntil, now);
+  const onBreak = breakSecs > 0;
 
   updateTimerText();
 
@@ -924,7 +936,7 @@ function renderGate(): void {
   q('line').textContent = view.line;
 
   // Old text out fast, new text in slower, written while nothing is visible.
-  const screen = starting ? 'starting' : waiting ? 'waiting' : 'ready';
+  const screen = starting ? 'starting' : waiting ? 'waiting' : onBreak ? 'break' : 'ready';
   gateScreen ??= screen;
   if (screen !== gateScreen) {
     if (gateFadeTimer === null) {
@@ -959,6 +971,14 @@ function renderGate(): void {
   q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
   q('buttons').style.display = waiting ? 'none' : 'flex';
+  // The break is the start button waiting: same place, its countdown inside.
+  const ok = q('ok');
+  ok.textContent = onBreak ? `Next session in ${formatClock(breakSecs)}` : 'Start Session';
+  ok.style.width = onBreak ? 'auto' : '104px';
+  ok.style.padding = onBreak ? '8px 14px' : '8px';
+  ok.style.background = onBreak ? '#3a3a3a' : GATE_BLUE;
+  ok.style.color = onBreak ? '#eee' : '#fff';
+  ok.style.cursor = onBreak ? 'default' : 'pointer';
 
   // The row sits midway between the title and the button, so a two-line title
   // moves it. It glides there with the text fading in.
@@ -970,45 +990,55 @@ function renderGate(): void {
     );
   }
 
-  // The wait's bar is how much of the day has gone.
-  q('bar').style.display = waiting ? 'block' : 'none';
+  // The wait's bar is how much of the day has gone; the break's is what is
+  // left of the break, running out as it ends.
+  q('bar').style.display = waiting || onBreak ? 'block' : 'none';
   if (waiting) q('bar-fill').style.width = `${Math.max(0, Math.min(100, 100 - ((resetAt - now) / 864e5) * 100))}%`;
+  if (onBreak) {
+    const total = Math.max(1, gateState.breakUntil - gateState.breakFrom);
+    q('bar-fill').style.width = `${Math.max(0, Math.min(100, ((gateState.breakUntil - now) / total) * 100))}%`;
+  }
 }
 
-const GATE_DOT_STYLE = {
-  // An empty slot is a blue ring: a faint grey one disappeared against the gate.
-  // The fill runs under the ring (border-box): stopped at the ring's inner edge,
-  // the two antialiased separately and left a dark seam between them.
-  row: `border: 2px solid ${GATE_BLUE}; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) border-box no-repeat;`,
-  // Whole pixels, 2 + 2 + 14 + 2 + 2 = 22, so the blue sits exactly 4px in on
-  // every side.
-  bank: `border: 2px solid ${GATE_BANK_RING}; padding: 2px; background: conic-gradient(${GATE_BLUE} var(--wt-gate-fill), transparent 0) content-box no-repeat;`,
-};
+// An empty slot is a blue ring: a faint grey one disappeared against the gate.
+// The fill runs under the ring (border-box): stopped at the ring's inner edge,
+// the two antialiased separately and left a dark seam between them.
+const GATE_DOT_STYLE = `border: 2px solid ${GATE_DOT_BLUE}; background: conic-gradient(var(--wt-gate-color) var(--wt-gate-fill), transparent 0) border-box no-repeat;`;
 
 /** The dots to draw and the line under them. */
 function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: Budget):
   { kind: 'row' | 'bank'; held: number; slots: number; line: string } {
   const dots = dotsShown(budget, rules, today, shown);
-  const count = `${dots.held}/${dots.slots}`;
+  // A dot still being saved isn't one you can start, so the count is whole dots.
+  const count = `${Math.floor(dots.held)}/${dots.slots}`;
   return { ...dots, line: dots.kind === 'bank' ? `${count} banked sessions left` : `${count} sessions left` };
 }
 
-/** One dot per slot, the day's row or the bank; `held` of them filled. */
+/**
+ * One dot per slot on its pill, the day's row or the bank; `held` of them
+ * filled. A fractional `held` (the bank) fills the next dot that far, at
+ * half strength.
+ */
 function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, slots: number): void {
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(slots)));
   if (row.dataset.kind !== kind) {
     row.dataset.kind = kind;
     row.replaceChildren();
   }
+  row.style.borderColor = GATE_PILL[kind].border;
+  row.style.backgroundColor = GATE_PILL[kind].fill;
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE[kind]} transition: --wt-gate-fill ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1);`,
+      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE} transition: --wt-gate-fill ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
+  const whole = Math.floor(held);
   for (let i = 0; i < count; i++) {
     const dot = row.children[i] as HTMLElement;
-    dot.style.setProperty('--wt-gate-fill', i < held ? '100%' : '0%');
+    const fill = i < whole ? 1 : i === whole ? held - whole : 0;
+    dot.style.setProperty('--wt-gate-fill', `${Math.round(fill * 1000) / 10}%`);
+    dot.style.setProperty('--wt-gate-color', fill > 0 && fill < 1 ? GATE_PARTIAL_FILL : GATE_DOT_BLUE);
   }
 }
 
@@ -1292,31 +1322,44 @@ function showEndSessionConfirm(): void {
     text: `End Session ${lastSessionNum ?? ''}?`,
   });
 
-  // The day's sessions, as the gate shows them, so ending one is weighed
-  // against what's left. The row's height is held while storage is read, so
-  // the dialog doesn't grow under the cursor.
+  // The bank, filling with what ending now would save: the reward for
+  // stopping, shown at the moment of choosing. The pill's height is held while
+  // storage is read, so the dialog doesn't grow under the cursor.
   const dots = makeEl('div', {
     className: 'web-time-end-dots',
-    style: 'display: flex; justify-content: center; gap: 10px; height: 22px; margin-bottom: 20px;',
+    style: 'display: inline-flex; gap: 10px; padding: 8px 11px; border: 2px solid transparent; border-radius: 999px; height: 42px; box-sizing: border-box; vertical-align: top;',
   });
-  const domain = extractDomain(location.href);
-  if (domain) {
-    browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]).then((data) => {
-      const rules = budgetRules(data[STORAGE.SETTINGS]?.domains?.[domain]);
-      const today = getLocalDateStr(dayResetMinutesOf(data[STORAGE.SETTINGS]?.global));
-      const budget = readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today);
-      const view = sessionsView(budget, rules, today, budget);
-      renderGateDots(dots, view.kind, view.held, view.slots);
-    }).catch(() => {});
-  }
+  const dotsRow = makeEl('div', { style: 'margin-bottom: 20px; min-height: 42px;', children: [dots] });
 
   // #ccc, same as the gate's body line: these two dialogs sit in the same flow
   // and their body copy should not step. Clock-style, same formatClock as the
   // timer the number is read against.
   const body = makeEl('div', {
     style: 'font-size: 14px; color: #ccc; margin-bottom: 20px; line-height: 1.5;',
-    text: `${formatClock(remaining)} unused is added to your next session`,
+    text: `${formatClock(remaining)} rolls over to banked sessions`,
   });
+  const domain = extractDomain(location.href);
+  if (domain) {
+    browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS]).then((data) => {
+      const cfg = data[STORAGE.SETTINGS]?.domains?.[domain];
+      const rules = budgetRules(cfg);
+      const today = getLocalDateStr(dayResetMinutesOf(data[STORAGE.SETTINGS]?.global));
+      const budget = readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today);
+      const lengthS = (cfg?.sessionLimit || 0) * 60;
+      const slots = Math.floor(rules.bankSessions);
+      if (slots <= 0 || lengthS <= 0) {
+        dotsRow.style.display = 'none';
+        body.textContent = `${formatClock(remaining)} left unused`;
+        return;
+      }
+      const now = Math.min(slots, budget.bank);
+      if (now >= slots) body.textContent = 'Your bank is full';
+      const after = Math.min(slots, deposit(budget, rules, today, remaining / lengthS).bank);
+      renderGateDots(dots, 'bank', now, slots);
+      // A frame later, so the fill runs from where it is to where it will be.
+      setTimeout(() => renderGateDots(dots, 'bank', after, slots), 350);
+    }).catch(() => {});
+  }
 
   const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
   const cancelBtn = makeEl('button', {
@@ -1334,7 +1377,7 @@ function showEndSessionConfirm(): void {
     children: [cancelBtn, okBtn],
   });
 
-  el.replaceChildren(title, dots, body, buttonRow);
+  el.replaceChildren(title, dotsRow, body, buttonRow);
   blurOverlay!.appendChild(el);
   endSessionDialog = el;
   setTimeout(() => { el.style.opacity = '1'; }, 50);

@@ -112,14 +112,21 @@
           <div class="settings-sub">Applies to every site</div>
 
           <div class="settings-body wt-scroll">
-            <div class="field">
-              <input type="number" id="day-reset-minutes" value="0" min="0" max="1439" hidden>
-              <div id="day-reset-stepper" class="settings-stepper-mount"></div>
+            <!-- The <input>s are the data store that save/loadSettings read;
+                 they're hidden and mirrored by styled steppers (mounted from
+                 ui-manager.ts) for a consistent look. Two to a row, so a
+                 control takes only the width it needs. -->
+            <div class="field-row">
+              <div class="field">
+                <input type="number" id="day-reset-minutes" value="0" min="0" max="1439" hidden>
+                <div id="day-reset-stepper" class="settings-stepper-mount"></div>
+              </div>
+              <div class="field">
+                <input type="number" id="start-countdown" value="10" min="0" max="60" hidden>
+                <div id="start-countdown-stepper" class="settings-stepper-mount"></div>
+              </div>
             </div>
 
-            <!-- Inactivity + chart-scale: the <input>s are the data store that
-                 save/loadSettings read; they're hidden and mirrored by styled
-                 steppers (mounted from ui-manager.ts) for a consistent look. -->
             <div class="field-row">
               <div class="field">
                 <input type="number" id="inactivity-timeout" value="30" min="1" hidden>
@@ -131,22 +138,23 @@
               </div>
             </div>
 
-            <div class="field">
-              <input type="number" id="start-countdown" value="10" min="0" max="60" hidden>
-              <div id="start-countdown-stepper" class="settings-stepper-mount"></div>
+            <div class="field-row">
+              <div class="field">
+                <input type="number" id="nudges-per-session" value="1" min="0" max="10" hidden>
+                <div id="nudges-stepper" class="settings-stepper-mount"></div>
+              </div>
+              <div class="field">
+                <label for="end-session-shortcut">End shortcut</label>
+                <div class="shortcut-row">
+                  <input type="text" id="end-session-shortcut" value="Ctrl+E" readonly placeholder="Click to set">
+                  <button type="button" id="end-session-shortcut-clear" title="Disable shortcut">×</button>
+                </div>
+              </div>
             </div>
 
             <div class="field">
               <label for="start-question">Ask before starting</label>
               <input type="text" id="start-question" maxlength="70">
-            </div>
-
-            <div class="field">
-              <label for="end-session-shortcut">End-session shortcut</label>
-              <div class="shortcut-row">
-                <input type="text" id="end-session-shortcut" value="Ctrl+E" readonly placeholder="Click to set">
-                <button type="button" id="end-session-shortcut-clear" title="Disable shortcut">×</button>
-              </div>
             </div>
 
             <div class="field">

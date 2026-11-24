@@ -7,7 +7,9 @@ import {
 } from './lib.mjs';
 import { readFile } from 'node:fs/promises';
 
-const rules = (localhost) => ({ webTimeSettings: { global: {}, domains: { localhost } } });
+// Breaks are off unless a drive sets them, so a drive that starts session
+// after session isn't waiting minutes at the gate between them.
+const rules = (localhost, global = {}) => ({ webTimeSettings: { global, domains: { localhost: { breakMinutes: 0, ...localhost } } } });
 const clockSeconds = (text) => {
   const m = /(\d+):(\d\d)\s*$/.exec(text ?? '');
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
@@ -82,19 +84,15 @@ async function track(opts) {
   }
 }
 
-/** Nudges at a 30s interval in a 3-minute session: due at ~60, 90 and 120s.
- *  None can fire before 60s or in the last 60s, so that's the shortest run. */
+/** Three nudges in a 4-minute session, at golden-ratio fractions of it: due at
+ *  about 92s and 148s, with the third (~183s) dropped as it falls inside the
+ *  final minute. None can fire before 60s or in the last 60s. */
 async function nudges(opts) {
-  // Each nudge is jittered by up to a quarter of the interval and dropped if
-  // that lands it under 60s or inside the final minute. In a 3-minute session
-  // the 60s and 120s slots were both coin flips, and 22% of seeds scheduled
-  // only one nudge. Four minutes keeps the 120s slot clear of the wind-down,
-  // so every seed has at least two by 140s.
-  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 4, nudgeInterval: 0.5 }) });
+  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 4 }, { nudgesPerSession: 3 }) });
   try {
-    console.log('  4-minute session, nudge every 30s');
+    console.log('  4-minute session, 3 nudges a session');
     const page = await openPage(run);
-    await stay(page, 140);
+    await stay(page, 165);
     const seen = await readNudges(page);
     const logged = run.logs.filter((l) => /nudge at/.test(l)).length;
     console.log(`  nudges on the page at: ${seen.map((s) => `${s}s`).join(', ') || '(none)'}`);
@@ -102,13 +100,17 @@ async function nudges(opts) {
     console.log(`  clock verdicts seen: ${run.verdicts().join(' → ')}`);
 
     if (seen.length < 2) {
-      return fail(`Expected 2–3 nudges by 140s, the page showed ${seen.length} (background logged ${logged}).`,
+      return fail(`Expected 2 nudges by 165s, the page showed ${seen.length} (background logged ${logged}).`,
         logged > seen.length
           ? 'the background fired them but the page did not animate: check NUDGE handling and showNudge in content.ts.'
-          : 'check checkPhiNudges in background.ts and nudgeTimes in session-model.ts.');
+          : 'check checkPhiNudges in background.ts, nudgesPerSession in the settings, and computeNudgeTimes in session-model.ts.');
     }
     if (seen.some((s) => s < 55)) {
-      return fail(`A nudge came at ${seen[0]}s, before the 60s floor.`, 'check the 60s floor in nudgeTimes (session-model.ts).');
+      return fail(`A nudge came at ${seen[0]}s, before the 60s floor.`, 'check the 60s floor in computeNudgeTimes (session-model.ts).');
+    }
+    if (seen[1] - seen[0] < 30) {
+      return fail(`The nudges came ${seen[1] - seen[0]}s apart; at 38% and 62% of 4 minutes they should be about 56s apart.`,
+        'check the φ spacing in computeNudgeTimes (session-model.ts).');
     }
     if (run.lastVerdict() !== 'running') {
       return fail(`The clock ended on "${run.lastVerdict()}" after the nudges, not "running".`,
@@ -244,9 +246,12 @@ async function dailyRow(opts) {
 /** End session early with the shortcut: confirm, the gate, and the unused
  *  time back in what the site holds. */
 async function endEarly(opts) {
-  const run = await startRun({ ...opts, storage: rules({ sessionLimitEnabled: true, sessionLimit: 2 }) });
+  // A 1-minute first break, so ending 10s into 2 minutes takes about 5s of it.
+  const site = { sessionLimitEnabled: true, sessionLimit: 2, sessionsPerDay: 3, bankSessions: 2, breakMinutes: 1 };
+  const storage = { ...rules(site), webTimeSessionBudget: { localhost: { used: 0, bank: 0, day: localDate(0) } } };
+  const run = await startRun({ ...opts, storage });
   try {
-    console.log('  2-minute sessions; the first is under way');
+    console.log('  2-minute sessions, an empty bank; the first is under way');
     const page = await openPage(run);
     await stay(page, 10);
     await page.keyboard.press('Control+e');
@@ -256,64 +261,60 @@ async function endEarly(opts) {
         'check isEndSessionShortcutMatch and the keydown listener in content.ts; the default shortcut is Ctrl+E.');
     }
     console.log(`  verdict while confirming: ${run.lastVerdict()}`);
+    const confirmText = await page.locator('.web-time-end-session-overlay').innerText();
+    if (!/rolls over to banked sessions/.test(confirmText)) {
+      return fail(`The confirm should say the unused time rolls over to banked sessions; it reads "${confirmText.replace(/\n/g, ' / ')}".`,
+        'check the body line in showEndSessionConfirm (content.ts).');
+    }
 
     await page.click('.web-time-end-ok');
-    const gated = await stay(page, 5, { until: (o) => o.includes('gate') });
+    const gated = await stay(page, 2, { until: (o) => o.includes('gate') });
     if (!gated.includes('gate')) {
       return fail('OK on the confirm did not bring the gate back.',
         'check END_SESSION_EARLY and endSession in background.ts, and SHOW_GATE in content.ts.');
     }
-    console.log(`  verdict at the gate: ${run.lastVerdict()}`);
+    await page.waitForTimeout(800);
     const gateTitle = () => page.locator('.web-time-gate-title').innerText();
-    const endedTitle = await gateTitle();
-    const button = await page.locator('.web-time-gate-ok').innerText();
-    const previewAfterEnd = clockSeconds((await readTimer(page)).text);
-    console.log(`  gate after the end: "${endedTitle}", button "${button}", timer ${previewAfterEnd}s`);
-    if (endedTitle !== 'Session Ended' || button !== 'Start Session') {
-      return fail(`After ending a session the gate reads "${endedTitle}" with a "${button}" button.`,
-        'expected "Session Ended" and "Start Session": check the title and button in renderGate (content.ts).');
+    const button = () => page.locator('.web-time-gate-ok').innerText();
+    const onBreak = await button();
+    console.log(`  gate after the end: "${await gateTitle()}", button "${onBreak}"`);
+    if (await gateTitle() !== 'Session Ended' || !/^Next session in \d+:\d\d$/.test(onBreak)) {
+      return fail(`After ending a session the gate reads "${await gateTitle()}" with a "${onBreak}" button.`,
+        'expected "Session Ended" and a "Next session in mm:ss" break: check startBreak in background.ts and renderGate in content.ts.');
     }
-    if (!(previewAfterEnd > 220 && previewAfterEnd <= 240)) {
-      return fail(`At the gate the timer should show the next session's length, about 3:50; it shows ${previewAfterEnd}s.`,
-        'check sessionViewSeconds and offeredSeconds in content.ts.');
-    }
-    await page.reload();
-    await page.locator('.web-time-gate-title').waitFor({ state: 'visible', timeout: 5000 });
-    await page.waitForTimeout(1200);
-    const freshTitle = await gateTitle();
-    const previewAfterLoad = clockSeconds((await readTimer(page)).text);
-    console.log(`  gate after a reload: "${freshTitle}", timer ${previewAfterLoad}s`);
-    if (freshTitle !== 'Session Ended' || !(previewAfterLoad > 220 && previewAfterLoad <= 240)) {
-      return fail(`A freshly loaded page reads "${freshTitle}" with the timer at ${previewAfterLoad}s.`,
-        'a new page should read "Session Ended" and still preview the session: check showGate and updateTimerText in content.ts.');
-    }
-    // About 110 of the 120 seconds wait to be added to the next session.
-    const extra = (await run.storage('webTimeSessionExtra'))?.localhost;
-    console.log(`  extra kept after ending ~10s into a 2-minute session: ${extra}s`);
-    if (!(extra > 100 && extra < 115)) {
-      return fail(`Ending ~10s into a 2-minute session should keep about 110s for the next one, storage holds ${extra}.`,
-        'check returnUnused in background.ts.');
+    const bank = (await run.storage('webTimeSessionBudget'))?.localhost?.bank;
+    console.log(`  bank after ending ~12s into a 2-minute session: ${bank}`);
+    if (!(bank > 0.8 && bank < 0.95)) {
+      return fail(`Ending ~12s into a 2-minute session should bank about 0.9 of a session; the bank holds ${bank}.`,
+        'check returnUnused and deposit in background.ts and session-budget.ts.');
     }
 
+    // The break is in proportion to what was used: about 6s of a 60s break.
+    await page.waitForTimeout(8000);
+    const after = await button();
+    console.log(`  button after the break: "${after}"`);
+    if (after !== 'Start Session') {
+      return fail(`The break should be over by now and the button read "Start Session"; it reads "${after}".`,
+        'check breakSeconds (session-breaks.ts) and the share passed by startBreak in background.ts.');
+    }
+    const preview = clockSeconds((await readTimer(page)).text);
+    if (!(preview > 110 && preview <= 120)) {
+      return fail(`At the gate the timer should show a plain 2:00 session; it shows ${preview}s.`,
+        'every session is one length now: check offeredSeconds in content.ts.');
+    }
     if (!(await passGate(page))) {
-      return fail('The gate after an early end did not start the next session.',
+      return fail('The gate after the break did not start the next session.',
         'check START_SESSION and beginSession in background.ts.');
     }
     await stay(page, 2);
     const timer = await readTimer(page);
     const left = clockSeconds(timer.text);
     console.log(`  timer two seconds into the next session: "${timer.text}"`);
-    const expected = 120 + extra - 2;
-    if (left === null || Math.abs(expected - left) > 6) {
-      return fail(`The next session should be 2:00 plus the ${extra}s kept, the timer shows "${timer.text}".`,
-        'check that beginSession adds extraSeconds to the length in background.ts.');
+    if (left === null || Math.abs(118 - left) > 6) {
+      return fail(`The next session should be a plain 2:00; the timer shows "${timer.text}".`,
+        'unspent time goes to the bank, not the next session: check beginSession in background.ts.');
     }
-    const after = (await run.storage('webTimeSessionExtra'))?.localhost;
-    if (after) {
-      return fail(`The kept time should be used up by the next session, ${after}s is still stored.`,
-        'check that beginSession clears extraSeconds in background.ts.');
-    }
-    return pass(`ended early: confirm → gate → ${extra}s kept → next session "${timer.text}"`);
+    return pass(`ended early: confirm → break "${onBreak}" → bank ${bank} → next session "${timer.text}"`);
   } finally {
     await run.close();
   }

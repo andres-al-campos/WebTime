@@ -19,6 +19,7 @@ import { formatDuration, formatDurationHM, getLocalDateStr, formatDateWithDayOfW
 import { renderSessionCard, renderSessionSettingsCard, stepper } from './session-card.js';
 import { renderPastDayCards, backToTodayButton } from './past-day-cards.js';
 import { sessionsFor } from '../shared/session-history.js';
+import { DEFAULT_NUDGES_PER_SESSION } from '../shared/session-model.js';
 import type { ChartInstance } from '../types.js';
 
 declare const browser: typeof chrome;
@@ -401,6 +402,12 @@ export async function loadSettings(): Promise<void> {
     if (countdownEl) countdownEl.value = String(countdownVal);
     mountSettingsStepper('start-countdown-stepper', countdownEl, 'Start countdown', 's',
       { value: countdownVal, min: 0, max: 60, step: 1 });
+    const nudgesEl = document.getElementById('nudges-per-session') as HTMLInputElement | null;
+    const nudgesVal = global.nudgesPerSession ?? DEFAULT_NUDGES_PER_SESSION;
+    if (nudgesEl) nudgesEl.value = String(nudgesVal);
+    mountSettingsStepper('nudges-stepper', nudgesEl, 'Nudges per session', '',
+      { value: nudgesVal, min: 0, max: 10, step: 1, zeroLabel: 'Off',
+        hint: 'Nudges happen more often as the session gets closer to ending.' });
     const startQuestionEl = document.getElementById('start-question') as HTMLInputElement | null;
     if (startQuestionEl) {
       startQuestionEl.placeholder = DEFAULT_START_QUESTION;
@@ -454,6 +461,7 @@ export async function saveSettings(): Promise<void> {
     const chartScalingEl = document.getElementById('chart-scaling') as HTMLInputElement | null;
     const countdownEl = document.getElementById('start-countdown') as HTMLInputElement | null;
     const startQuestionEl = document.getElementById('start-question') as HTMLInputElement | null;
+    const nudgesEl = document.getElementById('nudges-per-session') as HTMLInputElement | null;
 
     const scalingPower = parseFloat(chartScalingEl?.value || '1.0') || 1.0;
 
@@ -477,6 +485,8 @@ export async function saveSettings(): Promise<void> {
       // 0 is a real choice (start at once), so no `|| 10` here.
       startCountdownS: Math.max(0, parseInt(countdownEl?.value ?? '10', 10) || 0),
       startQuestion: startQuestionEl?.value.trim() ?? '',
+      // 0 is a real choice (no nudges), so no `|| 1` here.
+      nudgesPerSession: Math.max(0, Math.min(10, parseInt(nudgesEl?.value ?? '1', 10) || 0)),
     };
     // Apply the new scale to the live chart config so the currently open chart
     // reflects it immediately — otherwise it only took effect on the NEXT popup

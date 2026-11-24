@@ -10,7 +10,8 @@
 
 import { formatClock, formatDuration, getLocalDateStr, nextDayResetAt } from '../shared/utils.js';
 import { MSG, STORAGE } from '../shared/protocol.js';
-import { displayFor, DEFAULT_NUDGE_INTERVAL_MIN, type ActiveSession } from '../shared/session-model.js';
+import { displayFor, type ActiveSession } from '../shared/session-model.js';
+import { DEFAULT_BREAK_MIN } from '../shared/session-breaks.js';
 import {
   budgetRules, canStart, readBudget,
   DEFAULT_SESSIONS_PER_DAY, bankOf, heldAt, type Budget, type BudgetRules,
@@ -72,7 +73,7 @@ function el(tag: string, cls: string, text?: string): HTMLElement {
 interface DomainLimits {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number;          // minutes
-  nudgeInterval?: number;
+  breakMinutes?: number;
   sessionsPerDay?: number;
   bankSessions?: number;
 }
@@ -100,7 +101,7 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
     settings.domains[domain] = {
       sessionLimitEnabled: next.sessionLimitEnabled || false,
       sessionLimit: (next.sessionLimit || 0) > 0 ? next.sessionLimit : undefined,
-      nudgeInterval: next.nudgeInterval,
+      breakMinutes: next.breakMinutes,
       sessionsPerDay: next.sessionsPerDay,
       bankSessions: next.bankSessions,
     };
@@ -371,7 +372,7 @@ export async function renderSessionSettingsCard(
   const cur: Required<DomainLimits> = {
     sessionLimitEnabled: d.sessionLimitEnabled || false,
     sessionLimit: d.sessionLimit || 40,
-    nudgeInterval: d.nudgeInterval ?? DEFAULT_NUDGE_INTERVAL_MIN,
+    breakMinutes: d.breakMinutes ?? DEFAULT_BREAK_MIN,
     sessionsPerDay: d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
     bankSessions: bankOf(d as DomainLimits & { maxSessions?: number }, d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY),
   };
@@ -401,8 +402,8 @@ export async function renderSessionSettingsCard(
   });
   head.append(toggle);
 
-  // body: two two-up rows — [session length | nudges], then
-  // [sessions per day | max sessions].
+  // body: two two-up rows — [session length | break], then
+  // [sessions per day | banked sessions].
   const body = el('div', 'sc-settings-body');
 
   const rowOne = el('div', 'sc-settings-twoup');
@@ -413,11 +414,11 @@ export async function renderSessionSettingsCard(
       onChange: v => { cur.sessionLimit = v; showMath(); persist(); },
     }).el,
     stepper({
-      // Minutes between nudges, not a count: session length varies per session
-      // now, so "how many" has no fixed meaning. 0 disables them for this domain.
-      label: 'Nudge every', value: cur.nudgeInterval, unit: 'min',
-      min: 0, max: 120, step: 1, zeroLabel: 'Disabled',
-      onChange: v => { cur.nudgeInterval = v; persist(); },
+      // The first break; later ones grow by √n (session-breaks.ts).
+      label: 'Break', value: cur.breakMinutes, unit: 'min',
+      hint: 'Each break is a little longer than the last. Ending a session early shortens its break.',
+      min: 0, max: 60, step: 1, zeroLabel: 'None',
+      onChange: v => { cur.breakMinutes = v; persist(); },
     }).el
   );
 
@@ -494,7 +495,8 @@ function heldBlock(h: Held, running: boolean): HTMLElement[] {
     const now = Date.now();
     const today = getLocalDateStr(liveDayReset);
     const { daily, bank: banked } = heldAt(h.budget, h.rules, today);
-    bank.textContent = banked > 0 ? `+${banked} banked` : '';
+    // Whole sessions only: a dot still being saved can't be started.
+    bank.textContent = banked >= 1 ? `+${Math.floor(banked)} banked` : '';
     for (let i = 0; i < count; i++) {
       dots.children[i].classList.toggle('is-full', i < daily);
     }

@@ -11,7 +11,10 @@ import {
   windDownState,
   scheduleFor,
   shouldScheduleWakes,
+  effectiveLength,
+  DEFAULT_NUDGES_PER_SESSION,
 } from './shared/session-model.js';
+import { breakSeconds, breakLeft, DEFAULT_BREAK_MIN } from './shared/session-breaks.js';
 import {
   checkSessionLimit as decideSessionLimit,
   checkNudge as decideNudge,
@@ -24,6 +27,9 @@ import {
   readBudget,
   settle,
   spend,
+  deposit,
+  LEGACY_SESSIONS_PER_DAY,
+  LEGACY_BANK_SESSIONS,
 } from './shared/session-budget.js';
 import {
   type ClockState,
@@ -150,6 +156,7 @@ const ACTIVITY_CHECK_INTERVAL_MS = Constants.ACTIVITY_CHECK_INTERVAL_MS;
 let currentDateStr: DateString = getLocalDateStr();
 let timeHistory: TimeHistory = {};
 let dayResetMinutes = 0;
+let nudgesPerSession = DEFAULT_NUDGES_PER_SESSION;
 let isSaving = false;
 
 let interventionState: InterventionState = {
@@ -181,6 +188,10 @@ const budgets: Record<Domain, Budget> = {};
 // How many sessions each site has started today, for the session number.
 const sessionsStartedToday: Record<Domain, number> = {};
 
+// Each site's break, epoch ms. Kept with the day's session state: the day
+// reset ends every break, since the new day starts fresh.
+const breaks: Record<Domain, { from: number; until: number }> = {};
+
 /** Seconds between OK on the gate and the session starting, unless set. */
 const DEFAULT_START_COUNTDOWN_SECONDS = 10;
 
@@ -188,7 +199,7 @@ const DEFAULT_START_COUNTDOWN_SECONDS = 10;
 // scheduler are synchronous and must not await a settings read, so they ask
 // this. budgetRules rides along for the same reason: ending a session returns
 // the unused part at once.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; nudgeInterval?: number; budgetRules?: BudgetRules }> = {};
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; breakMinutes: number; budgetRules?: BudgetRules }> = {};
 const windDownActive: Record<Domain, boolean> = {};
 
 // Which tab has the end-session-early confirmation popup open (null = none).
@@ -368,8 +379,7 @@ async function rescheduleWakes(): Promise<void> {
   });
   if (!ok || !session) return;
 
-  const nudgeInterval = cachedDomainSessionLimit[domain]?.nudgeInterval;
-  const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgeInterval);
+  const wakes = scheduleFor(session, dailyTotal(), Date.now(), nudgesPerSession);
 
   for (const w of wakes) {
     browser.alarms.create(`${ALARM.WAKE_PREFIX}${w.kind}-${w.sessionTime}`, { when: w.at });
@@ -592,6 +602,7 @@ function saveSessionState(): void {
       date: currentDateStr,
       sessions,
       started: sessionsStartedToday,
+      breaks,
     },
   }).catch(err => console.warn('Failed to persist session state:', err));
 
@@ -621,6 +632,10 @@ async function loadSessionState(): Promise<void> {
     for (const [domain, n] of Object.entries(stored.started || {})) {
       sessionsStartedToday[domain] = n as number;
     }
+    for (const [domain, b] of Object.entries(stored.breaks || {})) {
+      const { from, until } = (b || {}) as { from?: unknown; until?: unknown };
+      if (typeof from === 'number' && typeof until === 'number') breaks[domain] = { from, until };
+    }
     log(`Session state rehydrated for ${currentDateStr} (${Object.keys(sessions).length} domains)`);
   } catch (err) {
     console.warn('Failed to load session state:', err);
@@ -629,15 +644,6 @@ async function loadSessionState(): Promise<void> {
 
 function clearSessionState(): void {
   browser.storage.local.remove(STORAGE.SESSION_STATE).catch(() => {});
-}
-
-// Unused time from an early end, per site, waiting to be added to the next
-// session. Stored apart from the day's session state so it survives the reset.
-const extraSeconds: Record<Domain, number> = {};
-
-function saveExtra(): void {
-  browser.storage.local.set({ [STORAGE.SESSION_EXTRA]: extraSeconds })
-    .catch(err => console.warn('Failed to persist session extra time:', err));
 }
 
 function saveBudgets(): void {
@@ -653,18 +659,40 @@ function saveBudgets(): void {
 async function loadBudgets(): Promise<void> {
   try {
     const data = await browser.storage.local.get([STORAGE.SESSION_BUDGET, STORAGE.SETTINGS, STORAGE.SESSION_EXTRA]);
-    for (const [domain, n] of Object.entries(data[STORAGE.SESSION_EXTRA] || {})) {
-      if (typeof n === 'number' && n > 0) extraSeconds[domain] = n;
-    }
     const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
+    if (keepLegacyCounts(settings)) await browser.storage.local.set({ [STORAGE.SETTINGS]: settings });
     for (const [domain, cfg] of Object.entries(settings.domains || {})) cacheRules(domain, cfg);
     for (const [domain, b] of Object.entries(data[STORAGE.SESSION_BUDGET] || {})) {
       budgets[domain] = readBudget(b, budgetRules(settings.domains?.[domain]), currentDateStr);
     }
+    // Minutes an early end once saved for the next session go to the bank now,
+    // where every unspent minute goes.
+    for (const [domain, n] of Object.entries(data[STORAGE.SESSION_EXTRA] || {})) {
+      const lengthS = (settings.domains?.[domain]?.sessionLimit || 0) * 60;
+      if (typeof n !== 'number' || n <= 0 || lengthS <= 0) continue;
+      const rules = budgetRules(settings.domains?.[domain]);
+      budgets[domain] = deposit(budgetOf(domain, rules), rules, currentDateStr, n / lengthS);
+    }
+    if (data[STORAGE.SESSION_EXTRA]) await browser.storage.local.remove(STORAGE.SESSION_EXTRA);
     saveBudgets();
   } catch (err) {
     console.warn('Failed to load session budgets:', err);
   }
+}
+
+/**
+ * A site with rules on that never had its counts stored read the old
+ * defaults; write those in so the new defaults don't change it. Returns
+ * whether anything was written.
+ */
+function keepLegacyCounts(settings: WebTimeSettings): boolean {
+  let changed = false;
+  for (const cfg of Object.values(settings.domains || {})) {
+    if (!cfg?.sessionLimitEnabled) continue;
+    if (cfg.sessionsPerDay === undefined) { cfg.sessionsPerDay = LEGACY_SESSIONS_PER_DAY; changed = true; }
+    if (cfg.bankSessions === undefined && cfg.maxSessions === undefined) { cfg.bankSessions = LEGACY_BANK_SESSIONS; changed = true; }
+  }
+  return changed;
 }
 
 /** Record a domain's rules in the cache; returns its session length (0 = off). */
@@ -673,7 +701,7 @@ function cacheRules(domain: Domain, cfg: DomainSettings | undefined): number {
   const sessionLimitSeconds = on ? (cfg?.sessionLimit || 0) * 60 : 0;
   cachedDomainSessionLimit[domain] = {
     sessionLimitSeconds,
-    nudgeInterval: cfg?.nudgeInterval,
+    breakMinutes: Math.max(0, cfg?.breakMinutes ?? DEFAULT_BREAK_MIN),
     budgetRules: budgetRules(cfg),
   };
   return sessionLimitSeconds;
@@ -919,7 +947,8 @@ function rolloverIfNewDay(): boolean {
   // and after the delete loop there is nothing left to record.
   //
   //
-  // What a session had left goes back to the site, as at any other end.
+  // What a session had left goes to the bank, as at any other end. Deposited
+  // on the ending day, so the settle that follows banks the row on top.
   for (const domain of Object.keys(sessions)) {
     const session = sessions[domain];
     if (!session) continue;
@@ -936,6 +965,7 @@ function rolloverIfNewDay(): boolean {
   // what used to be seven parallel maps into one delete.
   for (const domain of Object.keys(sessions)) delete sessions[domain];
   for (const domain of Object.keys(sessionsStartedToday)) delete sessionsStartedToday[domain];
+  for (const domain of Object.keys(breaks)) delete breaks[domain];
   for (const domain of Object.keys(windDownActive)) clearWindDown(domain);
   clearSessionState(); // drop persisted state for the old day
   syncClock(); // the sites that had a session are at the gate now
@@ -1371,6 +1401,7 @@ function applyUpdatedSettings(): void {
     const settings: WebTimeSettings = data[STORAGE.SETTINGS] || { global: {}, domains: {} };
 
     inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
+    nudgesPerSession = Math.max(0, settings.global?.nudgesPerSession ?? DEFAULT_NUDGES_PER_SESSION);
     applyIdleDetectionInterval();
     log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 
@@ -1680,9 +1711,8 @@ async function loadInterventionSettings(): Promise<InterventionSettings | null> 
   };
 }
 
-// The "Phi" in the name (and "φ-nudge" in the log) is from the golden-ratio
-// schedule that nudges used to follow. They now fire at a fixed per-domain
-// interval; see computeNudgeTimes in session-model.ts.
+// Nudges follow a golden-ratio schedule, a global count per session; see
+// computeNudgeTimes in session-model.ts.
 function checkPhiNudges(settings: InterventionSettings): void {
   const { sessionLimitSeconds } = settings;
   if (sessionLimitSeconds <= 0 || !trackedTabDomain) return;
@@ -1695,7 +1725,7 @@ function checkPhiNudges(settings: InterventionSettings): void {
     session,
     dailyTotal: dailyTotal(),
     sessionLimitSeconds,
-    nudgeInterval: settings.domainSettings.nudgeInterval,
+    nudgeCount: nudgesPerSession,
   });
   if (!outcome) return;
 
@@ -1817,7 +1847,8 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
       resetAt: nextDayResetAt(Date.now(), dayResetMinutes),
       countdownSeconds: Math.max(0, settings.global?.startCountdownS ?? DEFAULT_START_COUNTDOWN_SECONDS),
       startQuestion: startQuestionOf(settings.global),
-      extraSeconds: extraSeconds[domain] || 0,
+      breakFrom: breaks[domain]?.from ?? 0,
+      breakUntil: breaks[domain]?.until ?? 0,
     };
   }
   // The cache may have just learned this site has rules on.
@@ -1846,24 +1877,19 @@ async function beginSession(domain: Domain): Promise<void> {
   if (domain !== trackedTabDomain || !atGate(domain)) return syncGate(domain);
 
   rolloverIfNewDay();
+  if (breakLeft(breaks[domain]?.until, Date.now()) > 0) return syncGate(domain);
+  delete breaks[domain];
   const started = spend(budgetOf(domain, rules), rules, currentDateStr);
   if (!started) return syncGate(domain);
 
   budgets[domain] = started;
   saveBudgets();
   sessionsStartedToday[domain] = (sessionsStartedToday[domain] || 0) + 1;
-  // What the last session left unused rides on this one, so ending early pays
-  // off at the very next gate. baseLength has to equal the setting, or the
-  // next settings change reads the extra as a length change and resizes the
-  // session to full.
-  const extra = extraSeconds[domain] || 0;
-  delete extraSeconds[domain];
-  saveExtra();
-  const length = sessionLengthSeconds + extra;
+  // Every session is one length: unspent minutes went to the bank instead.
+  const length = sessionLengthSeconds;
   sessions[domain] = startSession({
     dailyTotal: dailyTotal(),
     baseLength: sessionLengthSeconds,
-    carryover: extra,
     sessionNum: sessionsStartedToday[domain],
   });
   saveSessionState();
@@ -1873,12 +1899,23 @@ async function beginSession(domain: Domain): Promise<void> {
   log(`Session ${sessionsStartedToday[domain]} started for ${domain}: ${length}s, ${started.used} used today, ${started.bank} banked.`);
 }
 
-/** Keep a session's unused time for the site's next session. */
+/** Save a session's unspent minutes to the site's bank, as a fraction of a dot. */
 function returnUnused(domain: Domain, session: ActiveSession): void {
   const remaining = displayFor(session, dailyTotal()).remaining;
-  if (remaining <= 0) return;
-  extraSeconds[domain] = (extraSeconds[domain] || 0) + remaining;
-  saveExtra();
+  const rules = cachedDomainSessionLimit[domain]?.budgetRules;
+  if (remaining <= 0 || !rules || session.baseLength <= 0) return;
+  budgets[domain] = deposit(budgetOf(domain, rules), rules, currentDateStr, remaining / session.baseLength);
+  saveBudgets();
+}
+
+/** Start the break that follows `session`, in proportion to what it used. */
+function startBreak(domain: Domain, session: ActiveSession): void {
+  const length = effectiveLength(session);
+  const share = length > 0 ? displayFor(session, dailyTotal()).sessionTime / length : 1;
+  const secs = breakSeconds(session.sessionNum, cachedDomainSessionLimit[domain]?.breakMinutes ?? DEFAULT_BREAK_MIN, share);
+  const now = Date.now();
+  if (secs > 0) breaks[domain] = { from: now, until: now + secs * 1000 };
+  else delete breaks[domain];
 }
 
 /**
@@ -1896,13 +1933,14 @@ function endSession(domain: Domain, endState: SessionEndState): void {
   syncClock();
   recordFinishedSession(domain, session, endState);
   returnUnused(domain, session);
+  startBreak(domain, session);
   clearWindDown(domain);
   saveSessionState();
   void syncGate(domain);
   updateTimerDisplay(dailyTotal());
 }
 
-/** End the tracked site's session early. What was unused goes back to it. */
+/** End the tracked site's session early. What was unused goes to the bank. */
 function endSessionEarly(): void {
   if (!trackedTabDomain) return;
   const domain = trackedTabDomain;
@@ -1968,6 +2006,7 @@ async function init(): Promise<void> {
   const settings: WebTimeSettings = settingsData[STORAGE.SETTINGS] || { global: {}, domains: {} };
   dayResetMinutes = dayResetMinutesOf(settings.global);
   inactivityThresholdMs = (settings.global?.inactivityTimeoutS ?? 30) * 1000;
+  nudgesPerSession = Math.max(0, settings.global?.nudgesPerSession ?? DEFAULT_NUDGES_PER_SESSION);
   log(`Day reset time loaded: ${dayResetMinutes} minutes past midnight`);
   log(`Inactivity threshold: ${inactivityThresholdMs}ms`);
 

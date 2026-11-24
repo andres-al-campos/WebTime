@@ -35,7 +35,8 @@ tickers — live in `src/background.ts`.
   load-bearing** and has broken three times; it is tested for that reason.
 - `session-model.ts` — session lifecycle arithmetic, nudge times, wake schedules.
 - `session-budget.ts` — how many sessions a site holds each day, what a start
-  uses, and what the day's end saves to the bank.
+  uses, and what reaches the bank.
+- `session-breaks.ts` — how long the break after each session lasts.
 - `interventions.ts` — which intervention is due (limit reached, nudge).
 
 `background.ts` is the shell: listeners, dispatch, and the state the gates read.
@@ -127,10 +128,10 @@ the time and version it was made or reworded at.
   alarm colours, nudges are brief, and stopping early is rewarded, not
   punished. Why: punishment builds the frustration that ends in an uninstall,
   so the app rewards doing well instead of penalising doing badly.
-- 2026-11-19 17:34, 2.10.0. **Saving pays later.** Time you don't use is kept for later:
-  unused time from an early end stacks onto the next session, sessions left
-  when the day resets go to the bank, and a setting lowered then raised
-  gives back what it hid. The bank is a backup, spent last and never
+- 2026-11-24 17:38, 2.10.0. **Saving pays later.** Time you don't use is kept for later:
+  every unspent minute fills the bank, from an early end, a session the reset
+  cuts off, or sessions left when the day resets, and a setting lowered then
+  raised gives back what it hid. The bank is a backup, spent last and never
   expiring, so the gate shows it only once the day's row is used up. Why, in the owner's words: "you get rewarded for being frugal with
   time, then you use that time at a later time", and "humans like to see
   number go up". The opposite is use-it-or-lose-it, which starts only once the
