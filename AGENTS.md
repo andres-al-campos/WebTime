@@ -123,9 +123,10 @@ apply. Listed in the order they were written; when two disagree on a case, the
 owner decides and the winner moves up. The hook in `dev/hooks/` starts each with
 the time and version it was made or reworded at.
 
-- 2026-10-22 19:10, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
+- 2026-11-24 16:07, 2.10.0. **It doesn't scold.** WebTime is grading your own browsing, so it never uses
   alarm colours, nudges are brief, and stopping early is rewarded, not
-  punished.
+  punished. Why: punishment builds the frustration that ends in an uninstall,
+  so the app rewards doing well instead of penalising doing badly.
 - 2026-11-19 17:34, 2.10.0. **Saving pays later.** Time you don't use is kept for later:
   unused time from an early end stacks onto the next session, sessions left
   when the day resets go to the bank, and a setting lowered then raised
