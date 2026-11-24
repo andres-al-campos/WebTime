@@ -21,7 +21,7 @@ await build({
   platform: 'node',
 });
 const {
-  fullBudget, settle, spend, canStart, budgetRules, heldAt, readBudget, dotsShown,
+  fullBudget, settle, spend, canStart, budgetRules, heldAt, readBudget, dotsShown, deposit,
 } = await import(pathToFileURL(outFile).href);
 
 const D1 = '2026-11-18';
@@ -113,7 +113,7 @@ test('a start from a lowered bank uses what is shown', () => {
 });
 
 test('the bank setting falls back to a total stored before it existed', () => {
-  assert.deepEqual(budgetRules({}), { sessionsPerDay: 3, bankSessions: 1 });
+  assert.deepEqual(budgetRules({}), { sessionsPerDay: 5, bankSessions: 2 });
   assert.deepEqual(budgetRules({ sessionsPerDay: 2, bankSessions: 0 }), { sessionsPerDay: 2, bankSessions: 0 });
   assert.deepEqual(budgetRules({ sessionsPerDay: 3, maxSessions: 5 }), { sessionsPerDay: 3, bankSessions: 2 });
 });
@@ -151,4 +151,34 @@ test('a start counting down drains its dot in place', () => {
 
 test('with the row and the bank empty the gate shows the spent row', () => {
   assert.equal(dotsShown({ used: 3, bank: 0, day: D1 }, roomy, D1).kind, 'row');
+});
+
+test('unspent minutes fill the bank a fraction at a time', () => {
+  let b = { used: 3, bank: 0, day: D1 };
+  for (let i = 0; i < 4; i++) b = deposit(b, roomy, D1, 0.25);
+  assert.equal(b.bank, 1);
+});
+
+test('a partly saved dot does not start a session', () => {
+  const b = { used: 3, bank: 0.9, day: D1 };
+  assert.equal(canStart(b, rules, D1), false);
+  assert.equal(spend(b, rules, D1), null);
+});
+
+test('a start from the bank leaves the partial dot behind', () => {
+  assert.equal(spend({ used: 3, bank: 1.4, day: D1 }, roomy, D1).bank, 0.4);
+});
+
+test('minutes past a full bank are lost', () => {
+  assert.equal(deposit({ used: 1, bank: 0.8, day: D1 }, rules, D1, 0.5).bank, 1);
+  assert.equal(deposit({ used: 1, bank: 1, day: D1 }, rules, D1, 0.5).bank, 1);
+});
+
+test('a deposit on a new day banks yesterday first', () => {
+  // Yesterday left 1 of 3, so the bank holds 1; the deposit tops it to 1.5.
+  assert.equal(deposit({ used: 2, bank: 0, day: D1 }, roomy, D2, 0.5).bank, 1.5);
+});
+
+test('the gate shows a partly saved bank dot as a fraction', () => {
+  assert.deepEqual(dotsShown({ used: 3, bank: 1.5, day: D1 }, roomy, D1), { kind: 'bank', held: 1.5, slots: 3 });
 });

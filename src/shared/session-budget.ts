@@ -2,8 +2,13 @@
 //
 // A site with rules on gets a fixed row of sessions each day. Starting a session
 // uses one whole dot, and nothing else moves the row until the day resets, so
-// the count can be planned against. Sessions left when the day ends go to the
-// bank, up to its size; the bank is spent last and doesn't expire.
+// the count can be planned against. Every unspent minute goes to the bank, up
+// to its size: sessions left when the day ends, and what an early end or the
+// reset leaves of a running one. The bank is spent last and doesn't expire.
+//
+// The bank counts sessions in fractions, so minutes saved fill a dot. Only a
+// whole dot starts: a partial one is something to finish saving, and starting
+// it would bring back short sessions, each with its own gate and break.
 //
 // The row is stored as how many were used, not how many are left: lowering a
 // setting and raising it again then gives back the same row by construction.
@@ -27,9 +32,24 @@ export interface BudgetRules {
   bankSessions: number;
 }
 
-export const DEFAULT_SESSIONS_PER_DAY = 3;
+export const DEFAULT_SESSIONS_PER_DAY = 5;
 /** Sessions that can be saved up beyond a day's worth. */
-export const DEFAULT_BANK_SESSIONS = 1;
+export const DEFAULT_BANK_SESSIONS = 2;
+/**
+ * The defaults before 2.11. A site that turned rules on without touching a
+ * stepper stored no counts and read these; it gets them written in so the
+ * new defaults don't move it.
+ */
+export const LEGACY_SESSIONS_PER_DAY = 3;
+export const LEGACY_BANK_SESSIONS = 1;
+
+/**
+ * Fractions are kept to 4 places (a quarter second of a 40-minute session) so
+ * four quarter-session deposits make exactly one dot rather than 0.9999….
+ */
+function tidy(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
 
 /** A site's rules from its settings, with the defaults filled in. */
 export function budgetRules(cfg?: { sessionsPerDay?: number; bankSessions?: number; maxSessions?: number }): BudgetRules {
@@ -88,7 +108,18 @@ export function settle(b: Budget, rules: BudgetRules, today: string): Budget {
   if (days <= 0) return b;
   const { perDay, bankMax } = capsOf(rules);
   const saved = Math.max(0, perDay - b.used) + perDay * (days - 1);
-  return { used: 0, bank: b.bank >= bankMax ? b.bank : Math.min(bankMax, b.bank + saved), day: today };
+  return { used: 0, bank: b.bank >= bankMax ? b.bank : tidy(Math.min(bankMax, b.bank + saved)), day: today };
+}
+
+/**
+ * Save `sessions` (a fraction is fine) to the bank. A bank already at or over
+ * its size keeps what it has and takes no more.
+ */
+export function deposit(b: Budget, rules: BudgetRules, today: string, sessions: number): Budget {
+  const now = settle(b, rules, today);
+  const { bankMax } = capsOf(rules);
+  if (sessions <= 0 || now.bank >= bankMax) return now;
+  return { ...now, bank: tidy(Math.min(bankMax, now.bank + sessions)) };
 }
 
 /** What is held on `today`: the day's row and the bank, within the current settings. */
@@ -109,7 +140,8 @@ export function canStart(b: Budget, rules: BudgetRules, today: string): boolean 
  * budget, or what it becomes once a start that is counting down is spent, so
  * the dot drains in place. The bank is a backup, not something to
  * plan the day around, so it is shown only once the day's row is empty, and
- * then in the row's place, every slot of it.
+ * then in the row's place, every slot of it. A bank's `held` can end in a
+ * fraction: the dot still being saved.
  */
 export function dotsShown(b: Budget, rules: BudgetRules, today: string, shown: Budget = b):
   { kind: 'row' | 'bank'; held: number; slots: number } {
@@ -120,10 +152,10 @@ export function dotsShown(b: Budget, rules: BudgetRules, today: string, shown: B
   return { kind: 'row', held: after.daily, slots: perDay };
 }
 
-/** Start a session: one from the row, or from the bank once the row is empty. */
+/** Start a session: one from the row, or a whole dot from the bank once the row is empty. */
 export function spend(b: Budget, rules: BudgetRules, today: string): Budget | null {
   const now = settle(b, rules, today);
   const { daily, bank } = heldAt(now, rules, today);
   if (daily >= 1) return { ...now, used: now.used + 1 };
-  return bank >= 1 ? { ...now, bank: bank - 1 } : null;
+  return bank >= 1 ? { ...now, bank: tidy(bank - 1) } : null;
 }
