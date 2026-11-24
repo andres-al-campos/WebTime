@@ -789,7 +789,7 @@ function exportData(opts) {
 
 export const scenarios = {
   track: { run: track, about: 'Time tracking + On-page timer (default); takes --seconds, --limit, --cooldown, --popup' },
-  nudges: { run: nudges, about: 'Nudges at a 30s interval (~2.5 min)' },
+  nudges: { run: nudges, about: 'Three φ-spaced nudges in a 4-minute session (~3 min)' },
   'confirm-elsewhere': { run: confirmElsewhere, about: 'An end-session confirm left open holds the clock only on its tab (~25s)' },
   'two-windows': { run: twoWindows, about: 'Time follows the focused window (~30s)' },
   'sit-still': { run: sitStill, about: 'Sitting still after the gate stops the clock; a mouse move restarts it (~75s)' },
