@@ -59,11 +59,11 @@ didn't use.
   closer together as it nears its end, the timer briefly swells with the page
   blurred, without interrupting your flow.
 - **A fixed number of sessions a day** — a site with limits gets a few sessions
-  a day, each started at a gate with a short countdown, with a break between
+  a day, each started at a gate with a short countdown, with a cooldown between
   them that grows a little each time. Sessions and minutes you don't use go to
   a bank, and banked sessions don't expire.
 - **End a session early** — the unused minutes fill a banked session and the
-  break that follows is shorter, so stopping early is rewarded, not punished.
+  cooldown that follows is shorter, so stopping early is rewarded, not punished.
 - **Wind-down mode** — a bar across the top of the page that drains down over
   the final 60 seconds of a session while the page slowly dims, a visible
   heads-up that time's almost up.
@@ -86,7 +86,7 @@ messaging, storage, alarms — live in the background script.
 | [`src/shared/clock-gates.ts`](src/shared/clock-gates.ts) | Whether time should be accruing right now. The gate order is load-bearing and tested. |
 | [`src/shared/session-model.ts`](src/shared/session-model.ts) | Session lifecycle math — boundaries, nudge timing, wind-down, wake schedules. |
 | [`src/shared/session-budget.ts`](src/shared/session-budget.ts) | How many sessions a site holds each day, what a start uses, and what reaches the bank. |
-| [`src/shared/session-breaks.ts`](src/shared/session-breaks.ts) | How long the break after each session lasts. |
+| [`src/shared/session-cooldowns.ts`](src/shared/session-cooldowns.ts) | How long the cooldown after each session lasts. |
 | [`src/shared/interventions.ts`](src/shared/interventions.ts) | Which intervention is due: limit reached, nudge. |
 | [`src/shared/session-history.ts`](src/shared/session-history.ts) | The per-day record of finished sessions. |
 | [`src/shared/time-history.ts`](src/shared/time-history.ts) | Reading the tracked-time store across format versions. A store written by a newer build is refused, never half-read. |

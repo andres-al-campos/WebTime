@@ -36,7 +36,7 @@ tickers — live in `src/background.ts`.
 - `session-model.ts` — session lifecycle arithmetic, nudge times, wake schedules.
 - `session-budget.ts` — how many sessions a site holds each day, what a start
   uses, and what reaches the bank.
-- `session-breaks.ts` — how long the break after each session lasts.
+- `session-cooldowns.ts` — how long the cooldown after each session lasts.
 - `interventions.ts` — which intervention is due (limit reached, nudge).
 
 `background.ts` is the shell: listeners, dispatch, and the state the gates read.

@@ -23,11 +23,11 @@ All of this lives in your browser's local extension storage
   never stored.
 - **Session history.** When sessions started and ended for sites where you
   enabled session limits.
-- **Your settings.** Session length, break length, sessions per day and banked
+- **Your settings.** Session length, cooldown length, sessions per day and banked
   sessions, nudges per session, inactivity threshold, day reset time, start
   countdown, and your keyboard shortcut.
 - **Sessions held.** How many sessions each site has used today and holds in
-  its bank, and when its break between sessions ends.
+  its bank, and when its cooldown between sessions ends.
 
 ## What is not stored
 

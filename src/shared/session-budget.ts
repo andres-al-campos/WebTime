@@ -8,7 +8,7 @@
 //
 // The bank counts sessions in fractions, so minutes saved fill a dot. Only a
 // whole dot starts: a partial one is something to finish saving, and starting
-// it would bring back short sessions, each with its own gate and break.
+// it would bring back short sessions, each with its own gate and cooldown.
 //
 // The row is stored as how many were used, not how many are left: lowering a
 // setting and raising it again then gives back the same row by construction.

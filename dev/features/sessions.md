@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-24 17:38, at 2.10.0.
+Updated 2026-11-24 19:39, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -19,16 +19,16 @@ row of them, and each one is started by hand at a gate.
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
 - OK starts a countdown inside the Cancel button (10 seconds unless changed
-  in [global settings](global-settings.md)) and the title becomes the start question, "Are you sure?" unless changed there. The dialog keeps one height, so Cancel lands exactly where Start Session was, and with a two-line question the dots glide down to stay midway between the title and the button. Cancel during it goes back to the gate and uses nothing.
+  in [global settings](global-settings.md)) and the title becomes the start question, "Are you sure?" unless changed there. The dialog's bottom edge never moves, so Cancel lands exactly where Start Session was; a two-line question grows it upward by the extra line. The gaps above the pill, below its line and under the button are half the pill's height. Cancel during it goes back to the gate and uses nothing.
   At zero the session starts, the page unblurs and paused media plays again.
-- After a session the gate is on a break: the Start button reads "Next session
+- After a session the gate is on a cooldown: the Start button reads "Next session
   in 4:12", greyed, and a bar along the bottom runs out with it; at zero it
-  turns back into Start Session. The first break is 5 minutes unless changed in
+  turns back into Start Session. The first cooldown is 5 minutes unless changed in
   [session rules](session-rules.md), and session n's is that times √n (5, 7, 9,
-  10, 11). A session ended early takes the break in proportion to what it used.
-  The day reset ends any break.
-- When the gate changes screen (ready, countdown, break, waiting) its text crossfades:
-  300ms out, 300ms in, and a used dot drains over the same 600ms. The dots stay put and the countdowns tick without fading.
+  10, 11). A session ended early takes the cooldown in proportion to what it used.
+  The day reset ends any cooldown.
+- When the gate changes screen (ready, countdown, cooldown, waiting) the text that changes crossfades:
+  300ms out, 300ms in. A cooldown ending fades only the button, since the title stays "Session Ended". A used dot drains over the same 600ms. The dots stay put and the countdowns tick without fading.
 - The gate has OK and nothing else: a site with rules on is either in a
   session or behind the gate, so there is nothing to cancel there.
 - The row is 5 sessions a day by default and is full again at the day reset.
@@ -66,7 +66,7 @@ Preconditions: `npm run build`.
 
 `npm run drive -- daily-row` seeds the stored budget to check the new day, the
 cost of a start, the wait and a budget stored by the refilling design.
-`npm run drive -- end-early` checks the break and what an early end banks.
+`npm run drive -- end-early` checks the cooldown and what an early end banks.
 
 Last driven: 2026-11-19, Chrome headless. `daily-row`: a new day showed 3 dots
 over "3/3 sessions left" with 2 banked from the day before, an early end
@@ -78,8 +78,8 @@ The owner checked the dots, the bank and the fades in Floorp on 2026-11-19: they
 
 2026-11-24, Chrome headless: `daily-row` passed, and an early end banked 0.92
 of a 2-minute session; screenshots showed the row on its blue pill, the bank
-on purple with a half-filled dot, and the break reading "Next session in 1:12"
-over its bar. The pills, the break and the fades are not yet checked in Floorp.
+on purple with a half-filled dot, and the cooldown reading "Next session in 1:12"
+over its bar. The pills, the cooldown and the fades are not yet checked in Floorp.
 
 ## Gotchas
 
@@ -94,7 +94,7 @@ over its bar. The pills, the break and the fades are not yet checked in Floorp.
 - Minutes once saved for the next session under `webTimeSessionExtra` are moved
   into the bank when the background loads, and the key removed. Sessions keep
   a `carryover` field for those older records; new ones start at 0.
-- Breaks are stored with the day's session state as `breaks: { site: { from,
+- Cooldowns are stored with the day's session state as `cooldowns: { site: { from,
   until } }`, so the reset clears them with it.
 - A site with rules on that never stored its counts read the old defaults
   (3 a day, a bank of 1). The background writes those in at load, so the new
@@ -128,20 +128,24 @@ over its bar. The pills, the break and the fades are not yet checked in Floorp.
   The owner went back to banked: "it even makes you think of resources like
   money, and here your time is the resource." When the bank shows is the gate's
   business, not the name's. Applies *Saving pays later*.
-- 2026-11-24 17:38, 2.10.0. **Every session is one length; unspent minutes go to the bank.** Early-end
+- 2026-11-24 19:39, 2.10.0. **Every session is one length; unspent minutes go to the bank.** Early-end
   minutes used to stack onto the next session, which looks generous. In use
   there was "0 incentive to end a session early", the stacked minutes made "this
   huge first session" the next day, and with no gaps between sessions "it kind
   of does encourage binging". Now the minutes fill a banked dot, and only a
   whole dot starts: a partial one would bring back short sessions, each with its
-  own gate and break. Applies *Saving pays later*.
-- 2026-11-24 17:38, 2.10.0. **Breaks between sessions grow by √n.** Breaks were removed with the old
-  cooldowns, and nothing kept sessions from running back to back. Linear
+  own gate and cooldown. Applies *Saving pays later*.
+- 2026-11-24 19:39, 2.10.0. **Cooldowns between sessions grow by √n.** The old cooldowns were removed
+  when sessions began refilling, and nothing kept sessions from running back to back. Linear
   growth (5, 10, 15…) adds up to over an hour at six sessions; √n keeps growing
-  more gently. An early end takes a share of the break, since a full one after
+  more gently. An early end takes a share of the cooldown, since a full one after
   stopping early reads as a penalty. Applies *It doesn't scold*.
 - 2026-11-24 17:38, 2.10.0. **Each set of dots sits on a pill; the bank's is purple.** Orange was tried
   for the bank, as a ring and as a fill, and read as "way too much". Purple
   is close to the blue, so the pill also carries the line's "banked". Red-green
   colour blindness can merge the two; the line and the set's size still tell
   them apart.
+- 2026-11-24 19:39, 2.10.0. **Cooldown, not break.** The wait between sessions was called a break in
+  the first 2.10.0 builds. The owner went back to cooldown: "it kind of adds to the gamification
+  aspect like in videogames your abilities go on cooldown. break sounds a bit
+  more like time out". ScreenZen uses the same word for the same wait.

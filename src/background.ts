@@ -14,7 +14,7 @@ import {
   effectiveLength,
   DEFAULT_NUDGES_PER_SESSION,
 } from './shared/session-model.js';
-import { breakSeconds, breakLeft, DEFAULT_BREAK_MIN } from './shared/session-breaks.js';
+import { cooldownSeconds, cooldownLeft, DEFAULT_COOLDOWN_MIN } from './shared/session-cooldowns.js';
 import {
   checkSessionLimit as decideSessionLimit,
   checkNudge as decideNudge,
@@ -188,9 +188,9 @@ const budgets: Record<Domain, Budget> = {};
 // How many sessions each site has started today, for the session number.
 const sessionsStartedToday: Record<Domain, number> = {};
 
-// Each site's break, epoch ms. Kept with the day's session state: the day
-// reset ends every break, since the new day starts fresh.
-const breaks: Record<Domain, { from: number; until: number }> = {};
+// Each site's cooldown, epoch ms. Kept with the day's session state: the day
+// reset ends every cooldown, since the new day starts fresh.
+const cooldowns: Record<Domain, { from: number; until: number }> = {};
 
 /** Seconds between OK on the gate and the session starting, unless set. */
 const DEFAULT_START_COUNTDOWN_SECONDS = 10;
@@ -199,7 +199,7 @@ const DEFAULT_START_COUNTDOWN_SECONDS = 10;
 // scheduler are synchronous and must not await a settings read, so they ask
 // this. budgetRules rides along for the same reason: ending a session returns
 // the unused part at once.
-const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; breakMinutes: number; budgetRules?: BudgetRules }> = {};
+const cachedDomainSessionLimit: Record<Domain, { sessionLimitSeconds: number; cooldownMinutes: number; budgetRules?: BudgetRules }> = {};
 const windDownActive: Record<Domain, boolean> = {};
 
 // Which tab has the end-session-early confirmation popup open (null = none).
@@ -602,7 +602,7 @@ function saveSessionState(): void {
       date: currentDateStr,
       sessions,
       started: sessionsStartedToday,
-      breaks,
+      cooldowns,
     },
   }).catch(err => console.warn('Failed to persist session state:', err));
 
@@ -632,9 +632,9 @@ async function loadSessionState(): Promise<void> {
     for (const [domain, n] of Object.entries(stored.started || {})) {
       sessionsStartedToday[domain] = n as number;
     }
-    for (const [domain, b] of Object.entries(stored.breaks || {})) {
+    for (const [domain, b] of Object.entries(stored.cooldowns || {})) {
       const { from, until } = (b || {}) as { from?: unknown; until?: unknown };
-      if (typeof from === 'number' && typeof until === 'number') breaks[domain] = { from, until };
+      if (typeof from === 'number' && typeof until === 'number') cooldowns[domain] = { from, until };
     }
     log(`Session state rehydrated for ${currentDateStr} (${Object.keys(sessions).length} domains)`);
   } catch (err) {
@@ -682,12 +682,18 @@ async function loadBudgets(): Promise<void> {
 
 /**
  * A site with rules on that never had its counts stored read the old
- * defaults; write those in so the new defaults don't change it. Returns
- * whether anything was written.
+ * defaults; write those in so the new defaults don't change it. Also moves a
+ * setting stored under an earlier name. Returns whether anything was written.
  */
 function keepLegacyCounts(settings: WebTimeSettings): boolean {
   let changed = false;
   for (const cfg of Object.values(settings.domains || {})) {
+    // Cooldowns were called breaks in the first 2.10.0 builds.
+    if (cfg?.breakMinutes !== undefined) {
+      cfg.cooldownMinutes ??= cfg.breakMinutes;
+      delete cfg.breakMinutes;
+      changed = true;
+    }
     if (!cfg?.sessionLimitEnabled) continue;
     if (cfg.sessionsPerDay === undefined) { cfg.sessionsPerDay = LEGACY_SESSIONS_PER_DAY; changed = true; }
     if (cfg.bankSessions === undefined && cfg.maxSessions === undefined) { cfg.bankSessions = LEGACY_BANK_SESSIONS; changed = true; }
@@ -701,7 +707,7 @@ function cacheRules(domain: Domain, cfg: DomainSettings | undefined): number {
   const sessionLimitSeconds = on ? (cfg?.sessionLimit || 0) * 60 : 0;
   cachedDomainSessionLimit[domain] = {
     sessionLimitSeconds,
-    breakMinutes: Math.max(0, cfg?.breakMinutes ?? DEFAULT_BREAK_MIN),
+    cooldownMinutes: Math.max(0, cfg?.cooldownMinutes ?? DEFAULT_COOLDOWN_MIN),
     budgetRules: budgetRules(cfg),
   };
   return sessionLimitSeconds;
@@ -965,7 +971,7 @@ function rolloverIfNewDay(): boolean {
   // what used to be seven parallel maps into one delete.
   for (const domain of Object.keys(sessions)) delete sessions[domain];
   for (const domain of Object.keys(sessionsStartedToday)) delete sessionsStartedToday[domain];
-  for (const domain of Object.keys(breaks)) delete breaks[domain];
+  for (const domain of Object.keys(cooldowns)) delete cooldowns[domain];
   for (const domain of Object.keys(windDownActive)) clearWindDown(domain);
   clearSessionState(); // drop persisted state for the old day
   syncClock(); // the sites that had a session are at the gate now
@@ -1847,8 +1853,8 @@ async function syncGate(domain: Domain, tabId?: number): Promise<void> {
       resetAt: nextDayResetAt(Date.now(), dayResetMinutes),
       countdownSeconds: Math.max(0, settings.global?.startCountdownS ?? DEFAULT_START_COUNTDOWN_SECONDS),
       startQuestion: startQuestionOf(settings.global),
-      breakFrom: breaks[domain]?.from ?? 0,
-      breakUntil: breaks[domain]?.until ?? 0,
+      cooldownFrom: cooldowns[domain]?.from ?? 0,
+      cooldownUntil: cooldowns[domain]?.until ?? 0,
     };
   }
   // The cache may have just learned this site has rules on.
@@ -1877,8 +1883,8 @@ async function beginSession(domain: Domain): Promise<void> {
   if (domain !== trackedTabDomain || !atGate(domain)) return syncGate(domain);
 
   rolloverIfNewDay();
-  if (breakLeft(breaks[domain]?.until, Date.now()) > 0) return syncGate(domain);
-  delete breaks[domain];
+  if (cooldownLeft(cooldowns[domain]?.until, Date.now()) > 0) return syncGate(domain);
+  delete cooldowns[domain];
   const started = spend(budgetOf(domain, rules), rules, currentDateStr);
   if (!started) return syncGate(domain);
 
@@ -1908,14 +1914,14 @@ function returnUnused(domain: Domain, session: ActiveSession): void {
   saveBudgets();
 }
 
-/** Start the break that follows `session`, in proportion to what it used. */
-function startBreak(domain: Domain, session: ActiveSession): void {
+/** Start the cooldown that follows `session`, in proportion to what it used. */
+function startCooldown(domain: Domain, session: ActiveSession): void {
   const length = effectiveLength(session);
   const share = length > 0 ? displayFor(session, dailyTotal()).sessionTime / length : 1;
-  const secs = breakSeconds(session.sessionNum, cachedDomainSessionLimit[domain]?.breakMinutes ?? DEFAULT_BREAK_MIN, share);
+  const secs = cooldownSeconds(session.sessionNum, cachedDomainSessionLimit[domain]?.cooldownMinutes ?? DEFAULT_COOLDOWN_MIN, share);
   const now = Date.now();
-  if (secs > 0) breaks[domain] = { from: now, until: now + secs * 1000 };
-  else delete breaks[domain];
+  if (secs > 0) cooldowns[domain] = { from: now, until: now + secs * 1000 };
+  else delete cooldowns[domain];
 }
 
 /**
@@ -1933,7 +1939,7 @@ function endSession(domain: Domain, endState: SessionEndState): void {
   syncClock();
   recordFinishedSession(domain, session, endState);
   returnUnused(domain, session);
-  startBreak(domain, session);
+  startCooldown(domain, session);
   clearWindDown(domain);
   saveSessionState();
   void syncGate(domain);

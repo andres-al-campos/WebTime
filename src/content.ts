@@ -3,7 +3,7 @@ import { MSG, STORAGE } from './shared/protocol.js';
 import { dayResetMinutesOf, extractDomain, formatClock, formatTimeCompact, getLocalDateStr, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
 import { canStart, dotsShown, spend, deposit, budgetRules, readBudget, type Budget, type BudgetRules } from './shared/session-budget.js';
-import { breakLeft } from './shared/session-breaks.js';
+import { cooldownLeft } from './shared/session-cooldowns.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
 declare const browser: typeof chrome;
@@ -704,7 +704,7 @@ function hideAveragePopup(): void {
 // One dialog with three faces. `gate`: the row of sessions and OK / Cancel.
 // `starting`: after OK, the session drains from the row and the countdown runs
 // inside the Cancel button; at zero the background is asked to start. The
-// break, the gate face between sessions: the start button becomes the break's
+// cooldown, the gate face between sessions: the start button becomes the cooldown's
 // countdown and a bar along the bottom runs out with it. And the wait, when
 // nothing can start before the day resets: a clock counting to the reset.
 //
@@ -725,11 +725,14 @@ const GATE_TEXT_OUT_MS = 300;
 const GATE_TEXT_IN_MS = 300;
 // A used session drains over the whole text switch, so both settle together.
 const GATE_DRAIN_MS = GATE_TEXT_OUT_MS + GATE_TEXT_IN_MS;
-// A two-line question leaves 20px above and below the pill and its line. The
-// height never changes, so Cancel lands exactly where Start Session was and a
-// second click can't miss.
-const GATE_HEIGHT_PX = 236;
-let gateScreen: 'ready' | 'starting' | 'break' | 'waiting' | null = null;
+// The gaps above and below the pill and its line, and under the buttons, are
+// half the pill's height: 24 + 23 title + 21 + 68 pill and line + 21 + 32
+// buttons + 21. A two-line question adds its line above, with the bottom edge
+// held, so Cancel lands exactly where Start Session was and a second click
+// can't miss.
+const GATE_HEIGHT_PX = 210;
+const GATE_TITLE_LINE_PX = 23.4;
+let gateScreen: 'ready' | 'starting' | 'cooldown' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
 let gateCountdownEndsAt = 0;
 let gateStartSentAt = 0;
@@ -792,17 +795,17 @@ function buildGateDialog(): void {
   el.style.cssText = `
     ${CSS_RESET}
     position: fixed !important;
-    top: 45% !important;
+    top: calc(45% + ${GATE_HEIGHT_PX / 2}px) !important;
     left: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    transform: translate(-50%, -100%) !important;
     background: #2a2a2a !important;
-    padding: 24px !important;
+    padding: 24px 24px 21px !important;
     border-radius: 8px !important;
     box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5) !important;
     z-index: 1000001 !important;
     pointer-events: auto !important;
     width: 350px !important;
-    height: ${GATE_HEIGHT_PX}px !important;
+    height: ${GATE_HEIGHT_PX}px;
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
@@ -835,7 +838,7 @@ function buildGateDialog(): void {
     className: 'web-time-gate-body',
     style: 'color: #eee; font-size: 28px; line-height: 1.5; font-variant-numeric: tabular-nums;',
   });
-  const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums;';
+  const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 16px; font-variant-numeric: tabular-nums;';
   const cancelBtn = makeEl('button', {
     className: 'web-time-gate-cancel',
     style: `${buttonStyle} background: #3a3a3a; color: #eee;`,
@@ -882,7 +885,7 @@ function gateOk(): void {
   if (!gateState || gateView !== 'gate') return;
   const now = Date.now();
   if (!canStart(gateState.budget, gateState.rules, gateState.budget.day)) return;
-  if (breakLeft(gateState.breakUntil, now) > 0) return;
+  if (cooldownLeft(gateState.cooldownUntil, now) > 0) return;
   gateView = 'starting';
   gateCountdownEndsAt = now + gateState.countdownSeconds * 1000;
   renderGate();
@@ -923,8 +926,8 @@ function renderGate(): void {
   const q = (c: string) => gateDialog!.querySelector(`.web-time-gate-${c}`) as HTMLElement;
   const starting = gateView === 'starting';
   const waiting = !starting && !canStart(budget, rules, today);
-  const breakSecs = starting || waiting ? 0 : breakLeft(gateState.breakUntil, now);
-  const onBreak = breakSecs > 0;
+  const cooldownSecs = starting || waiting ? 0 : cooldownLeft(gateState.cooldownUntil, now);
+  const onCooldown = cooldownSecs > 0;
 
   updateTimerText();
 
@@ -935,12 +938,19 @@ function renderGate(): void {
   renderGateDots(q('dots'), view.kind, view.held, view.slots);
   q('line').textContent = view.line;
 
-  // Old text out fast, new text in slower, written while nothing is visible.
-  const screen = starting ? 'starting' : waiting ? 'waiting' : onBreak ? 'break' : 'ready';
+  // The old text fades out and the new in, written while nothing is visible.
+  // Only what changes fades: a cooldown ending keeps "Session Ended", and
+  // fading it out and back in to itself would pull the eye to nothing new.
+  const screen = starting ? 'starting' : waiting ? 'waiting' : onCooldown ? 'cooldown' : 'ready';
+  const titleOf = (s: typeof screen) => s === 'starting' ? gateState!.startQuestion
+    : s === 'waiting' ? 'Sessions Refill In'
+    : 'Session Ended';
   gateScreen ??= screen;
   if (screen !== gateScreen) {
     if (gateFadeTimer === null) {
-      const parts = [q('title'), q('body'), q('buttons')];
+      const parts = [q('buttons')];
+      if (titleOf(screen) !== titleOf(gateScreen)) parts.push(q('title'));
+      if (screen === 'waiting' || gateScreen === 'waiting') parts.push(q('body'));
       parts.forEach((p) => { p.style.transition = `opacity ${GATE_TEXT_OUT_MS}ms ease-in`; p.style.opacity = '0'; });
       gateFadeTimer = setTimeout(() => {
         gateFadeTimer = null;
@@ -952,11 +962,8 @@ function renderGate(): void {
     return;
   }
 
-  const dotsWereAt = q('sessions').offsetTop;
   q('line').style.display = waiting ? 'none' : '';
-  q('title').textContent = starting ? gateState.startQuestion
-    : waiting ? 'Sessions Refill In'
-    : 'Session Ended';
+  q('title').textContent = titleOf(screen);
 
   const body = q('body');
   body.style.display = waiting ? 'block' : 'none';
@@ -971,32 +978,34 @@ function renderGate(): void {
   q('cancel').style.display = starting ? '' : 'none';
   q('ok').style.display = starting || waiting ? 'none' : '';
   q('buttons').style.display = waiting ? 'none' : 'flex';
-  // The break is the start button waiting: same place, its countdown inside.
+  // The cooldown is the start button waiting: same place, its countdown inside.
   const ok = q('ok');
-  ok.textContent = onBreak ? `Next session in ${formatClock(breakSecs)}` : 'Start Session';
-  ok.style.width = onBreak ? 'auto' : '104px';
-  ok.style.padding = onBreak ? '8px 14px' : '8px';
-  ok.style.background = onBreak ? '#3a3a3a' : GATE_BLUE;
-  ok.style.color = onBreak ? '#eee' : '#fff';
-  ok.style.cursor = onBreak ? 'default' : 'pointer';
+  ok.textContent = onCooldown ? `Next session in ${formatClock(cooldownSecs)}` : 'Start Session';
+  ok.style.width = onCooldown ? 'auto' : '104px';
+  ok.style.padding = onCooldown ? '8px 14px' : '8px';
+  ok.style.background = onCooldown ? '#3a3a3a' : GATE_BLUE;
+  ok.style.color = onCooldown ? '#eee' : '#fff';
+  ok.style.cursor = onCooldown ? 'default' : 'pointer';
 
-  // The row sits midway between the title and the button, so a two-line title
-  // moves it. It glides there with the text fading in.
-  const moved = dotsWereAt - q('sessions').offsetTop;
-  if (moved) {
-    q('sessions').animate(
-      [{ transform: `translateY(${moved}px)` }, { transform: 'none' }],
+  // A two-line title grows the dialog upward, gliding there as the text fades in.
+  const extra = Math.max(0, q('title').offsetHeight - GATE_TITLE_LINE_PX);
+  const height = `${GATE_HEIGHT_PX + Math.round(extra)}px`;
+  if (gateDialog.style.height !== height) {
+    const was = gateDialog.offsetHeight;
+    gateDialog.style.height = height;
+    gateDialog.animate(
+      [{ height: `${was}px` }, { height }],
       { duration: GATE_TEXT_IN_MS, easing: 'cubic-bezier(.2,.8,.2,1)' },
     );
   }
 
-  // The wait's bar is how much of the day has gone; the break's is what is
-  // left of the break, running out as it ends.
-  q('bar').style.display = waiting || onBreak ? 'block' : 'none';
+  // The wait's bar is how much of the day has gone; the cooldown's is what is
+  // left of the cooldown, running out as it ends.
+  q('bar').style.display = waiting || onCooldown ? 'block' : 'none';
   if (waiting) q('bar-fill').style.width = `${Math.max(0, Math.min(100, 100 - ((resetAt - now) / 864e5) * 100))}%`;
-  if (onBreak) {
-    const total = Math.max(1, gateState.breakUntil - gateState.breakFrom);
-    q('bar-fill').style.width = `${Math.max(0, Math.min(100, ((gateState.breakUntil - now) / total) * 100))}%`;
+  if (onCooldown) {
+    const total = Math.max(1, gateState.cooldownUntil - gateState.cooldownFrom);
+    q('bar-fill').style.width = `${Math.max(0, Math.min(100, ((gateState.cooldownUntil - now) / total) * 100))}%`;
   }
 }
 

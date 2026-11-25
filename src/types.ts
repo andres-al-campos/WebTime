@@ -55,7 +55,8 @@ export interface DomainSettings {
   bankSessions?: number; // Sessions that can be saved up beyond a day's worth (undefined = default)
   maxSessions?: number; // Before bankSessions: the most held in all. Read only to derive the bank
   nudgeInterval?: number; // Unused since nudges became a global count; still on disk, never read
-  breakMinutes?: number; // First break between sessions, growing by √n (0 = none, undefined = default)
+  cooldownMinutes?: number; // First cooldown between sessions, growing by √n (0 = none, undefined = default)
+  breakMinutes?: number; // cooldownMinutes under its first name; moved at load, never read
 }
 
 export interface WebTimeSettings {
@@ -137,9 +138,9 @@ export interface ShowGateMessage {
   rules: BudgetRules;
   /** The site's full session length. */
   sessionLengthSeconds: number;
-  /** The break before the next session can start, epoch ms; 0 for none. */
-  breakFrom: number;
-  breakUntil: number;
+  /** The cooldown before the next session can start, epoch ms; 0 for none. */
+  cooldownFrom: number;
+  cooldownUntil: number;
   /** When the day resets and the row is full again, epoch ms. */
   resetAt: number;
   /** Seconds between OK and the session starting. */

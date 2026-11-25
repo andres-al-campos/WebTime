@@ -11,7 +11,7 @@
 import { formatClock, formatDuration, getLocalDateStr, nextDayResetAt } from '../shared/utils.js';
 import { MSG, STORAGE } from '../shared/protocol.js';
 import { displayFor, type ActiveSession } from '../shared/session-model.js';
-import { DEFAULT_BREAK_MIN } from '../shared/session-breaks.js';
+import { DEFAULT_COOLDOWN_MIN } from '../shared/session-cooldowns.js';
 import {
   budgetRules, canStart, readBudget,
   DEFAULT_SESSIONS_PER_DAY, bankOf, heldAt, type Budget, type BudgetRules,
@@ -73,7 +73,7 @@ function el(tag: string, cls: string, text?: string): HTMLElement {
 interface DomainLimits {
   sessionLimitEnabled?: boolean;
   sessionLimit?: number;          // minutes
-  breakMinutes?: number;
+  cooldownMinutes?: number;
   sessionsPerDay?: number;
   bankSessions?: number;
 }
@@ -101,7 +101,7 @@ async function writeDomainLimits(domain: string, next: DomainLimits): Promise<vo
     settings.domains[domain] = {
       sessionLimitEnabled: next.sessionLimitEnabled || false,
       sessionLimit: (next.sessionLimit || 0) > 0 ? next.sessionLimit : undefined,
-      breakMinutes: next.breakMinutes,
+      cooldownMinutes: next.cooldownMinutes,
       sessionsPerDay: next.sessionsPerDay,
       bankSessions: next.bankSessions,
     };
@@ -372,7 +372,7 @@ export async function renderSessionSettingsCard(
   const cur: Required<DomainLimits> = {
     sessionLimitEnabled: d.sessionLimitEnabled || false,
     sessionLimit: d.sessionLimit || 40,
-    breakMinutes: d.breakMinutes ?? DEFAULT_BREAK_MIN,
+    cooldownMinutes: d.cooldownMinutes ?? DEFAULT_COOLDOWN_MIN,
     sessionsPerDay: d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY,
     bankSessions: bankOf(d as DomainLimits & { maxSessions?: number }, d.sessionsPerDay ?? DEFAULT_SESSIONS_PER_DAY),
   };
@@ -402,7 +402,7 @@ export async function renderSessionSettingsCard(
   });
   head.append(toggle);
 
-  // body: two two-up rows — [session length | break], then
+  // body: two two-up rows — [session length | cooldown], then
   // [sessions per day | banked sessions].
   const body = el('div', 'sc-settings-body');
 
@@ -414,11 +414,11 @@ export async function renderSessionSettingsCard(
       onChange: v => { cur.sessionLimit = v; showMath(); persist(); },
     }).el,
     stepper({
-      // The first break; later ones grow by √n (session-breaks.ts).
-      label: 'Break', value: cur.breakMinutes, unit: 'min',
-      hint: 'Each break is a little longer than the last. Ending a session early shortens its break.',
+      // The first cooldown; later ones grow by √n (session-cooldowns.ts).
+      label: 'Cooldown', value: cur.cooldownMinutes, unit: 'min',
+      hint: 'Each cooldown is a little longer than the last. Ending a session early shortens its cooldown.',
       min: 0, max: 60, step: 1, zeroLabel: 'None',
-      onChange: v => { cur.breakMinutes = v; persist(); },
+      onChange: v => { cur.cooldownMinutes = v; persist(); },
     }).el
   );
 

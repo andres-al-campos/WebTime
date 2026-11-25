@@ -7,9 +7,9 @@ import {
 } from './lib.mjs';
 import { readFile } from 'node:fs/promises';
 
-// Breaks are off unless a drive sets them, so a drive that starts session
+// Cooldowns are off unless a drive sets them, so a drive that starts session
 // after session isn't waiting minutes at the gate between them.
-const rules = (localhost, global = {}) => ({ webTimeSettings: { global, domains: { localhost: { breakMinutes: 0, ...localhost } } } });
+const rules = (localhost, global = {}) => ({ webTimeSettings: { global, domains: { localhost: { cooldownMinutes: 0, ...localhost } } } });
 const clockSeconds = (text) => {
   const m = /(\d+):(\d\d)\s*$/.exec(text ?? '');
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
@@ -163,7 +163,7 @@ async function dailyRow(opts) {
     console.log(`  ended early: ${afterEnd} dots, stored ${JSON.stringify(spent)}`);
     if (afterEnd !== 2 || spent?.used !== 1) {
       return fail(`A session ended early should cost one whole dot: ${afterEnd} dots, ${JSON.stringify(spent)}.`,
-        'the unused time goes to webTimeSessionExtra, not back to the row: check endSession in background.ts.');
+        'the unused time goes to the bank, not back to the row: check returnUnused in background.ts.');
     }
   } finally {
     await run.close();
@@ -246,8 +246,8 @@ async function dailyRow(opts) {
 /** End session early with the shortcut: confirm, the gate, and the unused
  *  time back in what the site holds. */
 async function endEarly(opts) {
-  // A 1-minute first break, so ending 10s into 2 minutes takes about 5s of it.
-  const site = { sessionLimitEnabled: true, sessionLimit: 2, sessionsPerDay: 3, bankSessions: 2, breakMinutes: 1 };
+  // A 1-minute first cooldown, so ending 10s into 2 minutes takes about 5s of it.
+  const site = { sessionLimitEnabled: true, sessionLimit: 2, sessionsPerDay: 3, bankSessions: 2, cooldownMinutes: 1 };
   const storage = { ...rules(site), webTimeSessionBudget: { localhost: { used: 0, bank: 0, day: localDate(0) } } };
   const run = await startRun({ ...opts, storage });
   try {
@@ -276,11 +276,11 @@ async function endEarly(opts) {
     await page.waitForTimeout(800);
     const gateTitle = () => page.locator('.web-time-gate-title').innerText();
     const button = () => page.locator('.web-time-gate-ok').innerText();
-    const onBreak = await button();
-    console.log(`  gate after the end: "${await gateTitle()}", button "${onBreak}"`);
-    if (await gateTitle() !== 'Session Ended' || !/^Next session in \d+:\d\d$/.test(onBreak)) {
-      return fail(`After ending a session the gate reads "${await gateTitle()}" with a "${onBreak}" button.`,
-        'expected "Session Ended" and a "Next session in mm:ss" break: check startBreak in background.ts and renderGate in content.ts.');
+    const onCooldown = await button();
+    console.log(`  gate after the end: "${await gateTitle()}", button "${onCooldown}"`);
+    if (await gateTitle() !== 'Session Ended' || !/^Next session in \d+:\d\d$/.test(onCooldown)) {
+      return fail(`After ending a session the gate reads "${await gateTitle()}" with a "${onCooldown}" button.`,
+        'expected "Session Ended" and a "Next session in mm:ss" cooldown: check startCooldown in background.ts and renderGate in content.ts.');
     }
     const bank = (await run.storage('webTimeSessionBudget'))?.localhost?.bank;
     console.log(`  bank after ending ~12s into a 2-minute session: ${bank}`);
@@ -289,13 +289,23 @@ async function endEarly(opts) {
         'check returnUnused and deposit in background.ts and session-budget.ts.');
     }
 
-    // The break is in proportion to what was used: about 6s of a 60s break.
-    await page.waitForTimeout(8000);
+    // The cooldown is in proportion to what was used: about 6s of a 60s cooldown.
+    // Watched as it ends: the button changes, the title doesn't, so only the button fades.
+    let titleDimmed = 1;
+    for (const end = Date.now() + 8000; Date.now() < end;) {
+      const o = await page.locator('.web-time-gate-title').evaluate((t) => +getComputedStyle(t).opacity);
+      titleDimmed = Math.min(titleDimmed, o);
+      await page.waitForTimeout(50);
+    }
     const after = await button();
-    console.log(`  button after the break: "${after}"`);
+    console.log(`  button after the cooldown: "${after}", title's lowest opacity ${titleDimmed}`);
     if (after !== 'Start Session') {
-      return fail(`The break should be over by now and the button read "Start Session"; it reads "${after}".`,
-        'check breakSeconds (session-breaks.ts) and the share passed by startBreak in background.ts.');
+      return fail(`The cooldown should be over by now and the button read "Start Session"; it reads "${after}".`,
+        'check cooldownSeconds (session-cooldowns.ts) and the share passed by startCooldown in background.ts.');
+    }
+    if (titleDimmed < 1) {
+      return fail(`The title faded to ${titleDimmed} as the cooldown ended, though it stayed "Session Ended".`,
+        'only text that changes should fade: check the parts chosen for the fade in renderGate (content.ts).');
     }
     const preview = clockSeconds((await readTimer(page)).text);
     if (!(preview > 110 && preview <= 120)) {
@@ -303,7 +313,7 @@ async function endEarly(opts) {
         'every session is one length now: check offeredSeconds in content.ts.');
     }
     if (!(await passGate(page))) {
-      return fail('The gate after the break did not start the next session.',
+      return fail('The gate after the cooldown did not start the next session.',
         'check START_SESSION and beginSession in background.ts.');
     }
     await stay(page, 2);
@@ -314,7 +324,7 @@ async function endEarly(opts) {
       return fail(`The next session should be a plain 2:00; the timer shows "${timer.text}".`,
         'unspent time goes to the bank, not the next session: check beginSession in background.ts.');
     }
-    return pass(`ended early: confirm → break "${onBreak}" → bank ${bank} → next session "${timer.text}"`);
+    return pass(`ended early: confirm → cooldown "${onCooldown}" → bank ${bank} → next session "${timer.text}"`);
   } finally {
     await run.close();
   }
