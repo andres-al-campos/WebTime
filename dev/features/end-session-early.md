@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-24 20:18, at 2.10.0.
+Updated 2026-11-24 21:16, at 2.10.0.
 
 Stop a session before it runs out. The unused time goes to the site's bank,
 and the gate comes up on a shorter cooldown.
@@ -14,7 +14,7 @@ and the gate comes up on a shorter cooldown.
 - Confirm dialog: "End Session N?", the bank on its purple pill, what it
   holds solid and the slice ending would add filling in at half strength, and the time that is kept
   ("1:50 rolls over to banked sessions", or "Your bank is full"). Enter
-  confirms, Escape cancels. Media pauses while it's
+  confirms; Escape or the shortcut again cancels. Media pauses while it's
   open and resumes on cancel; the clock is frozen while it's open and its tab
   is the one in front. Other tabs and sites keep counting.
 - The unused time goes to the bank as part of a dot: ending 10 seconds into a

@@ -266,6 +266,15 @@ async function endEarly(opts) {
       return fail(`The confirm should say the unused time rolls over to banked sessions; it reads "${confirmText.replace(/\n/g, ' / ')}".`,
         'check the body line in showEndSessionConfirm (content.ts).');
     }
+    // The shortcut toggles the confirm: closed as a cancel, then open again.
+    await page.keyboard.press('Control+e');
+    await page.waitForTimeout(500);
+    if (await page.locator('.web-time-end-session-overlay').count() !== 0) {
+      return fail('Pressing Ctrl+E again left the end-session confirm open.',
+        'the shortcut should close it as Cancel: check keyHandler in showEndSessionConfirm (content.ts).');
+    }
+    await page.keyboard.press('Control+e');
+    await page.locator('.web-time-end-ok').waitFor({ state: 'visible', timeout: 2000 });
 
     await page.click('.web-time-end-ok');
     const gated = await stay(page, 2, { until: (o) => o.includes('gate') });

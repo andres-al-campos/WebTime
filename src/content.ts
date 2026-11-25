@@ -1425,7 +1425,8 @@ function showEndSessionConfirm(): void {
 
   const keyHandler = (e: KeyboardEvent): void => {
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmAndClose(); }
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+    // The shortcut that opened it closes it again, as Cancel.
+    if (e.key === 'Escape' || isEndSessionShortcutMatch(e)) { e.preventDefault(); e.stopPropagation(); close(true); }
   };
   document.addEventListener('keydown', keyHandler, true);
 

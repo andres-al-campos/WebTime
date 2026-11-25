@@ -1,14 +1,14 @@
 # Global settings
 
-Updated 2026-11-24 17:38, at 2.10.0.
+Updated 2026-11-24 21:16, at 2.10.0.
 
 Settings that apply to every site.
 
 ## Sub-features
 
-The steppers and the shortcut sit two to a row (day reset and start countdown,
-inactivity and chart scale, nudges and the shortcut); the question and your
-data take a full row.
+The steppers sit two to a row (day reset and start countdown, inactivity and
+chart scale); nudges, the shortcut, the question and your data take a full
+row each.
 
 - Day resets at: a stepper like the others, showing HH:MM. The arrows step 5
   minutes and come round past midnight; any minute can be typed ("7",
@@ -25,7 +25,7 @@ data take a full row.
 - Ask before starting: the gate's title during that countdown, up to 70
   characters so it fits on two lines. Blank asks "Are you sure?".
 - Nudges per session: 0–10 (default 1; 0 shows "Off"). See [nudges](nudges.md).
-- End shortcut: click the field and press a combo; × disables it.
+- End session shortcut: click the field and press a combo; × disables it.
   Default Ctrl+E.
 - "Your data" row: see [your-data.md](your-data.md).
 - Save applies and closes the sheet; the chart redraws with the new scale.
