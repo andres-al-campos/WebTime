@@ -199,11 +199,11 @@ async function dailyRow(opts) {
     const title = page.locator('.web-time-gate-title');
     await title.waitFor({ state: 'visible', timeout: 5000 });
     await page.waitForTimeout(600);
-    const [text, clock, canPress] = [await title.innerText(), await page.locator('.web-time-gate-body').innerText(), await page.locator('.web-time-gate-ok').isVisible()];
+    const [text, clock, canPress] = [await title.innerText(), await page.locator('.web-time-gate-clock').innerText(), await page.locator('.web-time-gate-ok').isVisible()];
     console.log(`  nothing left: "${text}" ${clock}`);
-    if (text !== 'Sessions Refill In' || clockSeconds(clock) === null || canPress) {
+    if (text !== 'Done for Today' || clockSeconds(clock) === null || canPress) {
       return fail(`With nothing left the gate reads "${text}" / "${clock}".`,
-        'expected "Sessions Refill In" over a clock and no Start button: check renderGate in content.ts.');
+        'expected "Done for Today" over a clock and no Start button: check renderGate in content.ts.');
     }
   } finally {
     await run.close();

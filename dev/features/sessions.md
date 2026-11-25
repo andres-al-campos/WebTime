@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-24 20:18, at 2.10.0.
+Updated 2026-11-24 21:26, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -38,8 +38,9 @@ row of them, and each one is started by hand at a gate.
 - Every session is the same length. A session that ends with time left puts
   it in the bank as part of a dot (10 minutes of a 40-minute session is a
   quarter); it still cost its whole dot. Only whole dots start a session.
-- With nothing to offer, the gate shows "Sessions Refill In" over a clock counting
-  to the day reset, and becomes the gate again on its own.
+- With the row and the bank both used up, the gate shows no dots: "Done for
+  Today" over "Sessions refill in" and a clock counting to the day reset,
+  centred together, and becomes the gate again on its own.
 - When a session's time runs out the gate comes back.
 - The bank is for when the day runs out (2 sessions by default). Every unspent
   minute goes there, up to its size: what the row has left at the day reset,

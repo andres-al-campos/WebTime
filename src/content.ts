@@ -816,7 +816,7 @@ function buildGateDialog(): void {
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
-    justify-content: space-between !important;
+    justify-content: space-between;
     text-align: center !important;
     opacity: 0 !important;
     transition: opacity 0.3s ease !important;
@@ -840,10 +840,13 @@ function buildGateDialog(): void {
     className: 'web-time-gate-sessions',
     children: [dots, line],
   });
-  // Only the wait has a body: its clock.
+  // Only the wait has a body: what it waits for, and its clock.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
-    style: 'color: #eee; font-size: 28px; line-height: 1.5; font-variant-numeric: tabular-nums;',
+    children: [
+      makeEl('div', { className: 'web-time-gate-wait', style: 'font-size: 13px; color: #aaa; line-height: 18px;', text: 'Sessions refill in' }),
+      makeEl('div', { className: 'web-time-gate-clock', style: 'color: #eee; font-size: 28px; line-height: 34px; font-variant-numeric: tabular-nums;' }),
+    ],
   });
   const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 16px; font-variant-numeric: tabular-nums;';
   const cancelBtn = makeEl('button', {
@@ -950,14 +953,14 @@ function renderGate(): void {
   // fading it out and back in to itself would pull the eye to nothing new.
   const screen = starting ? 'starting' : waiting ? 'waiting' : onCooldown ? 'cooldown' : 'ready';
   const titleOf = (s: typeof screen) => s === 'starting' ? gateState!.startQuestion
-    : s === 'waiting' ? 'Sessions Refill In'
+    : s === 'waiting' ? 'Done for Today'
     : 'Session Ended';
   gateScreen ??= screen;
   if (screen !== gateScreen) {
     if (gateFadeTimer === null) {
       const parts = [q('buttons')];
       if (titleOf(screen) !== titleOf(gateScreen)) parts.push(q('title'));
-      if (screen === 'waiting' || gateScreen === 'waiting') parts.push(q('body'));
+      if (screen === 'waiting' || gateScreen === 'waiting') parts.push(q('body'), q('sessions'));
       parts.forEach((p) => { p.style.transition = `opacity ${GATE_TEXT_OUT_MS}ms ease-in`; p.style.opacity = '0'; });
       gateFadeTimer = setTimeout(() => {
         gateFadeTimer = null;
@@ -969,15 +972,19 @@ function renderGate(): void {
     return;
   }
 
-  q('line').style.display = waiting ? 'none' : '';
   q('title').textContent = titleOf(screen);
 
-  const body = q('body');
-  body.style.display = waiting ? 'block' : 'none';
+  // With nothing left to start there are no dots to show: the title and the
+  // clock sit together in the middle instead of spread to the edges.
+  q('sessions').style.display = waiting ? 'none' : '';
+  gateDialog.style.justifyContent = waiting ? 'center' : 'space-between';
+  gateDialog.style.gap = waiting ? '21px' : '0';
+  q('body').style.display = waiting ? 'block' : 'none';
   if (waiting) {
     const refills = rules.sessionsPerDay > 0;
-    body.textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
-    body.style.fontSize = refills ? '28px' : '14px';
+    q('wait').style.display = refills ? '' : 'none';
+    q('clock').textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
+    q('clock').style.fontSize = refills ? '28px' : '14px';
   }
 
   const left = Math.max(0, Math.ceil((gateCountdownEndsAt - now) / 1000));
