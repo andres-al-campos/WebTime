@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-24 21:16, at 2.10.0.
+Updated 2026-11-24 23:00, at 2.10.0.
 
 Stop a session before it runs out. The unused time goes to the site's bank,
 and the gate comes up on a shorter cooldown.
@@ -13,7 +13,8 @@ and the gate comes up on a shorter cooldown.
   popup and opens the same confirm on the page.
 - Confirm dialog: "End Session N?", the bank on its purple pill, what it
   holds solid and the slice ending would add filling in at half strength, and the time that is kept
-  ("1:50 rolls over to banked sessions", or "Your bank is full"). Enter
+  ("1:50 rolls over to banked sessions"). With a full bank, or none, it shows
+  the day's row and "2/5 sessions left" instead, and no line about the time. Enter
   confirms; Escape or the shortcut again cancels. Media pauses while it's
   open and resumes on cancel; the clock is frozen while it's open and its tab
   is the one in front. Other tabs and sites keep counting.
@@ -52,3 +53,10 @@ seconds into the next session. The popup's End session button and the recorded
   froze every timer in the browser until Floorp restarted.
   `npm run drive -- confirm-elsewhere` checks another site keeps counting
   while a confirm is open.
+
+## Calls
+
+- 2026-11-24 23:00, 2.10.0. **A full bank shows the row instead.** The bank filling is the point of the
+  confirm, but a full one only says "look you're gonna throw your time away if
+  you end session now". The row is the quick look at what's left; the toolbar
+  popup is the higher-friction place for the bank. Applies *It doesn't scold*.

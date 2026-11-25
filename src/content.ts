@@ -2,7 +2,7 @@ import { Constants } from './shared/constants.js';
 import { MSG, STORAGE } from './shared/protocol.js';
 import { dayResetMinutesOf, extractDomain, formatClock, formatTimeCompact, getLocalDateStr, log } from './shared/utils.js';
 import { windDownProgress } from './shared/session-model.js';
-import { canStart, dotsShown, spend, deposit, budgetRules, readBudget, type Budget, type BudgetRules } from './shared/session-budget.js';
+import { canStart, dotsShown, spend, deposit, budgetRules, readBudget, heldAt, type Budget, type BudgetRules } from './shared/session-budget.js';
 import { cooldownLeft } from './shared/session-cooldowns.js';
 import type { ExtensionMessage, SessionStartStats, ShowGateMessage } from './types.js';
 
@@ -958,7 +958,7 @@ function renderGate(): void {
   // fading it out and back in to itself would pull the eye to nothing new.
   const screen = starting ? 'starting' : waiting ? 'waiting' : onCooldown ? 'cooldown' : 'ready';
   const titleOf = (s: typeof screen) => s === 'starting' ? gateState!.startQuestion
-    : s === 'waiting' ? 'Last Session Ended'
+    : s === 'waiting' ? 'Final Session Ended'
     : 'Session Ended';
   gateScreen ??= screen;
   if (screen !== gateScreen) {
@@ -1358,7 +1358,8 @@ function showEndSessionConfirm(): void {
     className: 'web-time-end-dots',
     style: 'display: inline-flex; gap: 10px; padding: 8px 11px; border: 2px solid transparent; border-radius: 999px; height: 42px; box-sizing: border-box; vertical-align: top;',
   });
-  const dotsRow = makeEl('div', { style: 'margin-bottom: 20px; min-height: 42px;', children: [dots] });
+  const rowLine = makeEl('div', { style: 'font-size: 13px; color: #aaa; line-height: 18px; margin-top: 8px; display: none;' });
+  const dotsRow = makeEl('div', { style: 'margin-bottom: 20px; min-height: 42px;', children: [dots, rowLine] });
 
   // #ccc, same as the gate's body line: these two dialogs sit in the same flow
   // and their body copy should not step. Clock-style, same formatClock as the
@@ -1376,13 +1377,18 @@ function showEndSessionConfirm(): void {
       const budget = readBudget(data[STORAGE.SESSION_BUDGET]?.[domain], rules, today);
       const lengthS = (cfg?.sessionLimit || 0) * 60;
       const slots = Math.floor(rules.bankSessions);
-      if (slots <= 0 || lengthS <= 0) {
-        dotsRow.style.display = 'none';
-        body.textContent = `${formatClock(remaining)} left unused`;
+      const now = Math.min(slots, budget.bank);
+      // With nowhere for the minutes to go, the bank has nothing to show, and
+      // a full one would only say the time is about to be thrown away. The
+      // day's row is what is worth a glance instead.
+      if (slots <= 0 || lengthS <= 0 || now >= slots) {
+        const left = heldAt(budget, rules, today).daily;
+        renderGateDots(dots, 'row', left, rules.sessionsPerDay);
+        rowLine.textContent = `${left}/${rules.sessionsPerDay} sessions left`;
+        rowLine.style.display = '';
+        body.style.display = 'none';
         return;
       }
-      const now = Math.min(slots, budget.bank);
-      if (now >= slots) body.textContent = 'Your bank is full';
       const after = Math.min(slots, deposit(budget, rules, today, remaining / lengthS).bank);
       renderGateDots(dots, 'bank', now, slots);
       // A moment later, so the slice OK would add visibly fills in.
