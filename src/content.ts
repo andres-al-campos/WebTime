@@ -80,6 +80,11 @@ const CSS_RESET = `
   box-sizing: border-box !important;
 `;
 
+// Every button on the on-page dialogs is one height, with text a step up from
+// the 13px it started at, which read small inside the cooldown button.
+const DIALOG_BUTTON_STYLE = 'height: 36px; padding: 0; box-sizing: border-box; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 36px; font-variant-numeric: tabular-nums;';
+const DIALOG_BUTTON_WIDTH = '112px';
+
 /**
  * Build an element via the DOM API instead of innerHTML. `style` is a static
  * style string (assigned through cssText, which is not an injection vector);
@@ -582,7 +587,7 @@ function createAveragePopupOverlay(minutesLeft: number, averageMinutes: number, 
   });
   const continueBtn = makeEl('button', {
     className: 'web-time-avg-continue-btn',
-    style: 'width: 100%; background: #3a3a3a; border: none; color: #eee; padding: 7px; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: center !important; transition: background 0.2s, opacity 0.3s;',
+    style: `${DIALOG_BUTTON_STYLE} width: 100%; background: #3a3a3a; color: #eee; text-align: center !important; transition: background 0.2s, opacity 0.3s;`,
     text: 'Continue',
   }) as HTMLButtonElement;
 
@@ -726,11 +731,11 @@ const GATE_TEXT_IN_MS = 300;
 // A used session drains over the whole text switch, so both settle together.
 const GATE_DRAIN_MS = GATE_TEXT_OUT_MS + GATE_TEXT_IN_MS;
 // The gaps above and below the pill and its line, and under the buttons, are
-// half the pill's height: 24 + 23 title + 21 + 68 pill and line + 21 + 32
+// half the pill's height: 24 + 23 title + 21 + 68 pill and line + 21 + 36
 // buttons + 21. A two-line question adds its line above, with the bottom edge
 // held, so Cancel lands exactly where Start Session was and a second click
 // can't miss.
-const GATE_HEIGHT_PX = 210;
+const GATE_HEIGHT_PX = 214;
 const GATE_TITLE_LINE_PX = 23.4;
 let gateScreen: 'ready' | 'starting' | 'cooldown' | 'waiting' | null = null;
 let gateFadeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -840,15 +845,14 @@ function buildGateDialog(): void {
     className: 'web-time-gate-sessions',
     children: [dots, line],
   });
-  // Only the wait has a body: what it waits for, and its clock.
+  // Only the wait has a body: its clock.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
     children: [
-      makeEl('div', { className: 'web-time-gate-wait', style: 'font-size: 13px; color: #aaa; line-height: 18px;', text: 'Sessions refill in' }),
       makeEl('div', { className: 'web-time-gate-clock', style: 'color: #eee; font-size: 28px; line-height: 34px; font-variant-numeric: tabular-nums;' }),
     ],
   });
-  const buttonStyle = 'width: 104px; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 16px; font-variant-numeric: tabular-nums;';
+  const buttonStyle = `${DIALOG_BUTTON_STYLE} width: ${DIALOG_BUTTON_WIDTH};`;
   const cancelBtn = makeEl('button', {
     className: 'web-time-gate-cancel',
     style: `${buttonStyle} background: #3a3a3a; color: #eee;`,
@@ -982,7 +986,6 @@ function renderGate(): void {
   q('body').style.display = waiting ? 'block' : 'none';
   if (waiting) {
     const refills = rules.sessionsPerDay > 0;
-    q('wait').style.display = refills ? '' : 'none';
     q('clock').textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
     q('clock').style.fontSize = refills ? '28px' : '14px';
   }
@@ -995,8 +998,8 @@ function renderGate(): void {
   // The cooldown is the start button waiting: same place, its countdown inside.
   const ok = q('ok');
   ok.textContent = onCooldown ? `Next session in ${formatClock(cooldownSecs)}` : 'Start Session';
-  ok.style.width = onCooldown ? 'auto' : '104px';
-  ok.style.padding = onCooldown ? '8px 14px' : '8px';
+  ok.style.width = onCooldown ? 'auto' : DIALOG_BUTTON_WIDTH;
+  ok.style.padding = onCooldown ? '0 16px' : '0';
   ok.style.background = onCooldown ? '#3a3a3a' : GATE_BLUE;
   ok.style.color = onCooldown ? '#eee' : '#fff';
   ok.style.cursor = onCooldown ? 'default' : 'pointer';
@@ -1385,7 +1388,7 @@ function showEndSessionConfirm(): void {
     }).catch(() => {});
   }
 
-  const buttonStyle = 'flex: 1; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;';
+  const buttonStyle = `${DIALOG_BUTTON_STYLE} width: ${DIALOG_BUTTON_WIDTH};`;
   const cancelBtn = makeEl('button', {
     className: 'web-time-end-cancel',
     style: `${buttonStyle} background: #3a3a3a; color: #eee;`,
@@ -1397,7 +1400,7 @@ function showEndSessionConfirm(): void {
     text: 'OK',
   });
   const buttonRow = makeEl('div', {
-    style: 'display: flex; gap: 12px;',
+    style: 'display: flex; gap: 8px; justify-content: center;',
     children: [cancelBtn, okBtn],
   });
 
