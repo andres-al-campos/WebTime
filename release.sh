@@ -1,22 +1,15 @@
 #!/bin/bash
 # release.sh - Tag a version and publish its build to GitHub Releases.
 #
-# Reads the version from extension/manifest.json (single source of truth),
-# refuses to run on a dirty/unpushed tree, refuses to clobber an existing
-# release, builds fresh, and attaches both store packages (Firefox MV2 and
+# Refuses to run on a dirty/unpushed tree, takes the next patch number after
+# the last dev build and commits it to the manifest (the single source of
+# truth), refuses to clobber an existing release, builds fresh, and attaches
+# both store packages (Firefox MV2 and
 # Chrome MV3 -- the two stores need different manifests, so two zips).
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
-
-# --- Version: the one source of truth is the manifest ---
-VERSION=$(node -e "console.log(require('./extension/manifest.json').version)")
-TAG="v${VERSION}"
-ARTIFACT_FF="artifacts/web_time-${VERSION}.zip"
-ARTIFACT_CHROME="artifacts/web_time-chrome-${VERSION}.zip"
-
-echo "🔖 Releasing version ${VERSION} (tag ${TAG})"
 
 # --- Refuse to release uncommitted work ---
 if [ -n "$(git status --porcelain)" ]; then
@@ -34,12 +27,27 @@ if [ -n "$(git log "origin/${BRANCH}..HEAD" --oneline)" ]; then
   exit 1
 fi
 
+# --- Version: the next patch after every dev build, committed to the manifest ---
+# Dev builds count up the patch number (scripts/install-local.mjs), so a release
+# that kept the manifest's number would be lower than what the dev browser runs.
+VERSION=$(node scripts/install-local.mjs release-version)
+TAG="v${VERSION}"
+ARTIFACT_FF="artifacts/web_time-${VERSION}.zip"
+ARTIFACT_CHROME="artifacts/web_time-chrome-${VERSION}.zip"
+
+VERSIONED="extension/manifest.json package.json package-lock.json"
+
 # --- Refuse to clobber an existing release ---
 if gh release view "$TAG" >/dev/null 2>&1; then
-  echo "❌ Release ${TAG} already exists. Bump the version in" >&2
-  echo "   extension/manifest.json (and package.json) before releasing." >&2
+  git checkout --quiet -- $VERSIONED
+  echo "❌ Release ${TAG} already exists, so the build count is behind the releases." >&2
+  echo "   Run release.sh again: each run takes the next patch number." >&2
   exit 1
 fi
+
+echo "🔖 Releasing version ${VERSION} (tag ${TAG})"
+git commit --quiet -m "Release ${VERSION}" $VERSIONED
+git push --quiet origin "$BRANCH"
 
 # --- Build fresh (typecheck + tests + package) ---
 # WEBTIME_DEBUG=0 compiles out the debug trace. A normal ./build.sh leaves it on

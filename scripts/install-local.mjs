@@ -2,17 +2,19 @@
 // Dev loop: get each dev build into the Firefox you develop in, without
 // clicking through Install Add-on From File. Release builds never come here.
 //
-//   node scripts/install-local.mjs package   (every dev ./build.sh)
-//   node scripts/install-local.mjs install   (./build.sh install)
+//   node scripts/install-local.mjs package          (every dev ./build.sh)
+//   node scripts/install-local.mjs install          (./build.sh install)
+//   node scripts/install-local.mjs release-version  (release.sh)
 //
 // package writes artifacts/local/web_time.zip.
 // install restarts that Firefox and waits for its profile to report the build.
 //
 // The browser does the installing. An enterprise policy names the zip as a
 // file: URL, and Firefox's policy code reinstalls a file: URL on every start.
-// It skips the install when the version is unchanged, so the local zip is the
-// store zip with a build number as a fourth version part: 2.10.0.14 is the
-// 14th dev build of 2.10.0. The count starts over when the version moves.
+// It skips the install when the version is unchanged, so every dev build takes
+// the next patch number of its minor version (2.10.1, 2.10.2, ...), and a
+// release takes the next one after that, stamped into the manifest by
+// release.sh. A number then names one build, dev or released, and only goes up.
 //
 // One-time setup:
 //
@@ -44,16 +46,26 @@ const localZip = join(localDir, 'web_time.zip');
 const browser = process.env.WEBTIME_FIREFOX;
 const browserName = browser ? basename(browser, '.app') : '';
 
-// The count lives beside the zip, gitignored with the rest of artifacts/.
+// The last patch number used lives beside the zip, gitignored with the rest of
+// artifacts/. Without it a machine counts on from the manifest's own patch.
 const buildCountFile = join(localDir, 'build-number.json');
 
-/** The next dev build number for `version`, saved as used. */
-function nextBuildNumber(version) {
-  let last = { version, n: 0 };
+/** The next patch version after both `version` and the last build of its minor, saved as used. */
+function nextVersion(version) {
+  const [x, y, z] = version.split('.').map(Number);
+  const minor = `${x}.${y}`;
+  let last = {};
   try { last = JSON.parse(readFileSync(buildCountFile, 'utf8')); } catch { /* first build */ }
-  const n = last.version === version && Number.isInteger(last.n) ? last.n + 1 : 1;
-  writeFileSync(buildCountFile, JSON.stringify({ version, n }));
-  return n;
+  // Counts saved as { version, n } come from the four-part scheme, where n was the build.
+  const lastZ = last.minor === minor ? last.z : last.version === `${minor}.0` ? last.n : undefined;
+  const next = Math.max(z, Number.isInteger(lastZ) ? lastZ : 0) + 1;
+  mkdirSync(localDir, { recursive: true });
+  writeFileSync(buildCountFile, JSON.stringify({ minor, z: next }));
+  return `${minor}.${next}`;
+}
+
+function readManifest() {
+  return JSON.parse(readFileSync(join(root, 'extension', 'manifest.json'), 'utf8'));
 }
 
 function fail(what, fix) {
@@ -64,18 +76,14 @@ function fail(what, fix) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function packageLocal() {
-  const manifest = JSON.parse(readFileSync(join(root, 'extension', 'manifest.json'), 'utf8'));
+  const manifest = readManifest();
   const storeZip = join(root, 'artifacts', `web_time-${manifest.version}.zip`);
   if (!existsSync(storeZip)) {
     fail(`No Firefox package at ${storeZip}.`, 'run ./build.sh, which builds it before this step.');
   }
-  if (manifest.version.split('.').length > 3) {
-    fail(`Version ${manifest.version} already has four parts, so there is no room for the build number.`,
-      'keep extension/manifest.json at three parts (major.minor.patch).');
-  }
+  checkThreeParts(manifest.version);
 
-  mkdirSync(localDir, { recursive: true });
-  const version = `${manifest.version}.${nextBuildNumber(manifest.version)}`;
+  const version = nextVersion(manifest.version);
   copyFileSync(storeZip, localZip);
   const tmp = mkdtempSync(join(tmpdir(), 'webtime-local-'));
   try {
@@ -87,6 +95,38 @@ function packageLocal() {
   }
 
   console.log(`   Local install:  artifacts/local/web_time.zip (${version})`);
+}
+
+function checkThreeParts(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    fail(`Version ${version} in extension/manifest.json is not major.minor.patch.`,
+      'set it to three numbers, like 2.10.0, in extension/manifest.json and package.json.');
+  }
+}
+
+/** Stamps the next version into the manifest, package.json and the lockfile, and prints it. */
+function releaseVersion() {
+  const current = readManifest().version;
+  checkThreeParts(current);
+  const version = nextVersion(current);
+  const esc = current.replace(/\./g, '\\.');
+  // In package.json and the lockfile only the project's own entries, right after its name, are its version.
+  const stamps = {
+    'extension/manifest.json': new RegExp(`("version": ")${esc}"`),
+    'package.json': new RegExp(`("name": "webtime",\\s*"version": ")${esc}"`, 'g'),
+    'package-lock.json': new RegExp(`("name": "webtime",\\s*"version": ")${esc}"`, 'g'),
+  };
+  for (const [file, pattern] of Object.entries(stamps)) {
+    const path = join(root, file);
+    const text = readFileSync(path, 'utf8');
+    if (!pattern.test(text)) {
+      fail(`${file} does not hold version ${current}, the manifest's.`,
+        `set its "version" to ${current} by hand, commit, and run release.sh again.`);
+    }
+    pattern.lastIndex = 0;
+    writeFileSync(path, text.replace(pattern, `$1${version}"`));
+  }
+  console.log(version);
 }
 
 function zipManifest() {
@@ -222,4 +262,5 @@ async function install() {
 const mode = process.argv[2];
 if (mode === 'package') packageLocal();
 else if (mode === 'install') await install();
-else fail(`Unknown mode "${mode ?? ''}".`, 'use: node scripts/install-local.mjs package | install');
+else if (mode === 'release-version') releaseVersion();
+else fail(`Unknown mode "${mode ?? ''}".`, 'use: node scripts/install-local.mjs package | install | release-version');

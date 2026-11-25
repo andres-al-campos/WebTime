@@ -9,13 +9,15 @@ on Firefox (MV2) and Chrome (MV3) from one source.
 loadable dirs: `extension/` (Firefox) and `dist-chrome/` (Chrome). Never build
 only one.
 
-A dev build also writes `artifacts/local/web_time.zip`, the Firefox zip with a
-build number as a fourth version part (2.10.0.14 is the 14th dev build of
-2.10.0), for the Firefox the developer works in (one that takes unsigned
+A dev build also writes `artifacts/local/web_time.zip`, the Firefox zip under
+the next patch number of its minor version (2.10.1, 2.10.2…), for the Firefox the developer works in (one that takes unsigned
 add-ons, named by `WEBTIME_FIREFOX` in the gitignored `.env.local`).
 A policy in that Firefox's macOS preferences points at the zip, so it installs
 the build on its next start; `./build.sh install` restarts it now and waits for
-the profile to report the new version. Release builds never write the zip.
+the profile to report the new version. Release builds never write the zip;
+`release.sh` takes the next patch number after the last dev build and commits
+it to the manifest, so a number names one build and only goes up, like Claude
+Code's 2.1.310.
 Plain `./build.sh` never restarts the browser: sessions run it often and it
 would close the owner's windows each time. This is a dev-loop tool, so it stays
 out of the README; `scripts/install-local.mjs` has the setup and the mechanics.

@@ -82,7 +82,7 @@ if [ $? -eq 0 ]; then
     (cd dist-chrome && zip -r -q "../artifacts/${CHROME_ZIP}" . -x '.DS_Store' -x '__MACOSX/*')
     echo "   Your extension is ready: artifacts/${CHROME_ZIP}"
 
-    # Dev builds only: a copy of the Firefox zip with a build-numbered version,
+    # Dev builds only: a copy of the Firefox zip under the next patch number,
     # which the Firefox you develop in installs by itself on its next start.
     # A release build (WEBTIME_DEBUG=0) leaves the last dev zip alone, so the
     # dev browser never picks up a release. See scripts/install-local.mjs.
