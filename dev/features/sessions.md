@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-24 22:07, at 2.10.0.
+Updated 2026-11-24 22:53, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -38,8 +38,9 @@ row of them, and each one is started by hand at a gate.
 - Every session is the same length. A session that ends with time left puts
   it in the bank as part of a dot (10 minutes of a 40-minute session is a
   quarter); it still cost its whole dot. Only whole dots start a session.
-- With the row and the bank both used up, the gate shows no dots: "Done for
-  Today" over a clock counting to the day reset, centred together, and
+- With the row and the bank both used up, the gate shows no dots: "Last
+  Session Ended" over a clock counting to the day reset and "until sessions
+  refill", centred together, and
   becomes the gate again on its own.
 - When a session's time runs out the gate comes back.
 - The bank is for when the day runs out (2 sessions by default). Every unspent
@@ -160,3 +161,7 @@ over its bar. The pills, the cooldown and the fades are not yet checked in Floor
   which still counts once the bank is full. The end dialog doesn't mention
   the cooldown: the gate's button shows it right after, as the timer shows a
   session's length.
+- 2026-11-24 22:53, 2.10.0. **"Last Session Ended", not a friendly sign-off.** "That's All for Today"
+  was tried and read as cartoonish. People reaching this screen are likely to
+  be emotional, so the title is declarative: "it has to have some authority to
+  it while also being neutral."

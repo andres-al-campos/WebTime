@@ -845,11 +845,12 @@ function buildGateDialog(): void {
     className: 'web-time-gate-sessions',
     children: [dots, line],
   });
-  // Only the wait has a body: its clock.
+  // Only the wait has a body: its clock, and what it counts to.
   const body = makeEl('div', {
     className: 'web-time-gate-body',
     children: [
       makeEl('div', { className: 'web-time-gate-clock', style: 'color: #eee; font-size: 28px; line-height: 34px; font-variant-numeric: tabular-nums;' }),
+      makeEl('div', { className: 'web-time-gate-wait', style: 'font-size: 13px; color: #aaa; line-height: 18px; margin-top: 2px;', text: 'until sessions refill' }),
     ],
   });
   const buttonStyle = `${DIALOG_BUTTON_STYLE} width: ${DIALOG_BUTTON_WIDTH};`;
@@ -957,7 +958,7 @@ function renderGate(): void {
   // fading it out and back in to itself would pull the eye to nothing new.
   const screen = starting ? 'starting' : waiting ? 'waiting' : onCooldown ? 'cooldown' : 'ready';
   const titleOf = (s: typeof screen) => s === 'starting' ? gateState!.startQuestion
-    : s === 'waiting' ? 'Done for Today'
+    : s === 'waiting' ? 'Last Session Ended'
     : 'Session Ended';
   gateScreen ??= screen;
   if (screen !== gateScreen) {
@@ -986,6 +987,7 @@ function renderGate(): void {
   q('body').style.display = waiting ? 'block' : 'none';
   if (waiting) {
     const refills = rules.sessionsPerDay > 0;
+    q('wait').style.display = refills ? '' : 'none';
     q('clock').textContent = refills ? formatClock(Math.ceil((resetAt - now) / 1000)) : 'No sessions refill';
     q('clock').style.fontSize = refills ? '28px' : '14px';
   }
