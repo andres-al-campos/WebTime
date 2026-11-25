@@ -11,7 +11,8 @@
 // The browser does the installing. An enterprise policy names the zip as a
 // file: URL, and Firefox's policy code reinstalls a file: URL on every start.
 // It skips the install when the version is unchanged, so the local zip is the
-// store zip with a build stamp as a fourth version part.
+// store zip with a build number as a fourth version part: 2.10.0.14 is the
+// 14th dev build of 2.10.0. The count starts over when the version moves.
 //
 // One-time setup:
 //
@@ -43,9 +44,17 @@ const localZip = join(localDir, 'web_time.zip');
 const browser = process.env.WEBTIME_FIREFOX;
 const browserName = browser ? basename(browser, '.app') : '';
 
-// Seconds since 2026-01-01. Firefox compares version parts as 32-bit integers,
-// which a full Unix timestamp outgrows in 2038.
-const STAMP_EPOCH = 1767225600;
+// The count lives beside the zip, gitignored with the rest of artifacts/.
+const buildCountFile = join(localDir, 'build-number.json');
+
+/** The next dev build number for `version`, saved as used. */
+function nextBuildNumber(version) {
+  let last = { version, n: 0 };
+  try { last = JSON.parse(readFileSync(buildCountFile, 'utf8')); } catch { /* first build */ }
+  const n = last.version === version && Number.isInteger(last.n) ? last.n + 1 : 1;
+  writeFileSync(buildCountFile, JSON.stringify({ version, n }));
+  return n;
+}
 
 function fail(what, fix) {
   console.error(`\n❌ ${what}\n   Fix: ${fix}`);
@@ -61,12 +70,12 @@ function packageLocal() {
     fail(`No Firefox package at ${storeZip}.`, 'run ./build.sh, which builds it before this step.');
   }
   if (manifest.version.split('.').length > 3) {
-    fail(`Version ${manifest.version} already has four parts, so there is no room for the build stamp.`,
+    fail(`Version ${manifest.version} already has four parts, so there is no room for the build number.`,
       'keep extension/manifest.json at three parts (major.minor.patch).');
   }
 
-  const version = `${manifest.version}.${Math.floor(Date.now() / 1000) - STAMP_EPOCH}`;
   mkdirSync(localDir, { recursive: true });
+  const version = `${manifest.version}.${nextBuildNumber(manifest.version)}`;
   copyFileSync(storeZip, localZip);
   const tmp = mkdtempSync(join(tmpdir(), 'webtime-local-'));
   try {

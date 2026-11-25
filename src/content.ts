@@ -749,9 +749,10 @@ const GATE_PILL = {
   row: { border: GATE_DOT_BLUE, fill: 'oklch(60% 0.12 265 / 0.21)' },
   bank: { border: 'oklch(50% 0.15 292)', fill: 'oklch(60% 0.12 292 / 0.21)' },
 };
-// A dot still being saved can't start yet, so its fill is half strength; its
-// ring stays whole, so it still reads as a slot.
-const GATE_PARTIAL_FILL = 'oklch(50% 0.17 265 / 0.5)';
+// What is saved is solid, a partial dot too: a faint slice was hard to read.
+// Half strength is only for a slice not saved yet, the one the end dialog
+// shows OK would add, so the fill says what you have and what you'd get.
+const GATE_ADDING_FILL = 'oklch(50% 0.17 265 / 0.5)';
 // More sessions than this and the row would outgrow the 350px box.
 const GATE_MAX_DOTS = 10;
 // How long to wait for the background to answer a start before offering the
@@ -759,7 +760,8 @@ const GATE_MAX_DOTS = 10;
 // was restarting.
 const GATE_START_TIMEOUT_MS = 4000;
 
-// The dot's fill is a conic-gradient up to --wt-gate-fill. A custom property
+// The dot's fill is a conic-gradient up to --wt-gate-fill, then the slice
+// being added up to --wt-gate-add. A custom property
 // only transitions once it is registered with a type, which is what makes a
 // session visibly drain when it is used instead of blinking out. Where the
 // registration isn't supported the dot changes at once.
@@ -768,6 +770,11 @@ try {
     name: '--wt-gate-fill', syntax: '<percentage>', inherits: false, initialValue: '0%',
   });
 } catch { /* already registered by an earlier injection, or unsupported */ }
+try {
+  (CSS as unknown as { registerProperty(d: object): void }).registerProperty({
+    name: '--wt-gate-add', syntax: '<percentage>', inherits: false, initialValue: '0%',
+  });
+} catch { /* as above */ }
 
 function showGate(state: ShowGateMessage): void {
   gateState = state;
@@ -1012,7 +1019,7 @@ function renderGate(): void {
 // An empty slot is a blue ring: a faint grey one disappeared against the gate.
 // The fill runs under the ring (border-box): stopped at the ring's inner edge,
 // the two antialiased separately and left a dark seam between them.
-const GATE_DOT_STYLE = `border: 2px solid ${GATE_DOT_BLUE}; background: conic-gradient(var(--wt-gate-color) var(--wt-gate-fill), transparent 0) border-box no-repeat;`;
+const GATE_DOT_STYLE = `border: 2px solid ${GATE_DOT_BLUE}; background: conic-gradient(${GATE_DOT_BLUE} var(--wt-gate-fill), ${GATE_ADDING_FILL} 0 var(--wt-gate-add), transparent 0) border-box no-repeat;`;
 
 /** The dots to draw and the line under them. */
 function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: Budget):
@@ -1025,10 +1032,10 @@ function sessionsView(budget: Budget, rules: BudgetRules, today: string, shown: 
 
 /**
  * One dot per slot on its pill, the day's row or the bank; `held` of them
- * filled. A fractional `held` (the bank) fills the next dot that far, at
- * half strength.
+ * filled. A fractional `held` (the bank) fills the next dot that far.
+ * `adding`, past `held`, is drawn at half strength: saved only once confirmed.
  */
-function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, slots: number): void {
+function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, slots: number, adding = held): void {
   const count = Math.max(1, Math.min(GATE_MAX_DOTS, Math.ceil(slots)));
   if (row.dataset.kind !== kind) {
     row.dataset.kind = kind;
@@ -1038,7 +1045,7 @@ function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, sl
   row.style.backgroundColor = GATE_PILL[kind].fill;
   while (row.children.length < count) {
     row.appendChild(makeEl('span', {
-      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE} transition: --wt-gate-fill ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1);`,
+      style: `width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; box-sizing: border-box; ${GATE_DOT_STYLE} transition: --wt-gate-fill ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1), --wt-gate-add ${GATE_DRAIN_MS}ms cubic-bezier(.2,.8,.2,1);`,
     }));
   }
   while (row.children.length > count) row.lastElementChild!.remove();
@@ -1046,8 +1053,9 @@ function renderGateDots(row: HTMLElement, kind: 'row' | 'bank', held: number, sl
   for (let i = 0; i < count; i++) {
     const dot = row.children[i] as HTMLElement;
     const fill = i < whole ? 1 : i === whole ? held - whole : 0;
+    const upTo = Math.max(fill, Math.min(1, Math.max(0, adding - i)));
     dot.style.setProperty('--wt-gate-fill', `${Math.round(fill * 1000) / 10}%`);
-    dot.style.setProperty('--wt-gate-color', fill > 0 && fill < 1 ? GATE_PARTIAL_FILL : GATE_DOT_BLUE);
+    dot.style.setProperty('--wt-gate-add', `${Math.round(upTo * 1000) / 10}%`);
   }
 }
 
@@ -1365,8 +1373,8 @@ function showEndSessionConfirm(): void {
       if (now >= slots) body.textContent = 'Your bank is full';
       const after = Math.min(slots, deposit(budget, rules, today, remaining / lengthS).bank);
       renderGateDots(dots, 'bank', now, slots);
-      // A frame later, so the fill runs from where it is to where it will be.
-      setTimeout(() => renderGateDots(dots, 'bank', after, slots), 350);
+      // A moment later, so the slice OK would add visibly fills in.
+      setTimeout(() => renderGateDots(dots, 'bank', now, slots, after), 350);
     }).catch(() => {});
   }
 

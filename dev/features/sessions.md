@@ -1,6 +1,6 @@
 # Sessions and the gate
 
-Updated 2026-11-24 19:39, at 2.10.0.
+Updated 2026-11-24 20:18, at 2.10.0.
 
 On a site with rules on, browsing happens in sessions. Each day brings a fixed
 row of them, and each one is started by hand at a gate.
@@ -13,8 +13,8 @@ row of them, and each one is started by hand at a gate.
   ring for each used) over "2/3 sessions left", and a "Start Session" button.
   The bank isn't shown while the row has any left. Once the row is used up, the
   bank's slots take its place on a purple pill, over "2/3 banked sessions
-  left". A dot still being saved shows its share as a half-strength pie inside
-  a whole ring, and the count leaves it out. The on-page timer shows the length
+  left". A dot still being saved shows its share as a solid pie inside a whole
+  ring, and the count leaves it out. The on-page timer shows the length
   a start would give. Media pauses and anything that starts
   playing while the page is blurred is paused too; fullscreen exits, keys are
   blocked, and the clock is stopped.
@@ -149,3 +149,13 @@ over its bar. The pills, the cooldown and the fades are not yet checked in Floor
   the first 2.10.0 builds. The owner went back to cooldown: "it kind of adds to the gamification
   aspect like in videogames your abilities go on cooldown. break sounds a bit
   more like time out". ScreenZen uses the same word for the same wait.
+- 2026-11-24 20:18, 2.10.0. **Saved is solid; only the slice not yet saved is faint.** Partial dots were
+  half strength at first, and on the end dialog the filling slice was hard to
+  see. Now the end dialog's added slice is the only faint one, animating in:
+  "if you missed the animation well then how do you know what you get?"
+- 2026-11-24 20:18, 2.10.0. **Cooldowns keep growing, explained in one line.** A flat cooldown was
+  weighed as simpler. The owner kept the growth if one line could explain it,
+  since it gives "just a tiny subconscious" reason to skip the next session,
+  which still counts once the bank is full. The end dialog doesn't mention
+  the cooldown: the gate's button shows it right after, as the timer shows a
+  session's length.

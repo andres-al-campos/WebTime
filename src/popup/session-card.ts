@@ -416,7 +416,7 @@ export async function renderSessionSettingsCard(
     stepper({
       // The first cooldown; later ones grow by √n (session-cooldowns.ts).
       label: 'Cooldown', value: cur.cooldownMinutes, unit: 'min',
-      hint: 'Each cooldown is a little longer than the last. Ending a session early shortens its cooldown.',
+      hint: 'Each cooldown is a little longer than the last, and shorter if you end early.',
       min: 0, max: 60, step: 1, zeroLabel: 'None',
       onChange: v => { cur.cooldownMinutes = v; persist(); },
     }).el

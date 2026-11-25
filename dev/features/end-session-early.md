@@ -1,6 +1,6 @@
 # End session early
 
-Updated 2026-11-24 19:39, at 2.10.0.
+Updated 2026-11-24 20:18, at 2.10.0.
 
 Stop a session before it runs out. The unused time goes to the site's bank,
 and the gate comes up on a shorter cooldown.
@@ -11,8 +11,8 @@ and the gate comes up on a shorter cooldown.
   while typing in a text field or while another WebTime dialog is up.
 - Popup button "End session (Ctrl+E)" on the live session card; it closes the
   popup and opens the same confirm on the page.
-- Confirm dialog: "End Session N?", the bank on its purple pill with its
-  partial dot filling to where ending would take it, and the time that is kept
+- Confirm dialog: "End Session N?", the bank on its purple pill, what it
+  holds solid and the slice ending would add filling in at half strength, and the time that is kept
   ("1:50 rolls over to banked sessions", or "Your bank is full"). Enter
   confirms, Escape cancels. Media pauses while it's
   open and resumes on cancel; the clock is frozen while it's open and its tab

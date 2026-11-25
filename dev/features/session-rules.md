@@ -1,6 +1,6 @@
 # Session rules
 
-Updated 2026-11-24 19:39, at 2.10.0.
+Updated 2026-11-24 20:18, at 2.10.0.
 
 Per-site limits. Turn them on for a site and browsing it runs in sessions,
 each started at the [gate](sessions.md).
@@ -10,8 +10,8 @@ each started at the [gate](sessions.md).
 - On/off toggle per site. Off means tracking only.
 - Session length: 1–240 min (default 40).
 - Cooldown: 0–60 min (default 5; 0 shows "None"), the first cooldown between
-  sessions; later ones grow by √n (see [sessions](sessions.md)). Its ⓘ says
-  each cooldown is a little longer than the last and ending early shortens it.
+  sessions; later ones grow by √n (see [sessions](sessions.md)). Its ⓘ reads
+  "Each cooldown is a little longer than the last, and shorter if you end early."
 - Sessions per day: 1–10 (default 5), also the dots on the gate. The row is full again at each day reset. Its ⓘ says unused sessions roll over into the bank.
 - Banked sessions: 0–10 (default 2). Each stepper's ⓘ opens a sentence just above it; this one says banked sessions don't expire and a full bank loses the extra sessions. Sessions left when the day resets and minutes an early end leaves are saved here; a full
   bank earns nothing more. Stored as `bankSessions`; a `maxSessions` stored

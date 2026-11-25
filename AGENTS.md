@@ -10,8 +10,9 @@ loadable dirs: `extension/` (Firefox) and `dist-chrome/` (Chrome). Never build
 only one.
 
 A dev build also writes `artifacts/local/web_time.zip`, the Firefox zip with a
-build-stamped version, for the Firefox the developer works in (one that takes
-unsigned add-ons, named by `WEBTIME_FIREFOX` in the gitignored `.env.local`).
+build number as a fourth version part (2.10.0.14 is the 14th dev build of
+2.10.0), for the Firefox the developer works in (one that takes unsigned
+add-ons, named by `WEBTIME_FIREFOX` in the gitignored `.env.local`).
 A policy in that Firefox's macOS preferences points at the zip, so it installs
 the build on its next start; `./build.sh install` restarts it now and waits for
 the profile to report the new version. Release builds never write the zip.
